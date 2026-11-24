@@ -15,7 +15,7 @@ Cortex CRM es un CRM SaaS multi-organización que la IA puede hacer evolucionar 
 | Datos | PostgreSQL con Row Level Security (`pg`); PGlite (Postgres en WASM) en desarrollo y tests | `server/src/db` |
 | IA | AI Provider Manager propio: SDK oficial de Anthropic + adaptador compatible con OpenAI | `server/src/ai` |
 | Scripts por organización | Sandbox QuickJS compilado a WebAssembly (`quickjs-emscripten-core` + `@jitl/quickjs-wasmfile-release-sync`, 0.32.0) | `server/src/crm/scripts.ts` |
-| Tests | Vitest 5 (113 tests en 10 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
+| Tests | Vitest 5 (201 tests en 15 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
 
 Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker).
 
@@ -79,7 +79,7 @@ server/src/
   comms/            connectors.ts (WhatsApp, Telegram; Gmail/Outlook/Slack planificados) · routes.ts
   admin/routes.ts   /api/admin/* (plataforma) y rutas públicas (/api/public/forms, /api/client-errors)
   lib/              crypto · ssrf · jobs · mailer · audit · errors · metrics
-server/test/        helpers.ts + 10 archivos de tests Vitest (113 tests)
+server/test/        helpers.ts + 15 archivos de tests Vitest (201 tests)
 shared/             constants · blueprint · changeset · formula · conditions · templates · records ·
                     time · default-blueprint
 web/src/            main.tsx (rutas) · components/ (Layout, AiPanel, AiTools, CommandPalette, ui, fields,

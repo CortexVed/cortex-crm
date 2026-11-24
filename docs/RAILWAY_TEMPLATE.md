@@ -1,5 +1,7 @@
 # Plantilla de Railway
 
+> Plantilla: **https://railway.com/new/template/TK1L4n** · código fuente: **https://github.com/carbollo/cortex-crm** (rama `main`).
+
 Cortex CRM se instala en cualquier proyecto de Railway con una plantilla de tres servicios. Cada instalación es independiente: su propia base de datos, sus propias claves (generadas por Railway al desplegar) y sus propias organizaciones. Lo que cada organización cambia con EVOLVE AI ENGINE se guarda en la base de datos de esa instalación; nunca vuelve al repositorio de la plantilla.
 
 ```mermaid

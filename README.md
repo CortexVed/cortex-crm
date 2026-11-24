@@ -1,8 +1,10 @@
 # Cortex CRM
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/TK1L4n)
+
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (113 tests en 10 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (201 tests en 15 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
@@ -32,7 +34,7 @@
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (113 tests en 10 archivos)
+server/test/  Tests Vitest (201 tests en 15 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -81,7 +83,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 113 tests en 10 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 201 tests en 15 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 
@@ -109,7 +111,7 @@ El rol del proceso se elige con `PROCESS_ROLE` (`web`, `worker` o `all`; en prod
 
 ## Despliegue en Railway
 
-**Con la plantilla (recomendado):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público) y `Worker`, genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
+**Con la plantilla (recomendado, [despliegue en un clic](https://railway.com/new/template/TK1L4n)):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público) y `Worker`, genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
 
 1. Abre el dominio público de `Cortex` y regístrate (se crea tu organización).
 2. En *Ajustes › Mi cuenta*, pega el `PLATFORM_ADMIN_SETUP_TOKEN` (Railway › `Cortex` › *Variables*) para administrar la plataforma.
