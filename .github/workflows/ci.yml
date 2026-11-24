@@ -1,0 +1,34 @@
+# CI del código de la PLATAFORMA (Cortex CRM): comprobación de tipos, tests y build en cada cambio.
+# Los cambios que hace cada organización con EVOLVE AI ENGINE no pasan por aquí: viven en su blueprint,
+# se prueban en su sandbox y se publican dentro de Railway, sin tocar este repositorio.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, tests, build y auditoría
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Auditoría de dependencias de producción
+        run: npm audit --omit=dev --audit-level=high

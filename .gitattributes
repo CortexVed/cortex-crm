@@ -1,0 +1,5 @@
+# El proyecto se construye y ejecuta en Linux (Docker/Railway): finales de línea LF siempre.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
