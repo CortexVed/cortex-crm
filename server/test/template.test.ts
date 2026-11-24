@@ -13,14 +13,20 @@ import { waitForDatabase } from '../src/lib/wait-db';
 const RAILWAY_SECRET_64 = Array.from(crypto.randomBytes(64), (b) => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[b % 62]).join('');
 const RAILWAY_BASE64_43 = `${crypto.randomBytes(32).toString('base64').slice(0, 43)}=`;
 
-/** Variables de cada servicio tal como quedan tras resolver las referencias de la plantilla. */
+/**
+ * Variables de cada servicio tal como quedan tras resolver la plantilla: solo referencias, funciones y
+ * variables de Railway (al generar una plantilla, Railway vacía los valores literales, así que no hay
+ * NODE_ENV ni PROCESS_ROLE: el rol del worker va en su comando de arranque).
+ */
 function templateEnv(role: 'web' | 'worker'): Record<string, string> {
   const railway = { RAILWAY_ENVIRONMENT_ID: 'env-123', RAILWAY_PROJECT_ID: 'proj-123', PORT: '8080' };
-  const common = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://postgres:pw@postgres.railway.internal:5432/railway', APP_ENCRYPTION_KEY: RAILWAY_SECRET_64, ...railway };
+  const common = { DATABASE_URL: 'postgresql://postgres:pw@postgres.railway.internal:5432/railway', APP_ENCRYPTION_KEY: RAILWAY_SECRET_64, ...railway };
   return role === 'web'
-    ? { ...common, PROCESS_ROLE: 'web', RAILWAY_PUBLIC_DOMAIN: 'cortex-production-1a2b.up.railway.app', PLATFORM_ADMIN_SETUP_TOKEN: RAILWAY_SECRET_64.slice(0, 48) }
-    : { ...common, PROCESS_ROLE: 'worker', APP_URL: 'https://cortex-production-1a2b.up.railway.app' };
+    ? { ...common, RAILWAY_PUBLIC_DOMAIN: 'cortex-production-1a2b.up.railway.app', PLATFORM_ADMIN_SETUP_TOKEN: RAILWAY_SECRET_64.slice(0, 48) }
+    : { ...common, APP_URL: 'https://cortex-production-1a2b.up.railway.app' };
 }
+const WEB_ARGV = ['node', 'dist/server/index.js'];
+const WORKER_ARGV = ['node', 'dist/server/index.js', '--role=worker'];
 
 describe('configuración desde la plantilla', () => {
   it('una clave de 32 bytes en base64 (formato de siempre) da exactamente los mismos bytes', () => {
@@ -44,6 +50,15 @@ describe('configuración desde la plantilla', () => {
     expect(() => parseEncryptionKey('a'.repeat(40))).toThrow(/aleatoria/);
   });
 
+  it('en Railway arranca en producción aunque NODE_ENV falte o esté vacía; el rol puede ir en --role=', () => {
+    expect(loadConfig(templateEnv('web'), {}, WEB_ARGV).isProd).toBe(true);
+    expect(loadConfig({ ...templateEnv('web'), NODE_ENV: '' }, {}, WEB_ARGV).isProd).toBe(true);
+    expect(loadConfig({ NODE_ENV: '' }, {}, WEB_ARGV).env).toBe('development');
+    expect(loadConfig(templateEnv('worker'), {}, WORKER_ARGV).role).toBe('worker');
+    expect(loadConfig({ ...templateEnv('worker'), PROCESS_ROLE: 'web' }, {}, WORKER_ARGV).role).toBe('web');
+    expect(() => loadConfig(templateEnv('worker'), {}, ['node', 'x.js', '--role=root'])).toThrow(/--role/);
+  });
+
   it('sin APP_URL usa el dominio público de Railway; si se indica APP_URL, manda APP_URL', () => {
     const web = loadConfig(templateEnv('web'));
     expect(web.appUrl).toBe('https://cortex-production-1a2b.up.railway.app');
@@ -53,8 +68,8 @@ describe('configuración desde la plantilla', () => {
   });
 
   it('web y worker arrancan solo con las variables de la plantilla y comparten la misma clave', () => {
-    const web = loadConfig(templateEnv('web'));
-    const worker = loadConfig(templateEnv('worker'));
+    const web = loadConfig(templateEnv('web'), {}, WEB_ARGV);
+    const worker = loadConfig(templateEnv('worker'), {}, WORKER_ARGV);
     expect([web.role, worker.role]).toEqual(['web', 'worker']);
     expect(web.isProd && worker.isProd).toBe(true);
     expect(web.encryptionKey.equals(worker.encryptionKey)).toBe(true);

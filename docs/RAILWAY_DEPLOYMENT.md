@@ -57,7 +57,7 @@ El proceso escucha en `PORT` (Railway la inyecta; por defecto 3000) y `0.0.0.0`.
 | Variable | Valor | Notas |
 |---|---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Variable de referencia (red privada) |
-| `NODE_ENV` | `production` | El Dockerfile ya la fija; se declara por claridad |
+| `NODE_ENV` | `production` | El Dockerfile ya la fija y en Railway es el valor por defecto aunque falte; se declara por claridad |
 | `PROCESS_ROLE` | `web` | |
 | `APP_ENCRYPTION_KEY` | Secreto aleatorio | **Obligatoria.** 32 bytes en base64 o cualquier secreto aleatorio de 32 caracteres o más (la plantilla usa `${{secret(64, …)}}`); nunca se guarda en el código |
 | `APP_URL` | `https://<dominio>` | Opcional en Railway: si falta, se usa `https://` + `RAILWAY_PUBLIC_DOMAIN`. Obligatoria con un dominio propio. Enlaces de correo, origen esperado (CSRF), URLs de los webhooks de WhatsApp y Telegram y cabecera `HTTP-Referer` de OpenRouter |
@@ -75,7 +75,7 @@ Opcionales adicionales: `LOG_LEVEL`, `DB_POOL_MAX` (15), `MAX_UPLOAD_MB` (10), `
 |---|---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | |
 | `NODE_ENV` | `production` | |
-| `PROCESS_ROLE` | `worker` | Imprescindible (si falta, arrancaría como `web`) |
+| `PROCESS_ROLE` | `worker` | Imprescindible salvo que el comando de arranque lleve `--role=worker` (como en la plantilla); si falta, arrancaría como `web` |
 | `APP_ENCRYPTION_KEY` | `${{Cortex.APP_ENCRYPTION_KEY}}` | Variable de referencia: **debe ser idéntica** a la del web (el worker descifra las claves de IA y firma los webhooks salientes) |
 | `APP_URL` | `https://${{Cortex.RAILWAY_PUBLIC_DOMAIN}}` (o el dominio propio) | Obligatoria: el worker no tiene dominio público del que deducirla |
 

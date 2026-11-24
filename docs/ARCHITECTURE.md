@@ -245,8 +245,8 @@ Las variables se validan en `server/src/config.ts` y están documentadas en `.en
 
 | Variable | Defecto | Uso |
 |---|---|---|
-| `NODE_ENV` | `development` | `production` activa cookies `Secure`, HSTS y exigencias de configuración y desactiva la carga de `.env` (el Dockerfile lo fija) |
-| `PROCESS_ROLE` | `web` en producción, `all` fuera | Rol del proceso |
+| `NODE_ENV` | `development` (`production` en Railway) | `production` activa cookies `Secure`, HSTS y exigencias de configuración y desactiva la carga de `.env` (el Dockerfile lo fija) |
+| `PROCESS_ROLE` | `web` en producción, `all` fuera | Rol del proceso. También se puede indicar en el comando de arranque con `--role=web\|worker\|all` (la plantilla de Railway lo hace en el worker); la variable tiene prioridad |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | Escucha HTTP |
 | `LOG_LEVEL` | `info` (`silent` en test) | Nivel de log |
 | `DATABASE_URL` | — | PostgreSQL; si falta (solo desarrollo) se usa PGlite |

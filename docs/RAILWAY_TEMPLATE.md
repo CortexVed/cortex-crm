@@ -20,23 +20,23 @@ flowchart LR
 |---|---|---|---|
 | `Postgres` | Imagen `ghcr.io/railwayapp-templates/postgres-ssl:18` (la plantilla oficial de Railway) con volumen en `/var/lib/postgresql/data` | Solo red privada (sin TCP proxy) | La de la plantilla oficial: contraseña generada con `${{secret(32, …)}}` |
 | `Cortex` | Repositorio de la plataforma, rama `main` | Dominio público de Railway (`*.up.railway.app`) | `Dockerfile` y health check `/api/health` desde `railway.json` |
-| `Worker` | El mismo repositorio y rama | Sin dominio público | Igual que `Cortex`; el rol lo decide `PROCESS_ROLE` |
+| `Worker` | El mismo repositorio y rama | Sin dominio público | Igual que `Cortex`, con el comando de arranque `node --enable-source-maps dist/server/index.js --role=worker` |
 
 Los nombres `Cortex` y `Worker` no llevan espacios ni guiones porque las referencias entre servicios los usan (`${{Cortex.…}}`); si quien despliega renombra un servicio, Railway actualiza las referencias.
 
 ## 2. Variables
+
+Al generar una plantilla desde un proyecto, Railway **conserva las referencias** (`${{Servicio.VARIABLE}}`) y las **funciones** (`${{secret(…)}}`), pero **vacía los valores literales** para no filtrar secretos. Por eso `Cortex` y `Worker` no usan ningún literal: la aplicación arranca en modo producción al detectar Railway (`RAILWAY_ENVIRONMENT_ID`) aunque falte `NODE_ENV` (además, la imagen la fija), el web es el rol por defecto en producción y el worker recibe su rol en el comando de arranque (`--role=worker`), que es un ajuste del servicio y no una variable. `ALLOW_SIGNUP` vale `true` por defecto.
 
 ### `Cortex` (web)
 
 | Variable | Valor en la plantilla | Notas |
 |---|---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Red privada |
-| `NODE_ENV` | `production` | |
-| `PROCESS_ROLE` | `web` | |
 | `APP_ENCRYPTION_KEY` | `${{secret(64, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}}` | Se genera en cada despliegue. La aplicación deriva de ella la clave AES de 32 bytes (`parseEncryptionKey`); una clave de 32 bytes en base64 también sirve |
 | `PLATFORM_ADMIN_SETUP_TOKEN` | `${{secret(48, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}}` | Token de instalación: la primera persona que lo pega en *Ajustes › Mi cuenta* pasa a ser administradora de la plataforma (solo mientras no haya ninguna) |
-| `ALLOW_SIGNUP` | `true` (opcional) | Ponerla a `false` cuando ya exista la organización propia, si no se quieren altas públicas |
-| `RESEND_API_KEY`, `EMAIL_FROM` | vacías (opcionales) | Correo transaccional (verificación, recuperación de contraseña, invitaciones) |
+
+Opcionales, que quien despliega añade después si las necesita: `ALLOW_SIGNUP=false` (cerrar las altas públicas cuando ya exista su organización), `RESEND_API_KEY` y `EMAIL_FROM` (correo transaccional) y `APP_URL` (dominio propio).
 
 `APP_URL` no hace falta: si no se define, la aplicación usa `https://` + `RAILWAY_PUBLIC_DOMAIN`, que Railway inyecta en el servicio con dominio público. Si se añade un dominio propio, hay que definir `APP_URL` con él (en los dos servicios).
 
@@ -45,10 +45,14 @@ Los nombres `Cortex` y `Worker` no llevan espacios ni guiones porque las referen
 | Variable | Valor en la plantilla | Notas |
 |---|---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | |
-| `NODE_ENV` | `production` | |
-| `PROCESS_ROLE` | `worker` | Imprescindible (sin ella arrancaría como web) |
 | `APP_ENCRYPTION_KEY` | `${{Cortex.APP_ENCRYPTION_KEY}}` | **Debe ser la misma** que la del web: el worker descifra las claves de IA y firma los webhooks |
 | `APP_URL` | `https://${{Cortex.RAILWAY_PUBLIC_DOMAIN}}` | El worker no tiene dominio propio |
+
+El rol de worker va en el comando de arranque (`--role=worker`); `PROCESS_ROLE`, si se define, tiene prioridad.
+
+### `Postgres`
+
+Los de la plantilla oficial de Railway. Como son literales, el borrador generado los deja vacíos y **hay que restaurarlos una vez en el editor de la plantilla** antes de compartirla: `POSTGRES_USER=postgres`, `POSTGRES_DB=railway`, `PGPORT=5432`, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` y `SSL_CERT_DAYS=820` (opcional). `PGDATA` se define como referencia (`${{RAILWAY_VOLUME_MOUNT_PATH}}/pgdata`) y la contraseña como función (`${{ secret(32, …) }}`), así que se conservan solas.
 
 Railway define además en ambos servicios `RAILWAY_ENVIRONMENT_ID`, con la que la aplicación detecta que está detrás del *edge* de Railway y toma la IP real del cliente de `X-Real-IP` (límites por IP y auditoría; ver [SECURITY.md](SECURITY.md)).
 
@@ -66,9 +70,9 @@ Railway define además en ambos servicios `RAILWAY_ENVIRONMENT_ID`, con la que l
 
 > **Nunca** se genera la plantilla desde un proyecto con datos reales: `railway templates create` copia las variables del proyecto, y la plantilla repartiría su `APP_ENCRYPTION_KEY` (todas las instalaciones compartirían la misma clave). Se usa un proyecto de origen dedicado, sin datos.
 
-1. Proyecto de origen vacío con `Postgres` (`railway add --database postgres`) y los servicios `Cortex` y `Worker` conectados al repositorio de la plataforma, con las variables de la sección 2. Para los secretos se escribe la función de plantilla `${{secret(…)}}`, que Railway ejecuta en cada despliegue de la plantilla; en el paso 3 se comprueba que el borrador la conserva (si no, se corrige en el editor de plantillas del panel antes de publicar).
+1. Proyecto de origen vacío con `Postgres` (`railway add --database postgres`) y los servicios `Cortex` y `Worker` conectados al repositorio de la plataforma, con las variables de la sección 2 y el comando de arranque del worker (`railway environment edit --service-config Worker deploy.startCommand "node --enable-source-maps dist/server/index.js --role=worker"`). Los secretos se crean con la función de plantilla: `railway add … --variables 'APP_ENCRYPTION_KEY=${{secret(64, "…")}}'`. Railway la ejecuta en el proyecto (la variable recibe un valor concreto), pero recuerda la función y el borrador de la plantilla la conserva, de modo que cada instalación genera la suya. Después se puede sustituir el valor del proyecto de origen por uno no válido (p. ej. `EDITAR-EN-LA-PLANTILLA`), así ningún secreto real llega a la plantilla y, si algo fallara, el arranque lo rechaza en lugar de compartir una clave.
 2. Generar el borrador: `railway templates create --project <proyecto-de-origen> --environment production --json`.
-3. **Revisar** que ningún secreto real ha quedado dentro antes de publicar:
+3. **Revisar** que ningún secreto real ha quedado dentro y restaurar en el editor los literales de `Postgres` (sección 2):
    ```bash
    railway api 'query($id: String!) { template(id: $id) { serializedConfig } }' --variables '{"id":"<id-de-la-plantilla>"}'
    ```

@@ -8,7 +8,9 @@ const bool = (def: boolean) =>
     .transform((v) => (v === undefined ? def : v === 'true' || v === '1'));
 
 const EnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // Sin valor: 'production' en Railway (RAILWAY_ENVIRONMENT_ID) y 'development' fuera de él. Así un despliegue
+  // nunca arranca en modo desarrollo por una variable vacía (las plantillas generadas vacían los literales).
+  NODE_ENV: z.enum(['development', 'test', 'production']).optional(),
   PROCESS_ROLE: z.enum(['web', 'worker', 'all']).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
@@ -70,7 +72,15 @@ export function parseEncryptionKey(raw: string): Buffer {
   return crypto.createHash('sha256').update(`cortex-crm:app-encryption-key:v1:${value}`, 'utf8').digest();
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Record<string, string> = {}) {
+function roleFromArgv(argv: readonly string[]): 'web' | 'worker' | 'all' | undefined {
+  const arg = argv.find((a) => a.startsWith('--role='));
+  if (!arg) return undefined;
+  const role = arg.slice('--role='.length);
+  if (role === 'web' || role === 'worker' || role === 'all') return role;
+  throw new Error(`Configuración inválida: --role=${role.slice(0, 20)} (usa web, worker o all)`);
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Record<string, string> = {}, argv: readonly string[] = process.argv) {
   // Variables vacías (p. ej. "RESEND_API_KEY=" copiado de .env.example) cuentan como no definidas.
   const raw = Object.fromEntries(Object.entries({ ...env, ...overrides }).map(([k, v]) => [k, v === '' ? undefined : v]));
   const parsed = EnvSchema.safeParse(raw);
@@ -79,8 +89,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
     throw new Error(`Configuración inválida: ${issues}`);
   }
   const e = parsed.data;
-  const isProd = e.NODE_ENV === 'production';
-  const isTest = e.NODE_ENV === 'test';
+  const nodeEnv = e.NODE_ENV ?? (e.RAILWAY_ENVIRONMENT_ID ? 'production' : 'development');
+  const isProd = nodeEnv === 'production';
+  const isTest = nodeEnv === 'test';
 
   // URL pública: APP_URL o, en Railway, el dominio público del propio servicio.
   const appUrl = (e.APP_URL ?? (e.RAILWAY_PUBLIC_DOMAIN ? `https://${e.RAILWAY_PUBLIC_DOMAIN}` : undefined))?.replace(/\/$/, '');
@@ -101,10 +112,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
   const ipHeader = e.CLIENT_IP_HEADER?.toLowerCase();
 
   return {
-    env: e.NODE_ENV,
+    env: nodeEnv,
     isProd,
     isTest,
-    role: e.PROCESS_ROLE ?? (isProd ? 'web' : 'all'),
+    // PROCESS_ROLE o el argumento --role= del comando de arranque (la plantilla de Railway arranca el worker
+    // con `… dist/server/index.js --role=worker`: es un ajuste del servicio, no una variable).
+    role: e.PROCESS_ROLE ?? roleFromArgv(argv) ?? (isProd ? 'web' : 'all'),
     port: e.PORT,
     host: e.HOST,
     logLevel: e.LOG_LEVEL ?? (isTest ? 'silent' : 'info'),
