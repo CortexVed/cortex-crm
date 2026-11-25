@@ -651,6 +651,34 @@ describe('pipeline, despliegue con canario y rutas', () => {
     await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
   });
 
+  it('un despliegue del CI sustituido por otro se repite con el mismo código, sin el agente ni gastar un intento', async () => {
+    rw.plans[CI].push({ statuses: ['BUILDING', 'REMOVED'], logs: [] });
+    rw.plans[CI].push({ statuses: ['BUILDING', 'SUCCESS'] });
+    const before = rw.uploads.filter((u) => u.serviceId === CI).length;
+    const { id, script } = await createAndPlan('Añade una función que salude por el nombre');
+    const c = await detail(id);
+    expect(c.status, c.error).toBe('ready_for_review');
+    expect(c.ci.attempts.map((a: any) => a.status)).toEqual(['cancelled', 'passed']);
+    expect(c.ci.attempts[0].note).toMatch(/sustituido/);
+    expect(script.firstMessages).toHaveLength(1); // el agente solo ha trabajado una vez
+    const ups = rw.uploads.filter((u) => u.serviceId === CI).slice(before);
+    expect(ups).toHaveLength(2);
+    // El mismo código en los dos intentos (solo cambia el identificador de la versión)
+    const code = (m: Map<string, Buffer>) => treeHash(new Map([...m].filter(([p]) => p !== 'source-version.json')));
+    expect(code(ups[1].files)).toBe(code(ups[0].files));
+    await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
+  });
+
+  it('si el despliegue del CI se sustituye una y otra vez, se para y explica cómo resolverlo', async () => {
+    for (let i = 0; i < 3; i++) rw.plans[CI].push({ statuses: ['BUILDING', 'REMOVED'], logs: [] });
+    const { id, script } = await createAndPlan('Añade una función que salude por el nombre');
+    const c = await detail(id);
+    expect(c.status).toBe('failed');
+    expect(c.error).toMatch(/servicio CI › Settings › Source › Disconnect/);
+    expect(c.ci.attempts.map((a: any) => a.status)).toEqual(['cancelled', 'cancelled', 'cancelled']);
+    expect(script.firstMessages).toHaveLength(1);
+  });
+
   it('un despliegue fallido en el web revierte el worker (canario) y deja el cambio fallido', async () => {
     const { id } = await createAndPlan('Añade una función que salude por el nombre');
     rw.plans[WEB].push({ statuses: ['BUILDING', 'FAILED'] });

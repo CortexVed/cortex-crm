@@ -10,7 +10,7 @@ flowchart LR
   subgraph PRJ["Proyecto de quien despliega"]
     C["Cortex<br/>PROCESS_ROLE=web<br/>dominio público · /api/health"]
     W["Worker<br/>PROCESS_ROLE=worker<br/>sin dominio · /api/health"]
-    CI["CI<br/>vacío: sin variables,<br/>sin dominio, sin repositorio"]
+    CI["CI<br/>--role=ci: solo health check<br/>sin variables ni dominio"]
     P[("Postgres<br/>postgres-ssl:18 + volumen<br/>solo red privada")]
   end
   C -->|"DATABASE_URL"| P
@@ -25,7 +25,7 @@ flowchart LR
 | `Postgres` | Imagen `ghcr.io/railwayapp-templates/postgres-ssl:18` (la plantilla oficial de Railway) con volumen en `/var/lib/postgresql/data` | Solo red privada (sin TCP proxy) | La de la plantilla oficial: contraseña generada con `${{secret(32, …)}}` |
 | `Cortex` | Repositorio de la plataforma, rama `main` | Dominio público de Railway (`*.up.railway.app`) | `Dockerfile` y health check `/api/health` desde `railway.json` |
 | `Worker` | El mismo repositorio y rama | Sin dominio público | Igual que `Cortex`, con el comando de arranque `node --enable-source-maps dist/server/index.js --role=worker` |
-| `CI` | **Ninguno** (servicio vacío) | Sin dominio público | **Sin variables**. Solo lo usa el motor de código fuente, que le sube el código a probar (`Dockerfile.ci`); entre pruebas no tiene ningún despliegue activo |
+| `CI` | El mismo repositorio y rama | Sin dominio público | **Sin variables**. Comando de arranque `node --enable-source-maps dist/server/index.js --role=ci`: un servidor de salud, sin base de datos ni secretos. Solo lo usa el motor de código fuente, que le sube el código a probar (`Dockerfile.ci`) y retira cada prueba al terminar. Railway no admite servicios vacíos en una plantilla («Service CI does not have a source that can be used to generate a template»), por eso nace del repositorio |
 
 Los nombres `Cortex`, `Worker` y `CI` no llevan espacios ni guiones porque las referencias entre servicios los usan (`${{Cortex.…}}`); si quien despliega renombra un servicio, Railway actualiza las referencias.
 
@@ -59,28 +59,38 @@ El rol de worker va en el comando de arranque (`--role=worker`); `PROCESS_ROLE`,
 
 ### `CI`
 
-Ninguna, a propósito: el código que se prueba ahí todavía no lo ha aprobado nadie, así que el servicio no recibe secretos (ni `DATABASE_URL`, ni `APP_ENCRYPTION_KEY`, ni claves de IA). El código que se prueba solo se ejecuta durante el build de `Dockerfile.ci` (sin red privada ni secretos); el contenedor que queda en marcha es un servidor de salud mínimo escrito en el propio `Dockerfile.ci`, que no carga ese código ni exige ninguna variable.
+Ninguna, a propósito: el código que se prueba ahí todavía no lo ha aprobado nadie, así que el servicio no recibe secretos (ni `DATABASE_URL`, ni `APP_ENCRYPTION_KEY`, ni claves de IA). El código que se prueba solo se ejecuta durante el build de `Dockerfile.ci` (sin red privada ni secretos); el contenedor que queda en marcha es un servidor de salud mínimo escrito en el propio `Dockerfile.ci` como `dist/server/index.js`, que no carga ese código ni exige ninguna variable. Así el mismo comando de arranque sirve con las dos imágenes: con la imagen normal (el primer despliegue desde el repositorio) arranca el rol `ci` de la aplicación y con la de pruebas, ese servidor fijo.
 
 ### `Postgres`
 
-Los de la plantilla oficial de Railway. Como son literales, el borrador generado los deja vacíos y **hay que restaurarlos una vez en el editor de la plantilla** antes de compartirla: `POSTGRES_USER=postgres`, `POSTGRES_DB=railway`, `PGPORT=5432`, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` y `SSL_CERT_DAYS=820` (opcional). `PGDATA` se define como referencia (`${{RAILWAY_VOLUME_MOUNT_PATH}}/pgdata`) y la contraseña como función (`${{ secret(32, …) }}`), así que se conservan solas.
+Los de la plantilla oficial de Railway, salvo que **ninguno es un literal**: Railway vaciaría los literales al generar la plantilla y quien la desplegara tendría que rellenarlos. Se expresan con funciones de plantilla, que se conservan y dan el mismo resultado en cada instalación:
+
+| Variable | Valor en la plantilla | Resultado |
+|---|---|---|
+| `POSTGRES_USER` | `${{secret(12, "abcdefghijklmnopqrstuvwxyz")}}` | Usuario aleatorio de 12 letras minúsculas (en lugar de `postgres`; la imagen `postgres-ssl` admite usuarios propios) |
+| `POSTGRES_DB` | `${{POSTGRES_USER}}` | Base de datos con el nombre del usuario (lo mismo que hace PostgreSQL por defecto) |
+| `PGPORT` | `${{randomInt(5432, 5432)}}` | `5432` (la imagen escucha siempre en ese puerto) |
+| `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `${{randomInt(60, 60)}}` | `60` |
+| `SSL_CERT_DAYS` | `${{randomInt(820, 820)}}` | `820` |
+
+`PGDATA` es una referencia (`${{RAILWAY_VOLUME_MOUNT_PATH}}/pgdata`), la contraseña una función (`${{ secret(32, …) }}`) y `DATABASE_URL`, `PGUSER`, `PGDATABASE`, `PGHOST` y `PGPASSWORD` referencias a las anteriores, así que la plantilla no necesita ningún retoque en el editor.
 
 Railway define además en ambos servicios `RAILWAY_ENVIRONMENT_ID`, con la que la aplicación detecta que está detrás del *edge* de Railway y toma la IP real del cliente de `X-Real-IP` (límites por IP y auditoría; ver [SECURITY.md](SECURITY.md)).
 
 ## 3. Qué hace quien despliega la plantilla
 
-1. Pulsar **Deploy** y esperar a que los tres servicios estén en verde (las migraciones de la base de datos se aplican solas al arrancar).
+1. Pulsar **Deploy** y esperar a que los cuatro servicios (`Postgres`, `Cortex`, `Worker` y `CI`) estén en verde (las migraciones de la base de datos se aplican solas al arrancar).
 2. Abrir el dominio público del servicio `Cortex` y **registrarse**: se crea su organización con el CRM base.
 3. En **Ajustes › Mi cuenta › Administración de la plataforma**, pegar el valor de `PLATFORM_ADMIN_SETUP_TOKEN` (Railway › servicio `Cortex` › *Variables*). Da acceso al panel de plataforma (salud, errores, trabajos y métricas de toda la instalación). Funciona una sola vez; para añadir a más personas: `railway ssh --service Cortex -- "cd /app && node dist/server/cli.js grant-platform-admin <email>"`.
 4. Configurar un proveedor de IA en **Ajustes › Proveedores de IA** (cada organización usa sus propias claves, cifradas).
 5. Opcional: correo con Resend (`RESEND_API_KEY` y `EMAIL_FROM` en `Cortex`), `ALLOW_SIGNUP=false` y copias de seguridad de Postgres (ver [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md#9-base-de-datos-copias-de-seguridad-y-pitr)).
 6. Opcional: activar el motor de código fuente (sección 4).
 
-**Actualizaciones de la plataforma**: los servicios `Cortex` y `Worker` se construyen desde el repositorio de la plantilla; un nuevo despliegue de ambos recoge la versión nueva. Las migraciones son aditivas, así que los datos y la configuración de cada organización se conservan. Si la instalación ya ha cambiado su código con el motor de código fuente, un despliegue desde el repositorio **sustituye** ese código: en ese caso conviene desconectar `Cortex` y `Worker` del repositorio (Railway › servicio › *Settings* › *Source*) y dejar que la instalación evolucione solo con el motor.
+**Actualizaciones de la plataforma**: los servicios `Cortex` y `Worker` se construyen desde el repositorio de la plantilla; un nuevo despliegue de ambos recoge la versión nueva. Las migraciones son aditivas, así que los datos y la configuración de cada organización se conservan. Si la instalación ya ha cambiado su código con el motor de código fuente, un despliegue desde el repositorio **sustituiría** ese código: por eso el motor no despliega mientras `Cortex` o `Worker` sigan conectados a un repositorio, y para usarlo hay que desconectarlos (Railway › servicio › *Settings* › *Source* › *Disconnect*) y dejar que la instalación evolucione solo con el motor. Conviene desconectar también `CI`: si un *push* al repositorio lo redespliega mientras prueba un cambio, el motor repite la prueba (como mucho dos veces) y después se para y pide desconectarlo.
 
 ## 4. Motor de código fuente: servicio CI y token
 
-El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `CI` y lo despliega en `Worker` y `Cortex` con un **token de proyecto** de Railway. En una instalación desde la plantilla nueva el servicio `CI` y las variables del Worker ya existen; en una anterior:
+El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `CI` y lo despliega en `Worker` y `Cortex` con un **token de proyecto** de Railway. En una instalación desde la plantilla actual el servicio `CI` y las variables del Worker ya existen: basta con desconectar `Cortex`, `Worker` y `CI` del repositorio (ver «Actualizaciones de la plataforma») y seguir desde el paso 3. En una instalación anterior:
 
 1. Crear el servicio vacío (sin repositorio, sin variables y sin dominio):
    ```bash
@@ -100,20 +110,21 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
 
 > **Nunca** se genera la plantilla desde un proyecto con datos reales: `railway templates create` copia las variables del proyecto, y la plantilla repartiría su `APP_ENCRYPTION_KEY` (todas las instalaciones compartirían la misma clave). Se usa un proyecto de origen dedicado, sin datos.
 
-1. Proyecto de origen vacío con `Postgres` (`railway add --database postgres`), el servicio vacío `CI` (`railway add --service CI`, sin variables) y los servicios `Cortex` y `Worker` conectados al repositorio de la plataforma, con las variables de la sección 2 (también `CORTEX_SERVICE_ID` y `CI_SERVICE_ID` en el Worker) y el comando de arranque del worker (`railway environment edit --service-config Worker deploy.startCommand "node --enable-source-maps dist/server/index.js --role=worker"`). Los secretos se crean con la función de plantilla: `railway add … --variables 'APP_ENCRYPTION_KEY=${{secret(64, "…")}}'`. Railway la ejecuta en el proyecto (la variable recibe un valor concreto), pero recuerda la función y el borrador de la plantilla la conserva, de modo que cada instalación genera la suya. Después se puede sustituir el valor del proyecto de origen por uno no válido (p. ej. `EDITAR-EN-LA-PLANTILLA`), así ningún secreto real llega a la plantilla y, si algo fallara, el arranque lo rechaza en lugar de compartir una clave.
+1. Proyecto de origen vacío con `Postgres` (`railway add --database postgres`, con sus literales sustituidos por las funciones de la sección 2), el servicio `CI` (sin variables, con el comando de arranque `--role=ci` fijado **antes** de conectarlo al repositorio, para que su primer despliegue no arranque como web sin secretos) y los servicios `Cortex` y `Worker` conectados al repositorio de la plataforma, con las variables de la sección 2 (también `CORTEX_SERVICE_ID` y `CI_SERVICE_ID` en el Worker) y el comando de arranque del worker (`railway environment edit --service-config Worker deploy.startCommand "node --enable-source-maps dist/server/index.js --role=worker"`). Los secretos se crean con la función de plantilla: `railway add … --variables 'APP_ENCRYPTION_KEY=${{secret(64, "…")}}'`. Railway la ejecuta en el proyecto (la variable recibe un valor concreto), pero recuerda la función y el borrador de la plantilla la conserva, de modo que cada instalación genera la suya. Después se puede sustituir el valor del proyecto de origen por uno no válido (p. ej. `EDITAR-EN-LA-PLANTILLA`), así ningún secreto real llega a la plantilla y, si algo fallara, el arranque lo rechaza en lugar de compartir una clave.
 2. Generar el borrador: `railway templates create --project <proyecto-de-origen> --environment production --json`. La plantilla es una copia independiente: lo que se cambie después en el proyecto de origen no le afecta.
-   - **Después de generarla**, los servicios `Cortex` y `Worker` del proyecto de origen no deben quedar desplegándose: con los secretos no válidos no arrancan y cada *push* a `main` los relanzaría (y Railway avisaría de cada caída). Se apunta su disparador a una rama sin uso y se retiran sus despliegues:
+   - El nombre de la plantilla es el del proyecto de origen: se renombra a «Cortex CRM» antes de generarla y se le devuelve después su nombre («Cortex CRM (origen de plantilla)»).
+   - **Después de generarla**, los servicios `Cortex`, `Worker` y `CI` del proyecto de origen no deben quedar desplegándose: con los secretos no válidos no arrancan y cada *push* a `main` los relanzaría (y Railway avisaría de cada caída). Se apunta su disparador a una rama sin uso y se retiran sus despliegues:
      ```bash
      railway api 'mutation($id: String!) { deploymentTriggerUpdate(id: $id, input: { branch: "railway-template-source" }) { branch } }' --variables '{"id":"<id-del-disparador>"}'
      railway api 'mutation($id: String!) { deploymentRemove(id: $id) }' --variables '{"id":"<id-del-despliegue>"}'
      ```
      (los ids salen de `project(id) { deploymentTriggers … services { deployments … } }`).
    - **Antes de volver a generarla**, se devuelve el disparador a `main`.
-3. **Revisar** que ningún secreto real ha quedado dentro y restaurar en el editor los literales de `Postgres` (sección 2):
+3. **Revisar** que ningún secreto real ha quedado dentro y que no queda ningún valor vacío:
    ```bash
    railway api 'query($id: String!) { template(id: $id) { serializedConfig } }' --variables '{"id":"<id-de-la-plantilla>"}'
    ```
-   `APP_ENCRYPTION_KEY`, `PLATFORM_ADMIN_SETUP_TOKEN` y la contraseña de Postgres deben aparecer como `${{secret(…)}}`, y `DATABASE_URL`, `APP_URL`, la clave del worker, `CORTEX_SERVICE_ID` y `CI_SERVICE_ID` como referencias. El servicio `CI` debe aparecer sin variables y sin origen.
+   `APP_ENCRYPTION_KEY`, `PLATFORM_ADMIN_SETUP_TOKEN` y la contraseña de Postgres deben aparecer como `${{secret(…)}}`, y `DATABASE_URL`, `APP_URL`, la clave del worker, `CORTEX_SERVICE_ID` y `CI_SERVICE_ID` como referencias. Las variables de `Postgres`, como funciones y referencias (sección 2). El servicio `CI` debe aparecer con el repositorio como origen, sin variables y con el comando de arranque `--role=ci`.
 4. Probar un despliegue completo desde la plantilla en un proyecto nuevo (registro, token de instalación, una petición de EVOLVE) y borrar ese proyecto de prueba.
 5. Publicar en el marketplace (opcional; también se puede compartir el enlace de la plantilla):
    ```bash

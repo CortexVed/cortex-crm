@@ -205,6 +205,10 @@ async function startCi(deps: AppDeps, lease: ChangeLease, run: RunContext, tree:
 
 const replaceLast = (attempts: CiAttempt[], a: CiAttempt) => [...attempts.slice(0, -1), a];
 
+/** Despliegues del CI sustituidos por otro (no por el código): se repiten como mucho estas veces por cambio. */
+const SUPERSEDED_NOTE = 'Despliegue del CI sustituido por otro';
+const MAX_SUPERSEDED = 2;
+
 /** Sondea el despliegue del CI; con el resultado, revisión (si pasa) o auto-corrección (si falla). */
 async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
   const opts = engineOptions();
@@ -254,6 +258,38 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
   const analysis = analyzeCiLogs(logs);
   const finishedAt = deps.now().toISOString();
 
+  // Un despliegue del CI sustituido o retirado por otro (p. ej. un push al repositorio con el que el servicio CI
+  // sigue conectado) no dice nada del código: se vuelve a subir el mismo árbol, sin pasar por el agente y sin
+  // gastar un intento de auto-corrección. Si se repite, se para con una explicación.
+  if (outcome === 'removed') {
+    const superseded = change.ci.attempts.filter((a) => a.status === 'cancelled' && a.note?.startsWith(SUPERSEDED_NOTE)).length;
+    if (superseded >= MAX_SUPERSEDED) {
+      await lease.save(
+        {
+          status: 'failed',
+          ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: `${SUPERSEDED_NOTE} (${status})` }) },
+          error: `El despliegue del CI se ha sustituido ${superseded + 1} veces seguidas: probablemente el servicio CI sigue conectado a un repositorio o alguien despliega en él. Desconéctalo en Railway (servicio CI › Settings › Source › Disconnect) y refina el cambio para volver a probarlo.`,
+        },
+        [progressEntry('ci', 'failed', `Intento ${attempt.n}: el despliegue del CI se ha vuelto a sustituir (${status})`, deps.now())],
+      );
+      return;
+    }
+    await lease.save(
+      {
+        ci: {
+          ...change.ci,
+          attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: `${SUPERSEDED_NOTE} (${status}): se ha vuelto a subir el mismo código, sin contar como intento.` }),
+          // No cuenta para el máximo de intentos de auto-corrección de la ronda.
+          roundStart: (change.ci.roundStart ?? 0) + 1,
+        },
+      },
+      [progressEntry('ci', 'running', `Intento ${attempt.n}: el despliegue del CI se ha sustituido (${status}); se repite con el mismo código`, deps.now())],
+    );
+    const tree = loadSourceTree(sourceRoot());
+    await startCi(deps, lease, run, tree, new VirtualWorkspace(tree, lease.change.patch.files));
+    return;
+  }
+
   if (outcome === 'success') {
     const passed: CiAttempt = { ...attempt, status: 'passed', railwayStatus: status, finishedAt, summary: analysis.testSummary, excerpt: analysis.excerpt, removed };
     await lease.save({ ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, passed) } }, [
@@ -263,7 +299,7 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
     return;
   }
 
-  const note = status === 'TIMEOUT' ? 'Tiempo máximo del CI superado' : outcome === 'removed' ? `El despliegue del CI terminó como ${status} (cancelado o sustituido)` : undefined;
+  const note = status === 'TIMEOUT' ? 'Tiempo máximo del CI superado' : undefined;
   const failed: CiAttempt = { ...attempt, status: 'failed', railwayStatus: status, finishedAt, errors: analysis.problems.slice(0, 40), failedTests: analysis.failedTests, summary: analysis.testSummary, excerpt: analysis.excerpt, removed, ...(note ? { note } : {}) };
   const ci = { ...change.ci, attempts: replaceLast(change.ci.attempts, failed) };
   const short = analysis.tsErrors.length ? `${analysis.tsErrors.length} error(es) de TypeScript` : analysis.failedTests.length ? `${analysis.failedTests.length} prueba(s) fallida(s)` : (note ?? 'el build ha fallado');

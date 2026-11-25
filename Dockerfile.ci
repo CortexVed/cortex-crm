@@ -20,13 +20,17 @@ RUN npm run build && npm prune --omit=dev
 # ---------- runtime ----------
 # El código generado (aún sin aprobar) SOLO se ejecuta en la fase de build de arriba, que no tiene secretos ni
 # acceso a la red privada del proyecto. El contenedor que queda en marcha NO carga nada de ese código: es un
-# servidor de salud mínimo definido aquí (este archivo está protegido frente al motor), para que el código no
+# servidor de salud mínimo escrito aquí (este archivo está protegido frente al motor), para que el código no
 # aprobado nunca quede vivo dentro de la red privada. El motor retira este despliegue en cuanto conoce el resultado.
+# Se guarda como dist/server/index.js para que el comando de arranque del servicio CI de la plantilla
+# (`node --enable-source-maps dist/server/index.js --role=ci`, el rol ci de la imagen normal) también sirva aquí.
 FROM node:24-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini \
+ && mkdir -p dist/server \
+ && printf '%s\n' "require('node:http').createServer((q,r)=>{r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({status:'ok',role:'ci'}))}).listen(Number(process.env.PORT)||8080,'0.0.0.0')" > dist/server/index.js
 COPY --from=build /app/source-version.json ./source-version.json
 USER node
 EXPOSE 8080
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "-e", "require('node:http').createServer((q,r)=>{r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({status:'ok',role:'ci'}))}).listen(Number(process.env.PORT)||8080,'0.0.0.0')"]
+CMD ["node", "dist/server/index.js"]
