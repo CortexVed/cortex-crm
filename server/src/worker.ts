@@ -7,6 +7,7 @@ import { loadWorkspace, makeRecordService } from './crm/context';
 import { runScheduledAutomations } from './crm/automations';
 import { runEvolutionPipeline } from './evolve/pipeline';
 import { runAdvisor, runSecurityReview } from './evolve/security';
+import { runCodeDeployJob, runCodePlanJob } from './code-engine/jobs';
 
 type Log = { info: (o: object, m: string) => void; error: (o: object, m: string) => void };
 
@@ -121,6 +122,11 @@ export function createJobHandlers(deps: AppDeps): Record<string, JobHandler> {
         }
       });
     },
+
+    // Motor de código fuente de la instalación (docs/CODE_ENGINE.md). Cada ejecución es una fase acotada y el
+    // estado vive en source_changes: el trabajo sobrevive a que Railway sustituya este proceso al desplegar.
+    'code.plan': (job, ctx) => runCodePlanJob(deps, job, ctx),
+    'code.deploy': (job, ctx) => runCodeDeployJob(deps, job, ctx),
 
     'maintenance.cleanup': async (_job, ctx) => {
       await deps.db.query(`DELETE FROM jobs WHERE status = 'done' AND finished_at < now() - interval '7 days'`);

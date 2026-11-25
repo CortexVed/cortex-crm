@@ -11,11 +11,13 @@
 | `002_row_level_security` | Rol `evolve_tenant`, permisos y políticas RLS |
 | `003_invite_delivery` | Columna `auth_tokens.delivered` (la invitación se entregó por correo) |
 | `004_jobs_workspace_ready_idx` | Índice `jobs_ws_ready_idx (workspace_id, run_at) WHERE status = 'queued'` para repartir los trabajos entre organizaciones |
+| `005_source_code_engine` | Tablas de plataforma del motor de código fuente: `platform_settings` y `source_changes` (sin RLS y sin permisos para `evolve_tenant`), con dos índices únicos parciales que permiten como mucho un cambio en preparación o despliegue y como mucho un despliegue o rollback a la vez |
 
 - Se ejecutan **al arrancar** cualquier proceso (`runMigrations`) dentro de **una única transacción** con `pg_advisory_xact_lock(7270427)`: si web y worker arrancan a la vez, el segundo espera y luego ve las migraciones aplicadas. El DDL de PostgreSQL es transaccional: o se aplica todo o nada.
 - Las aplicadas se registran en `schema_migrations (id text PK, applied_at timestamptz)`.
 - Son **aditivas** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, políticas recreadas): un despliegue anterior del código sigue funcionando con el esquema nuevo, lo que permite el rollback de despliegues en Railway.
-- Para añadir una migración se agrega `{ id: '004_…', sql: () => … }` al final del array `MIGRATIONS` (siempre aditiva, como `003_invite_delivery`). Las migraciones forman parte del código de la plataforma: las escribe el equipo de desarrollo y se despliegan con la imagen; nada de lo que pide una organización (ni sus scripts) genera DDL.
+- Para añadir una migración se agrega ``{ id: '006_…', sql: () => `…` },`` al final del array `MIGRATIONS` (siempre aditiva). Las migraciones forman parte del código de la plataforma: las escribe el equipo de desarrollo o el **motor de código fuente** de la instalación (con aprobación de un administrador de la plataforma, [CODE_ENGINE.md](CODE_ENGINE.md)); nada de lo que pide una organización con EVOLVE (ni sus scripts) genera DDL.
+- **Regla del motor de código** (`server/src/code-engine/sql-guard.ts`, determinista): el archivo debe quedar idéntico salvo por entradas nuevas al final de `MIGRATIONS`, con id mayor que el último y SQL estático; solo `CREATE TABLE IF NOT EXISTS` (tablas nuevas, nunca `AS SELECT`), `CREATE INDEX`, `ALTER TABLE … ADD COLUMN` (con `DEFAULT` si es `NOT NULL`) y, para las tablas nuevas con `workspace_id`, obligatoriamente `ENABLE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation …` + `GRANT … TO evolve_tenant` en la misma migración. Nunca `DROP`, `TRUNCATE`, `DELETE`, `UPDATE`, `INSERT`, `RENAME`, roles, funciones, `DO`, políticas o permisos sobre tablas existentes, ni funciones fuera de una lista corta (un `DEFAULT` se evalúa como superusuario al migrar). `TENANT_TABLES` no cambia: una tabla de organización nueva lleva su RLS en su propia migración.
 - Requisitos del usuario de base de datos: poder `CREATE ROLE` (la migración 002 crea `evolve_tenant`) y poder hacer `SET ROLE evolve_tenant` (superusuario o miembro del rol). El usuario `postgres` de Railway es superusuario.
 
 ## 2. Mapa de tablas
@@ -39,6 +41,8 @@ erDiagram
   connectors ||--o{ channel_messages : "mensajes"
   ai_conversations ||--o{ ai_messages : "mensajes"
   workspaces ||--o{ llm_usage : "consumo IA"
+  users ||--o{ source_changes : "pide (plataforma)"
+  workspaces ||--o{ source_changes : "IA usada"
 ```
 
 Las relaciones `records → record_history/notes/files/channel_messages` son lógicas (columna `record_id` sin clave foránea); el resto de flechas son claves foráneas reales, casi todas con `ON DELETE CASCADE` desde `workspaces`.
@@ -47,7 +51,7 @@ Las relaciones `records → record_history/notes/files/channel_messages` son ló
 
 | Tipo | Tablas | Acceso |
 |---|---|---|
-| **Plataforma** (sin acceso desde el rol de organización) | `sessions`, `auth_tokens`, `error_events`, `schema_migrations` | Solo conexión privilegiada |
+| **Plataforma** (sin acceso desde el rol de organización) | `sessions`, `auth_tokens`, `error_events`, `schema_migrations`, `platform_settings`, `source_changes` | Solo conexión privilegiada (las dos últimas, solo desde las rutas de administración de la plataforma y los trabajos `code.*`) |
 | **Plataforma con acceso acotado** (RLS + permisos mínimos) | `users` (SELECT de `id, name, email` de miembros), `workspaces` (SELECT/UPDATE de la propia), `memberships` (SELECT de la propia), `jobs` (solo INSERT de trabajos propios) | Privilegiada + `evolve_tenant` limitado |
 | **Organización** (RLS obligatoria, `TENANT_TABLES`) | `blueprint_versions`, `records`, `record_history`, `notes`, `files`, `evolution_requests`, `evolution_approvals`, `releases`, `backups`, `automation_runs`, `notifications`, `api_keys`, `audit_log`, `ai_providers`, `ai_settings`, `llm_usage`, `ai_conversations`, `ai_messages`, `ai_memory`, `connectors`, `channel_messages`, `code_changes` (legado: ningún código la usa, ver sección 5) | `db.tenant()` (y privilegiada cuando es imprescindible) |
 
@@ -146,8 +150,8 @@ Verificado por `server/test/tenant-isolation.test.ts`: en el contexto de B un `S
 | Columna | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
-| `workspace_id` | uuid FK (cascade), nullable | `null` en trabajos de plataforma (`maintenance.cleanup`) |
-| `type` | text | `evolve.plan`, `evolve.security`, `evolve.advice`, `webhook.deliver`, `automations.scheduled`, `formulas.recompute`, `maintenance.cleanup` |
+| `workspace_id` | uuid FK (cascade), nullable | `null` en trabajos de plataforma (`maintenance.cleanup`, `code.plan`, `code.deploy`) |
+| `type` | text | `evolve.plan`, `evolve.security`, `evolve.advice`, `webhook.deliver`, `automations.scheduled`, `formulas.recompute`, `maintenance.cleanup`, `code.plan`, `code.deploy` (motor de código fuente; `payload {changeId}` o `{probe: true}`) |
 | `payload` | jsonb | |
 | `status` | text | `queued` → `running` → `done` / `failed` (o vuelve a `queued` con *backoff*) |
 | `attempts`, `max_attempts` | int | `max_attempts` por defecto 3 |
@@ -167,6 +171,47 @@ Verificado por `server/test/tenant-isolation.test.ts`: en el contexto de B un `S
 | `message`, `stack` | text | Truncados (2000 / 8000) |
 | `context` | jsonb | Redactado (`method`, `url`, `requestId`, `jobId`…) |
 | `created_at` | timestamptz | Retención 90 días |
+
+### `platform_settings` (motor de código fuente)
+
+Ajustes de la instalación (no de una organización). Sin RLS y **sin ningún permiso** para `evolve_tenant`: una consulta dentro de `db.tenant()` no puede leerla.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `key` | text PK | `railway.token` (token de proyecto de Railway) o `railway.worker` (lo que ve el worker) |
+| `value` | jsonb | `railway.token`: `{projectId, environmentId, validatedAt}` del token validado. `railway.worker`: `{role, projectId, environmentId, serviceId, webServiceId, ciServiceId, sourceVersion, treeHash, reportedAt}` que publica el worker en cada trabajo `code.*` |
+| `secret_ciphertext` | text | Token cifrado con `SecretBox` (AES-256-GCM) y AAD `platform:railway-token`; nunca se devuelve ni se registra |
+| `secret_hint` | text | `••••abcd` (últimos 4 caracteres) |
+| `updated_by` | uuid FK → users (set null) | |
+| `updated_at` | timestamptz | |
+
+### `source_changes` (motor de código fuente)
+
+Cada cambio del código fuente de la instalación ([CODE_ENGINE.md](CODE_ENGINE.md)). Sin RLS y sin permisos para `evolve_tenant`.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid PK | |
+| `ai_workspace_id` | uuid FK → workspaces (set null) | Organización cuya configuración de IA se usa (la activa de quien pidió el cambio, que debe administrarla) |
+| `requested_by` | uuid FK → users (set null) | Administrador de la plataforma que lo pidió |
+| `origin` | jsonb | `{type: 'evolve', workspaceId, workspaceName, requestId}` si viene de una petición de plataforma de una organización |
+| `prompt`, `title`, `summary` | text | Petición y resumen del agente |
+| `status` | text | `queued` → `planning` → `testing` (→ `planning` en la auto-corrección) → `ready_for_review` / `needs_input` / `failed`; `deploying` → `deployed` / `rolling_back` → `failed`; `deployed` → `rolling_back` → `rolled_back`; `cancelled` |
+| `base_version`, `base_tree_hash` | text | Versión (id de `source-version.json` o `inicial-<huella>`) y huella exacta del código sobre el que se preparó: aprobar y desplegar exigen que la instalación siga en ella |
+| `patch` | jsonb | `{files: [{path, action: add\|modify\|delete, before, after}], testsAdded}` (contenido completo antes y después) |
+| `stats`, `guards`, `flags` | jsonb | Estadísticas, resultado de las reglas deterministas (`{ok, violations, at}`) y avisos para quien aprueba |
+| `problems` | jsonb | Errores del CI o infracciones que recibe el agente en la siguiente ronda |
+| `ci` | jsonb | `{attempts: [{n, deploymentId, status, railwayStatus, treeHash, sourceVersion, files, bytes, summary, errors, failedTests, excerpt, removed}], roundStart, agentRuns, transientErrors}` |
+| `review` | jsonb | Revisión de seguridad con IA `{status, verdict, summary, concerns, provider, model, sameProvider}` |
+| `risk` | text | Siempre `high` |
+| `approvals` | jsonb | `[{userId, name, at, comment, confirmation: 'DESPLEGAR', attempt, treeHash}]` |
+| `deploy` | jsonb | `{phase, attempt, sourceVersion, previous: {worker, web}, worker, web, workerReadyAt, continuedBy, verification, rollback}` con los ids de los despliegues de Railway |
+| `conversation`, `progress`, `llm` | jsonb | Petición y refinados; línea de tiempo `{step, status, detail, at}`; modelos usados |
+| `lease_token`, `lease_until`, `heartbeat_at` | text / timestamptz | Lease con latido del trabajo que lo procesa (evita ejecuciones dobles y detecta despliegues detenidos) |
+| `error` | text | |
+| `created_at`, `updated_at`, `deployed_at`, `rolled_back_at` | timestamptz | |
+
+Índices: `source_changes_created_idx (created_at DESC)`; `source_changes_single_active_uq ((true)) WHERE status IN ('queued','planning','testing','deploying')` y `source_changes_single_release_uq ((true)) WHERE status IN ('deploying','rolling_back')` (índices únicos sobre una constante: como mucho una fila en esos estados).
 
 ## 5. Tablas de organización (RLS)
 
@@ -331,14 +376,19 @@ Todas tienen `workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CAS
 
 ```ts
 Blueprint {
-  modules: Module[]            // ≤ 60
-  automations: Automation[]    // ≤ 200
-  dashboards: Dashboard[]      // ≤ 20
-  integrations: Integration[]  // ≤ 50 (webhooks)
-  forms: Form[]                // ≤ 50
-  scripts: Script[]            // ≤ 50 (código a medida de ESTA organización; por defecto [])
+  modules: Module[]            // ≤ 2000
+  automations: Automation[]    // ≤ 5000
+  dashboards: Dashboard[]      // ≤ 500
+  integrations: Integration[]  // ≤ 500 (webhooks)
+  forms: Form[]                // ≤ 1000
+  scripts: Script[]            // ≤ 1000 (código a medida de ESTA organización; por defecto [])
+  appearance?: Appearance      // capa visual: colores, tipografía, menú lateral… (sección 7.5)
+  navigation?: Navigation      // menú agrupado y página de inicio (sección 7.5)
+  pages: Page[]                // ≤ 500 páginas propias (sección 7.5; por defecto [])
 }
 ```
+
+Estos topes (`BLUEPRINT_LIMITS` en `shared/blueprint.ts`) protegen contra el abuso, pero no limitan el uso normal: un CRM puede tener cientos de módulos con cientos de campos. Por módulo: ≤ 1000 campos, ≤ 100 vistas, ≤ 100 secciones de ficha (≤ 1000 campos cada una), ≤ 300 columnas por vista y ≤ 2000 opciones por campo de selección; ≤ 200 widgets por panel y ≤ 300 campos por formulario. **El único tope global es el tamaño**: un blueprint de más de 25 MB (JSON) no pasa la validación (`validateBlueprint`). Las fórmulas tienen sus propios topes, porque se evalúan en cada lectura: ≤ 300 campos calculados por módulo y ≤ 2.000.000 de caracteres de fórmulas en total.
 
 Las claves (`key`) siguen `^[a-z][a-z0-9_]{0,39}$` y son inmutables. Claves reservadas para campos: `id`, `created_at`, `updated_at`, `created_by`, `updated_by`, `deleted_at`, `workspace_id`, `module_key`, `last_activity_at`. Campos de sistema consultables en vistas, filtros y paneles: `id`, `created_at`, `updated_at`, `last_activity_at`, `created_by`.
 
@@ -348,9 +398,9 @@ Las claves (`key`) siguen `^[a-z][a-z0-9_]{0,39}$` y son inmutables. Claves rese
 |---|---|
 | `Module` | `key`, `label`, `labelPlural`, `icon` (lista cerrada, p. ej. `building`, `users`, `file-signature`), `color` (18 colores Tailwind), `description`, `system`, `archived`, `primaryField`, `fields` (1–120), `views` (1–20), `layout` (≤ 12 secciones), `permissions` |
 | `permissions` | `read` (defecto `viewer`), `create`, `update`, `delete` (defecto `member`) |
-| `Field` | `key`, `label`, `type`, `required`, `unique`, `helpText`, `hidden`, `archived`, `system`, `options` (≤ 100: `{value, label, color}`), `relation: {module}`, `currency` (ISO 4217), `min`, `max`, `decimals` (0–6), `maxFiles` (1–20), `formula: {expression, resultType}`, `defaultValue` (admite plantillas) |
-| `View` | `key`, `label`, `type` (`table`, `kanban`, `calendar`), `columns` (≤ 40), `groupBy`, `cardFields` (≤ 8), `dateField`, `colorBy`, `sort: {field, direction}`, `filters` (≤ 10) |
-| `LayoutSection` | `title`, `fields` (≤ 80), `columns` (1 o 2) |
+| `Field` | `key`, `label`, `type`, `required`, `unique`, `helpText`, `hidden`, `archived`, `system`, `options` (≤ 2000: `{value, label, color}`), `relation: {module}`, `currency` (ISO 4217), `min`, `max`, `decimals` (0–6), `maxFiles` (1–20), `formula: {expression, resultType}`, `defaultValue` (admite plantillas) |
+| `View` | `key`, `label`, `type` (`table`, `kanban`, `calendar`), `columns` (≤ 300), `groupBy`, `cardFields` (≤ 8), `dateField`, `colorBy`, `sort: {field, direction}`, `filters` (≤ 10) |
+| `LayoutSection` | `title`, `fields` (≤ 1000), `columns` (1 o 2) |
 
 Reglas de coherencia (zod + `evolve/validate.ts`): `select`/`multi_select` con al menos una opción y sin duplicados; `relation` con módulo destino existente; una fórmula no puede ser obligatoria ni única, no puede referenciarse a sí misma ni formar ciclos; `kanban` agrupa por un campo `select`; `calendar` usa un campo de fecha; el campo principal debe ser de texto, email, teléfono, URL, número, selección o fecha.
 
@@ -383,12 +433,24 @@ Reglas de coherencia (zod + `evolve/validate.ts`): `select`/`multi_select` con a
 | `Action` | `update_field {field, value}` · `create_record {module, values, linkField?}` · `send_webhook {integration}` · `notify {to: user_field{field} \| role{role} \| all, title, body?}` · `run_script {script}` (ejecuta un script de la organización sobre el registro que dispara) |
 | `Script` | `key`, `name`, `description` (especificación funcional, ≤ 2000; a partir de ella se escribe el código), `code` (JavaScript, ≤ 20.000 caracteres, por defecto vacío), `enabled` (defecto `true`), `timeoutMs` (50–3000, defecto 1000). Se ejecuta en el sandbox QuickJS/WebAssembly de la plataforma ([AI_ENGINE.md](AI_ENGINE.md#6-scripts-por-organización)); se versiona con el resto del blueprint de su organización y nunca se comparte con otras |
 | `Condition` | `{field, operator, value?}` con `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `not_contains`, `is_empty`, `is_not_empty`, `in`, `changed`; `value` admite plantillas |
-| `Dashboard` | `key`, `label`, `widgets` (≤ 30) |
+| `Dashboard` | `key`, `label`, `widgets` (≤ 200) |
 | `Widget` | `key`, `title`, `type` (`metric`, `bar`, `donut`, `line`, `list`), `module`, `aggregate` (`count`, `sum`, `avg`), `field`, `groupBy`, `dateField`, `interval` (`day`, `week`, `month`), `filters`, `limit` (1–50), `size` (`sm`…`xl`) |
 | `Integration` | `key`, `name`, `type: 'webhook'`, `url` (HTTPS, sin credenciales), `description`, `includeFields`, `enabled` |
-| `Form` | `key`, `name`, `module`, `fields` (1–40), `public` (defecto `false`), `submitLabel`, `successMessage`, `defaults` |
+| `Form` | `key`, `name`, `module`, `fields` (1–300), `public` (defecto `false`), `submitLabel`, `successMessage`, `defaults` |
 
 Reglas de coherencia de los scripts (`evolve/validate.ts`): claves únicas; un script sin código, sin `function run(` o que intente `require(…)`/`import` es un **error**; un script que ninguna automatización usa es un aviso. Una acción `run_script` hacia un script inexistente es un error; hacia uno desactivado, un aviso; y en un disparador `record_updated`, un aviso por posible encadenamiento (el motor corta en profundidad 3).
+
+### 7.5 Capa visual: apariencia, menú y páginas
+
+Solo presentación: no cambia datos ni permisos. Se versiona, se prueba, se aprueba y se revierte como el resto del blueprint ([AI_ENGINE.md](AI_ENGINE.md#51-capa-visual-apariencia-menú-y-páginas)). Los blueprints anteriores, sin estas claves, siguen siendo válidos.
+
+| Objeto | Propiedades |
+|---|---|
+| `Appearance` | `brandColor` (`#rrggbb`, defecto `#6938ef`: botones, enlaces y selección), `accentColor?`, `appName?` (1–40: nombre en el menú lateral y en la pestaña), `font` (`inter`, `system`, `serif`, `mono`, `rounded`; defecto `inter`), `radius` (`none`, `sm`, `md`, `lg`, `xl`; defecto `md`), `density` (`compact`, `comfortable`, `spacious`; defecto `comfortable`), `sidebar` (`light`, `dark`, `brand`; defecto `light`), `defaultTheme` (`system`, `light`, `dark`: tema inicial de quien no ha elegido uno; defecto `system`), `customCss?` (≤ 20.000 caracteres; debe ser CSS plano según `sanitizeCustomCss`: sin `@import`, `url()`, `expression()`, `javascript:`, `behavior`, `-moz-binding` ni `</style>`; nunca se aplica en EVOLVE, Ajustes ni Plataforma) |
+| `Navigation` | `groups` (≤ 100: `{key, label, items (≤ 2000)}`) y `home?` (`{type: 'dashboard' \| 'page', key}`: lo que se muestra en `/`; por defecto, el primer panel). Sin grupos, el menú es la lista de módulos de siempre |
+| `NavItem` | `module {key, label?}` · `dashboard {key, label?}` · `page {key, label?}` · `link {href, label}` (`href`: ruta interna de la aplicación, p. ej. `/m/deals`, o URL `https`) |
+| `Page` | `key`, `label`, `icon` (defecto `layers`), `description?` (≤ 500), `minRole` (rol mínimo para verla; defecto `viewer`), `blocks` (≤ 200). Se muestra en `/p/<key>`; cada rol solo ve los bloques de los módulos que puede leer |
+| `Block` | `heading {text (≤ 200), level 1–3}` · `text {markdown (≤ 10.000)}` · `widget {widget}` (un `Widget` como los de los paneles) · `records {module, view?, title?, filters (≤ 10), limit 1–100 (defecto 10), columns?}` · `form {form}` · `buttons {items (1–12): {label, to: {type: module \| page \| dashboard \| new_record, key}, style?: primary \| secondary \| ghost}}` · `divider`. Todos con `width` (`full`, `half`, `third`, `two_thirds`; defecto `full`) |
 
 ## 8. Estructura JSON del change set (`shared/changeset.ts`)
 
@@ -396,8 +458,10 @@ Reglas de coherencia de los scripts (`evolve/validate.ts`): claves únicas; un s
 ChangeSet {
   title: string          // 3–140
   summary: string        // 1–3000
-  operations: Operation[]  // ≤ 80
-  tests: TestCase[]        // ≤ 20, cada uno { name, steps (1–40) }
+  operations: Operation[]  // ≤ 5000
+  tests: TestCase[]        // ≤ 300, cada uno { name, steps (1–40) }
+  outline?: OutlinePart[]  // ≤ 60: plan por partes de una petición grande ({key, title (≤ 140), description (≤ 4000)});
+                           // el planificador lo devuelve con operations: [] y EVOLVE genera y une cada parte
   requiresPlatformChange: boolean  // la petición necesita una funcionalidad nueva de la plataforma (defecto false)
   platformRequest?: string         // qué haría falta en la plataforma (≤ 6000); solo se registra
   questions: string[]      // ≤ 6: dudas que bloquean
@@ -405,7 +469,7 @@ ChangeSet {
 }
 ```
 
-**Operaciones** (unión discriminada por `op`): `create_module`, `update_module` (`label`, `labelPlural`, `icon`, `color`, `description`, `primaryField`, `layout`, `permissions`), `archive_module`, `restore_module`, `add_field` (con `after?`), `update_field` (cualquier propiedad salvo `key`, `system`, `archived`), `archive_field`, `restore_field`, `add_select_options`, `upsert_view`, `remove_view`, `upsert_automation`, `remove_automation`, `upsert_dashboard`, `remove_dashboard`, `upsert_integration`, `remove_integration`, `upsert_form`, `remove_form`, `upsert_script` (un `Script` completo; si `code` llega vacío en una petición a la IA, lo escribe el paso de desarrollo antes de probarlo), `remove_script` (clave; falla si el script no existe y la validación rechaza que quede una automatización con `run_script` hacia él) y `backfill_field` (`value`, `onlyEmpty` por defecto `true`, `where`).
+**Operaciones** (unión discriminada por `op`): `create_module`, `update_module` (`label`, `labelPlural`, `icon`, `color`, `description`, `primaryField`, `layout`, `permissions`), `archive_module`, `restore_module`, `add_field` (con `after?`), `update_field` (cualquier propiedad salvo `key`, `system`, `archived`), `archive_field`, `restore_field`, `add_select_options`, `upsert_view`, `remove_view`, `upsert_automation`, `remove_automation`, `upsert_dashboard`, `remove_dashboard`, `upsert_integration`, `remove_integration`, `upsert_form`, `remove_form`, `upsert_script` (un `Script` completo; si `code` llega vacío en una petición a la IA, lo escribe el paso de desarrollo antes de probarlo), `remove_script` (clave; falla si el script no existe y la validación rechaza que quede una automatización con `run_script` hacia él), `backfill_field` (`value`, `onlyEmpty` por defecto `true`, `where`) y, para la capa visual (sección 7.5), `update_appearance` (`changes`: solo las propiedades que cambian; `null` en `accentColor`, `appName` o `customCss` las quita), `update_navigation` (`navigation`: sustituye el menú entero; `null` vuelve al menú por defecto), `upsert_page` (una `Page` completa) y `remove_page` (clave).
 
 Cambios de tipo permitidos por `update_field` (preservan los datos; el resto se rechaza y hay que crear un campo nuevo y migrar):
 

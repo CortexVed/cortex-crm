@@ -6,6 +6,8 @@ import type { Color } from '../../../shared/constants';
 import { cx } from './ui';
 
 type Fmt = 'currency' | 'number' | 'percent';
+/** Color de la serie principal: el de la marca de la organización (variable CSS, ver lib/theme.ts). */
+const BRAND = 'var(--color-brand-500)';
 const colorOf = (p: SeriesPoint, i: number) => (p.color ? HEX[p.color as Color] ?? CHART_SEQUENCE[i % CHART_SEQUENCE.length] : CHART_SEQUENCE[i % CHART_SEQUENCE.length]);
 
 function Tooltip({ point, format, currency }: { point: SeriesPoint | null; format: Fmt; currency?: string }) {
@@ -66,16 +68,16 @@ export function LineChart({ points, format = 'number', currency, height = 170 }:
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none" onMouseLeave={() => setHover(null)}>
         <defs>
           <linearGradient id="evolve-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#7a5af8" stopOpacity="0.28" />
-            <stop offset="1" stopColor="#7a5af8" stopOpacity="0" />
+            <stop offset="0" style={{ stopColor: BRAND, stopOpacity: 0.28 }} />
+            <stop offset="1" style={{ stopColor: BRAND, stopOpacity: 0 }} />
           </linearGradient>
         </defs>
         <path d={area} fill="url(#evolve-area)" />
-        <path d={line} fill="none" stroke="#7a5af8" strokeWidth="2.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        <path d={line} fill="none" style={{ stroke: BRAND }} strokeWidth="2.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
         {points.map((p, i) => (
           <g key={p.key + i}>
             <rect x={x(i) - (W / points.length) / 2} y={0} width={W / points.length} height={H} fill="transparent" onMouseEnter={() => setHover(i)} />
-            {hover === i && <circle cx={x(i)} cy={y(p.value)} r="5" fill="#7a5af8" stroke="white" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+            {hover === i && <circle cx={x(i)} cy={y(p.value)} r="5" style={{ fill: BRAND }} stroke="white" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
           </g>
         ))}
       </svg>
@@ -95,31 +97,35 @@ export function DonutChart({ points, format = 'number', currency }: { points: Se
   const R = 42;
   const C = 2 * Math.PI * R;
   let acc = 0;
+  // La leyenda va al lado solo si el propio contenedor es ancho (consulta de contenedor): en tarjetas estrechas
+  // (p. ej. un bloque de un tercio en una página) va debajo y no se corta.
   return (
-    <div className="flex flex-col items-center gap-4 sm:flex-row">
-      <svg viewBox="0 0 120 120" className="size-36 shrink-0 -rotate-90" onMouseLeave={() => setHover(null)}>
-        <circle cx="60" cy="60" r={R} fill="none" strokeWidth="16" className="stroke-zinc-100 dark:stroke-zinc-800" />
-        {points.map((p, i) => {
-          const len = (p.value / total) * C;
-          const el = (
-            <circle key={p.key + i} cx="60" cy="60" r={R} fill="none" stroke={colorOf(p, i)} strokeWidth={hover === i ? 19 : 16} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} onMouseEnter={() => setHover(i)} className="transition-all">
-              <title>{`${p.label}: ${formatValue(p.value, format, currency)}`}</title>
-            </circle>
-          );
-          acc += len;
-          return el;
-        })}
-      </svg>
-      <ul className="w-full min-w-0 space-y-1.5 text-sm">
-        {points.map((p, i) => (
-          <li key={p.key + i} className="flex items-center gap-2" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-            <span className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(p, i) }} />
-            <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-400">{p.label}</span>
-            <span className="font-medium tabular-nums">{formatValue(p.value, format, currency, true)}</span>
-            <span className="w-10 text-right text-xs text-zinc-400 tabular-nums">{Math.round((p.value / total) * 100)}%</span>
-          </li>
-        ))}
-      </ul>
+    <div className="@container">
+      <div className="flex flex-col items-center gap-4 @xs:flex-row">
+        <svg viewBox="0 0 120 120" className="size-36 shrink-0 -rotate-90" onMouseLeave={() => setHover(null)}>
+          <circle cx="60" cy="60" r={R} fill="none" strokeWidth="16" className="stroke-zinc-100 dark:stroke-zinc-800" />
+          {points.map((p, i) => {
+            const len = (p.value / total) * C;
+            const el = (
+              <circle key={p.key + i} cx="60" cy="60" r={R} fill="none" style={{ stroke: colorOf(p, i) }} strokeWidth={hover === i ? 19 : 16} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} onMouseEnter={() => setHover(i)} className="transition-all">
+                <title>{`${p.label}: ${formatValue(p.value, format, currency)}`}</title>
+              </circle>
+            );
+            acc += len;
+            return el;
+          })}
+        </svg>
+        <ul className="w-full min-w-0 space-y-1.5 text-sm">
+          {points.map((p, i) => (
+            <li key={p.key + i} className="flex items-center gap-2" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              <span className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(p, i) }} />
+              <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-400">{p.label}</span>
+              <span className="font-medium tabular-nums">{formatValue(p.value, format, currency, true)}</span>
+              <span className="w-10 text-right text-xs text-zinc-400 tabular-nums">{Math.round((p.value / total) * 100)}%</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

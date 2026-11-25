@@ -11,15 +11,17 @@ import ChannelsTab from './ChannelsTab';
 import ApiKeysTab from './ApiKeysTab';
 import AuditTab from './AuditTab';
 import CustomizationTab from './CustomizationTab';
+import AppearanceTab from './AppearanceTab';
 import PlatformTab from './PlatformTab';
 
-type TabKey = 'general' | 'account' | 'team' | 'customization' | 'ai' | 'memory' | 'channels' | 'api-keys' | 'audit' | 'platform';
+type TabKey = 'general' | 'account' | 'team' | 'customization' | 'appearance' | 'ai' | 'memory' | 'channels' | 'api-keys' | 'audit' | 'platform';
 
 const TABS: { key: TabKey; label: string; min: Role | null; platform?: boolean }[] = [
   { key: 'general', label: 'Organización', min: 'viewer' },
   { key: 'account', label: 'Mi cuenta', min: null },
   { key: 'team', label: 'Equipo', min: 'viewer' },
   { key: 'customization', label: 'Personalización', min: 'admin' },
+  { key: 'appearance', label: 'Apariencia', min: 'admin' },
   { key: 'ai', label: 'Proveedores de IA', min: 'admin' },
   { key: 'memory', label: 'Memoria de IA', min: 'member' },
   { key: 'channels', label: 'Canales', min: 'viewer' },
@@ -44,6 +46,7 @@ export default function Settings() {
         {current.key === 'account' && <AccountTab />}
         {current.key === 'team' && <TeamTab />}
         {current.key === 'customization' && <CustomizationTab />}
+        {current.key === 'appearance' && <AppearanceTab />}
         {current.key === 'ai' && <AiTab />}
         {current.key === 'memory' && <MemoryTab />}
         {current.key === 'channels' && <ChannelsTab />}

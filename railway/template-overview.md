@@ -1,10 +1,10 @@
 # Deploy and Host Cortex CRM with Railway
 
-Cortex CRM is a multi-tenant CRM that evolves in natural language. Each organization describes the change it needs ("add a contracts module with expiry reminders") and EVOLVE AI ENGINE plans it, tests it in an isolated sandbox and applies it only after a human approves it, with versioning and one-click rollback. The interface is in Spanish.
+Cortex CRM is a multi-tenant CRM that evolves in natural language. Each organization describes the change it needs ("add a contracts module with expiry reminders", "build a full inventory and invoicing system", "use dark green and group the menu by department") and EVOLVE AI ENGINE plans it, tests it in an isolated sandbox and applies it only after a human approves it, with versioning and one-click rollback. There is no limit on the number of modules, and large requests are planned in parts. The platform administrator can also have the AI change the installation's own source code, tested in an isolated CI service and deployed only after review. The interface is in Spanish.
 
 ## About Hosting Cortex CRM
 
-Cortex CRM runs as two services built from the same Docker image plus PostgreSQL. `Cortex` serves the API and the web interface on a public domain. `Worker` runs the job queue: the EVOLVE pipeline, scheduled automations and outgoing webhooks. All data lives in PostgreSQL over Railway's private network, with Row Level Security isolating every organization. The template generates the encryption key and an installation token on every deploy, and database migrations run automatically on boot, so a new installation needs no manual configuration. Bring your own AI provider keys (Anthropic, OpenAI, OpenRouter, DeepSeek, Gemini, Mistral or Groq); they are stored encrypted per organization.
+Cortex CRM runs as two services built from the same Docker image plus PostgreSQL. `Cortex` serves the API and the web interface on a public domain. `Worker` runs the job queue: the EVOLVE pipeline, scheduled automations and outgoing webhooks. A fourth, empty service, `CI`, has no variables and no domain; it is only used by the optional source-code engine to build and test proposed code changes. All data lives in PostgreSQL over Railway's private network, with Row Level Security isolating every organization. The template generates the encryption key and an installation token on every deploy, and database migrations run automatically on boot, so a new installation needs no manual configuration. Bring your own AI provider keys (Anthropic, OpenAI, OpenRouter, DeepSeek, Gemini, Mistral or Groq); they are stored encrypted per organization.
 
 ## Common Use Cases
 
@@ -31,6 +31,7 @@ After the deploy finishes:
 2. In **Ajustes › Mi cuenta**, paste the `PLATFORM_ADMIN_SETUP_TOKEN` value from the `Cortex` service variables to become the platform administrator. The token works once.
 3. Add an AI provider in **Ajustes › Proveedores de IA**.
 4. Optional: set `RESEND_API_KEY` and `EMAIL_FROM` on `Cortex` for email, and `ALLOW_SIGNUP=false` to disable public sign-ups.
+5. Optional: to let the AI change the installation's source code, create a Railway project token for this environment and paste it in **Código fuente › Configuración** (platform administrators only). Then disconnect `Cortex` and `Worker` from the template repository (service › Settings › Source), so that a push to the template does not overwrite your changes.
 
 ## Why Deploy Cortex CRM on Railway?
 

@@ -400,6 +400,26 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     });
   });
 
+  /**
+   * Datos de los widgets de una página propia (blueprint.pages). La página se resuelve con la misma visibilidad
+   * que /blueprint (rol mínimo de la página y sin bloques de módulos que el rol no puede leer) y solo se calculan
+   * los widgets legibles. Las listas de registros las pide el cliente a /records/:module (con sus permisos).
+   */
+  app.get('/pages/:key/data', async (req) => {
+    const { key } = z.object({ key: z.string().max(40) }).parse(req.params);
+    return withWs(req, 'viewer', async (q, ws, a) => {
+      const page = blueprintForRole(ws.blueprint, a.role).pages.find((p) => p.key === key);
+      if (!page) throw notFound('Página no encontrada');
+      const canRead = canReadFor(ws, a);
+      const data: Record<string, unknown> = {};
+      for (const b of page.blocks) {
+        if (b.type !== 'widget' || !canRead(b.widget.module)) continue;
+        data[b.widget.key] = await computeWidget(q, ws.id, ws.blueprint, b.widget, { now: deps.now(), tz: ws.settings.timezone, canRead });
+      }
+      return { page, data };
+    });
+  });
+
   app.get('/reports/:type', async (req) => {
     const { type } = z.object({ type: z.enum(REPORT_TYPES) }).parse(req.params);
     return withWs(req, 'viewer', async (q, ws, a) => {

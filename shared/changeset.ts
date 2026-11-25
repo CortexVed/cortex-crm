@@ -1,15 +1,22 @@
 import { z } from 'zod';
 import { COLORS, FIELD_TYPES, ICONS, ROLES } from './constants';
+import { APPEARANCE_DENSITIES, APPEARANCE_FONTS, APPEARANCE_RADII, SIDEBAR_STYLES, THEME_MODES } from './appearance';
 import {
+  AppNameSchema,
   AutomationSchema,
+  BLUEPRINT_LIMITS,
   ConditionSchema,
+  CustomCssSchema,
   DashboardSchema,
   FieldSchema,
   FormSchema,
+  HexColorSchema,
   IntegrationSchema,
   KeySchema,
   LayoutSectionSchema,
   ModuleSchema,
+  NavigationSchema,
+  PageSchema,
   ScriptSchema,
   SelectOptionSchema,
   ViewSchema,
@@ -35,7 +42,7 @@ const ModulePatchSchema = z.object({
   color: z.enum(COLORS).optional(),
   description: z.string().max(500).optional(),
   primaryField: KeySchema.optional(),
-  layout: z.array(LayoutSectionSchema).max(12).optional(),
+  layout: z.array(LayoutSectionSchema).max(BLUEPRINT_LIMITS.layoutSections).optional(),
   permissions: z
     .object({ read: RoleSchema.optional(), create: RoleSchema.optional(), update: RoleSchema.optional(), delete: RoleSchema.optional() })
     .optional(),
@@ -48,7 +55,7 @@ const FieldPatchSchema = z.object({
   unique: z.boolean().optional(),
   helpText: z.string().max(300).optional(),
   hidden: z.boolean().optional(),
-  options: z.array(SelectOptionSchema).max(100).optional(),
+  options: z.array(SelectOptionSchema).max(BLUEPRINT_LIMITS.selectOptions).optional(),
   relation: z.object({ module: KeySchema }).optional(),
   currency: z
     .string()
@@ -61,6 +68,20 @@ const FieldPatchSchema = z.object({
   formula: z.object({ expression: z.string().min(1).max(1000), resultType: z.enum(['number', 'text', 'boolean']).optional() }).optional(),
   defaultValue: z.unknown().optional(),
 });
+
+/** Parche de apariencia (explícito y sin valores por defecto): `null` quita accentColor, appName o customCss. */
+const AppearancePatchSchema = z.object({
+  brandColor: HexColorSchema.optional(),
+  accentColor: HexColorSchema.nullable().optional(),
+  appName: AppNameSchema.nullable().optional(),
+  font: z.enum(APPEARANCE_FONTS).optional(),
+  radius: z.enum(APPEARANCE_RADII).optional(),
+  density: z.enum(APPEARANCE_DENSITIES).optional(),
+  sidebar: z.enum(SIDEBAR_STYLES).optional(),
+  defaultTheme: z.enum(THEME_MODES).optional(),
+  customCss: CustomCssSchema.nullable().optional(),
+});
+export type AppearancePatch = z.infer<typeof AppearancePatchSchema>;
 
 const Values = z.record(z.string(), z.unknown());
 
@@ -77,7 +98,7 @@ export const OperationSchema = z.discriminatedUnion('op', [
     op: z.literal('add_select_options'),
     module: KeySchema,
     field: KeySchema,
-    options: z.array(SelectOptionSchema).min(1).max(50),
+    options: z.array(SelectOptionSchema).min(1).max(BLUEPRINT_LIMITS.selectOptions),
   }),
   z.object({ op: z.literal('upsert_view'), module: KeySchema, view: ViewSchema }),
   z.object({ op: z.literal('remove_view'), module: KeySchema, view: KeySchema }),
@@ -93,6 +114,12 @@ export const OperationSchema = z.discriminatedUnion('op', [
   // EVOLVE lo escribe a partir de la especificación (description) antes de probarlo.
   z.object({ op: z.literal('upsert_script'), script: ScriptSchema }),
   z.object({ op: z.literal('remove_script'), script: KeySchema }),
+  // Capa visual de la organización: apariencia (parche), menú (se sustituye entero; null = menú por defecto)
+  // y páginas propias.
+  z.object({ op: z.literal('update_appearance'), changes: AppearancePatchSchema }),
+  z.object({ op: z.literal('update_navigation'), navigation: NavigationSchema.nullable() }),
+  z.object({ op: z.literal('upsert_page'), page: PageSchema }),
+  z.object({ op: z.literal('remove_page'), page: KeySchema }),
   z.object({
     op: z.literal('backfill_field'),
     module: KeySchema,
@@ -138,11 +165,28 @@ export const TestCaseSchema = z.object({
 });
 export type TestCase = z.infer<typeof TestCaseSchema>;
 
+/** Límites de un change set: muy altos para que un cambio grande (un ERP entero) quepa en una sola versión. */
+export const CHANGESET_LIMITS = { operations: 5000, tests: 300, outlineParts: 60 } as const;
+
+/**
+ * Parte de un plan grande. Cuando una petición es demasiado grande para generarla de una vez (muchos módulos o
+ * un sistema completo), el planificador devuelve primero el esquema (`outline`) y EVOLVE genera cada parte por
+ * separado, encadenadas sobre el blueprint resultante de las anteriores, antes de probarlo todo junto.
+ */
+export const OutlinePartSchema = z.object({
+  key: KeySchema,
+  title: z.string().min(1).max(140),
+  description: z.string().min(1).max(4000),
+});
+export type OutlinePart = z.infer<typeof OutlinePartSchema>;
+
 export const ChangeSetSchema = z.object({
   title: z.string().min(3).max(140),
   summary: z.string().min(1).max(3000),
-  operations: z.array(OperationSchema).max(80).default([]),
-  tests: z.array(TestCaseSchema).max(20).default([]),
+  operations: z.array(OperationSchema).max(CHANGESET_LIMITS.operations).default([]),
+  tests: z.array(TestCaseSchema).max(CHANGESET_LIMITS.tests).default([]),
+  /** Plan por partes (petición grande): con operaciones vacías, EVOLVE genera cada parte por separado. */
+  outline: z.array(OutlinePartSchema).max(CHANGESET_LIMITS.outlineParts).optional(),
   /** La petición necesita una funcionalidad nueva de la plataforma (no se resuelve por organización). */
   requiresPlatformChange: z.boolean().default(false),
   platformRequest: z.string().max(6000).optional(),

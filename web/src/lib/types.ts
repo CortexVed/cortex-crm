@@ -1,6 +1,6 @@
 import type { Role } from '../../../shared/constants';
-export type { Blueprint, Module, Field, View, Automation, Widget, Dashboard, Condition, SelectOption, LayoutSection } from '../../../shared/blueprint';
-export type { ChangeSet, Operation } from '../../../shared/changeset';
+export type { Blueprint, Module, Field, View, Automation, Widget, Dashboard, Condition, SelectOption, LayoutSection, Appearance, Navigation, NavGroup, NavItem, Page, PageBlock, PageButton } from '../../../shared/blueprint';
+export type { ChangeSet, Operation, AppearancePatch } from '../../../shared/changeset';
 
 export interface Me {
   user: { id: string; name: string; email: string; emailVerified: boolean; isPlatformAdmin: boolean };

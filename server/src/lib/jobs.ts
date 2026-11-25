@@ -223,6 +223,10 @@ export class JobRunner {
 
   /** Duración máxima de un tipo de trabajo. */
   timeoutFor(type: string): number {
+    // Motor de código fuente (code.plan, code.deploy): el agente de IA y las esperas al CI y a los despliegues
+    // de Railway necesitan más margen. Cada ejecución es una fase acotada y source_changes lleva su propio
+    // lease con latido, así que, aunque otra instancia lo tomara por huérfano, el cambio no se procesa dos veces.
+    if (this.timeouts[type] === undefined && type.startsWith('code.')) return 45 * 60_000;
     return this.timeouts[type] ?? this.defaultTimeoutMs;
   }
 

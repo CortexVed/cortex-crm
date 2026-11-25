@@ -31,24 +31,55 @@ export function normalizeSettings(raw: unknown): WorkspaceSettings {
   };
 }
 
-// Caché de blueprints parseados por (organización, versión): las versiones son inmutables.
-const cache = new Map<string, Blueprint>();
+/**
+ * Caché de blueprints parseados por (organización, versión): las versiones son inmutables. Es LRU y con tope
+ * por tamaño (no por número): sin límite de módulos, un blueprint puede ocupar varios MB y 500 entradas de
+ * ese tamaño agotarían la memoria.
+ */
+const CACHE_MAX_BYTES = 256 * 1024 * 1024;
+const cache = new Map<string, { blueprint: Blueprint; bytes: number }>();
+let cacheBytes = 0;
+
+function cacheGet(key: string): Blueprint | undefined {
+  const hit = cache.get(key);
+  if (!hit) return undefined;
+  cache.delete(key);
+  cache.set(key, hit); // más reciente al final
+  return hit.blueprint;
+}
+
+function cachePut(key: string, blueprint: Blueprint, bytes: number) {
+  if (bytes > CACHE_MAX_BYTES) return;
+  const prev = cache.get(key);
+  if (prev) {
+    cacheBytes -= prev.bytes;
+    cache.delete(key);
+  }
+  while (cacheBytes + bytes > CACHE_MAX_BYTES && cache.size) {
+    const [oldest, entry] = cache.entries().next().value as [string, { bytes: number }];
+    cache.delete(oldest);
+    cacheBytes -= entry.bytes;
+  }
+  cache.set(key, { blueprint, bytes });
+  cacheBytes += bytes;
+}
+
+/** Solo para pruebas: tamaño actual de la caché. */
+export function blueprintCacheStats() {
+  return { entries: cache.size, bytes: cacheBytes, maxBytes: CACHE_MAX_BYTES };
+}
 
 export async function loadWorkspace(q: Queryable, workspaceId: string) {
-  const r = await q.query(
-    `SELECT w.id, w.name, w.slug, w.plan, w.blueprint_version, w.settings, bv.definition
-     FROM workspaces w LEFT JOIN blueprint_versions bv ON bv.workspace_id = w.id AND bv.version = w.blueprint_version
-     WHERE w.id = $1`,
-    [workspaceId],
-  );
+  // La definición (que puede ocupar varios MB) solo se trae de la base de datos si no está en la caché.
+  const r = await q.query(`SELECT id, name, slug, plan, blueprint_version, settings FROM workspaces WHERE id = $1`, [workspaceId]);
   const row = r.rows[0];
   if (!row) throw notFound('Organización no encontrada');
   const key = `${workspaceId}:${row.blueprint_version}`;
-  let blueprint = cache.get(key);
+  let blueprint = cacheGet(key);
   if (!blueprint) {
-    blueprint = BlueprintSchema.parse(row.definition);
-    if (cache.size > 500) cache.clear();
-    cache.set(key, blueprint);
+    const def = (await q.query(`SELECT definition FROM blueprint_versions WHERE workspace_id = $1 AND version = $2`, [workspaceId, row.blueprint_version])).rows[0]?.definition;
+    blueprint = BlueprintSchema.parse(def);
+    cachePut(key, blueprint, Buffer.byteLength(typeof def === 'string' ? def : JSON.stringify(def ?? null)));
   }
   return {
     id: row.id as string,

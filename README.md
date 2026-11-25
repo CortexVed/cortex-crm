@@ -4,13 +4,15 @@
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (201 tests en 15 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (264 tests en 18 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
 - **CRM completo**: empresas, contactos, oportunidades (pipeline kanban con importe ponderado), tareas (calendario y recordatorios) y actividades; fichas con relaciones, línea de tiempo, notas y documentos; búsqueda global; borrado restaurable.
-- **EVOLVE AI ENGINE**: pipeline de 10 pasos (interpretar → analizar → planificar → desarrollar en aislamiento → probar → presentar → autorizar → desplegar → verificar → recuperar), sandbox con reloj simulado y cinco suites de pruebas, auto-corrección, revisión cruzada con otro modelo, riesgo determinista, aprobación por roles, versiones con rollback y restauración.
+- **EVOLVE AI ENGINE**: pipeline de 10 pasos (interpretar → analizar → planificar → desarrollar en aislamiento → probar → presentar → autorizar → desplegar → verificar → recuperar), sandbox con reloj simulado y cinco suites de pruebas, auto-corrección, revisión cruzada con otro modelo, riesgo determinista, aprobación por roles, versiones con rollback y restauración. **Sin límite de módulos**: una petición grande (por ejemplo, un ERP completo) se planifica por partes, cada parte sobre el resultado de las anteriores, y se prueba, se aprueba y se publica como un único cambio; con un CRM muy grande el planificador recibe un índice de todo y el detalle de los módulos relevantes.
 - **Scripts por organización**: cuando la configuración no basta, EVOLVE especifica un script, un paso «desarrollador» escribe su código (JavaScript) y el sandbox lo prueba antes de aprobarlo. Se ejecuta dentro de la plataforma en QuickJS compilado a WebAssembly (sin red ni archivos, con límites de memoria y tiempo), se versiona con la configuración de su organización y nunca afecta a otras.
+- **Apariencia por organización**: cada organización cambia el aspecto de su CRM pidiéndolo en lenguaje natural («pon el menú lateral oscuro», «usa nuestro color corporativo #0A7F6B», «agrupa el menú en Comercial y Operaciones», «crea una página de inicio para ventas con KPIs y la lista de oportunidades abiertas») o desde *Ajustes › Apariencia*, un editor visual con vista previa en directo: color principal (paleta completa calculada en OKLCH), acento, nombre de la aplicación, tipografía, bordes, densidad, menú lateral claro, oscuro o de marca, tema por defecto y CSS personalizado (solo CSS plano, que no puede cargar nada y nunca se aplica en EVOLVE ni en Ajustes); menú agrupado y plegable, página de inicio y **páginas propias** hechas de bloques (widgets, listas de registros, textos, formularios y botones) que cada rol ve solo con lo que puede leer. Todo es parte del blueprint: se prueba, se aprueba con una **vista previa** antes/después y se publica como versión reversible, sin cambiar el código de la plataforma.
+- **Motor de código fuente de la instalación** (solo administración de la plataforma, *Código fuente*): se pide en lenguaje natural cualquier cambio del **código real** de la plataforma (pantallas, funcionalidades, integraciones, rediseños); un agente de IA lo escribe sobre una copia del código, unas reglas deterministas protegen el núcleo (autenticación, cifrado, RLS, CSP, dependencias, migraciones aditivas), se prueba en un **CI aislado en Railway** (tipos, pruebas y build, con auto-corrección), lo revisa otro modelo y una persona lee el diff y escribe `DESPLEGAR`; se despliega primero en el worker (canario) y después en el web, con verificación y rollback (`REVERTIR`). Nunca se publica en GitHub: cada instalación evoluciona por su cuenta. Las peticiones de las organizaciones que necesitan la plataforma llegan a su bandeja ([docs/CODE_ENGINE.md](docs/CODE_ENGINE.md)).
 - **AI PROVIDER MANAGER**: claves cifradas, enmascaradas y revocables; catálogo de modelos descubierto por API (OpenRouter con precios en vivo); modelo por tarea (10 tipos); *fallback* automático; límites por hora y presupuesto mensual; coste, latencia y errores por llamada; comparación de modelos.
 - **Asistente EVOLVE AI** contextual (entiende la pantalla actual), con herramientas que respetan permisos; las escrituras siempre requieren confirmación. Memoria de IA por organización y usuario.
 - **IA sobre los datos**, cada función con su propio tipo de tarea (y modelo configurable): «Pregunta a tus datos» en Informes (la pregunta se convierte en una consulta estructurada y validada, nunca en SQL, y se puede añadir al panel), «Clasificar con IA» en la ficha (sugiere valores para los campos de selección; no se guarda nada hasta aplicarlo) y análisis de documentos PDF o de texto (resumen, fechas, importes, riesgos y tareas sugeridas).
@@ -28,13 +30,13 @@
 | Cliente | React 19, Vite 8, Tailwind CSS 4, TanStack Query 5, React Router 8, lucide-react |
 | Base de datos | PostgreSQL (Railway: Postgres 18) con RLS; PGlite (Postgres en WASM) en desarrollo y tests |
 | Tests y calidad | Vitest 5, TypeScript estricto; workflow de CI opcional para GitHub Actions (`.github/workflows/ci.yml`) |
-| Despliegue | Plantilla de Railway (Docker `node:24-alpine`): servicios `Cortex` (web), `Worker` y `Postgres` |
+| Despliegue | Plantilla de Railway (Docker `node:24-alpine`): servicios `Cortex` (web), `Worker`, `CI` (vacío, para el motor de código fuente) y `Postgres` |
 
 ## Estructura
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (201 tests en 15 archivos)
+server/test/  Tests Vitest (264 tests en 18 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -83,7 +85,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 201 tests en 15 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 264 tests en 18 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 
@@ -99,6 +101,14 @@ npm run typecheck    # TypeScript del servidor y del cliente
 | `assistant-security.test.ts` | 6 | Contexto de pantalla como datos (fuera del prompt de sistema) y herramientas, escrituras solo propuestas, sin proveedor no inventa, SSRF, cifrado con AAD, redacción de secretos |
 | `security-regressions.test.ts` | 18 | Regresiones de la revisión de seguridad: solo el propietario nombra/invita administradores; API keys limitadas al rol actual de su creador y revocadas al salir; enlaces de recuperación acotados; invitaciones y verificación de email según la entrega del correo; administrador de plataforma solo por email verificado en producción; `APP_URL` obligatoria; IP del cliente no falseable; bloqueo de login no esquivable en paralelo; aprobaciones sobre versiones antiguas; permisos de lectura en informes y referencias; fórmulas que filtran datos = riesgo alto; rollback de riesgo alto solo propietario; memoria con confirmación; SSRF ampliado; logs sin tokens |
 | `ai-features.test.ts` | 15 | Funciones de IA sobre los datos y correcciones: preguntas en lenguaje natural (tarea `sql_generation`, ejecución con datos reales, ronda de corrección y `422`, módulos restringidos invisibles para la IA, «Registro restringido» al agrupar por relaciones, sin API key); clasificación (tarea `customer_classification`, solo sugerencias válidas, nada se guarda, un lector no puede); análisis de documentos (tarea `document_analysis`, el archivo viaja como adjunto, formatos no admitidos); planificación con la tarea `automations`; una petición cancelada no se revive; lo que necesita la plataforma queda registrado (`kind: platform`) y las rutas del antiguo motor de código ya no existen (`404`); secreto de firma de webhooks (solo administradores, auditado); API keys sin acceso a datos personales; detección de cuentas bloqueadas; versiones filtradas por permisos |
+| `code-engine.test.ts` | 32 | Motor de código fuente: reglas deterministas (núcleo protegido, patrones prohibidos, anclas, migraciones aditivas, dependencias, rutas, tamaño), espacio de trabajo virtual y tar ustar, formato de las peticiones a Railway, rol `ci`; pipeline con IA y Railway simulados (CI superado, CI fallido → auto-corrección, reglas antes del CI), `DESPLEGAR`, worker antes que web, rollback automático y con `REVERTIR`, solo administración de la plataforma con sesión, token cifrado que nunca se devuelve, bandeja de peticiones de plataforma |
+| `appearance.test.ts` | 24 | Capa visual: blueprints anteriores siguen siendo válidos; operaciones de apariencia (parche), menú y páginas; referencias rotas detectadas; CSS personalizado malicioso rechazado en el servidor, el sandbox y la aprobación; riesgo bajo (medio con CSS) e impacto legible; visibilidad por rol de páginas, bloques y menú; `GET /api/pages/:key/data` nunca da datos de módulos restringidos; publicación y rollback; planificación de peticiones visuales |
+| `expansion.test.ts` | 7 | Sin límite práctico de módulos (el único tope global es el tamaño, 25 MB); contexto del planificador escalable (blueprint completo o índice + detalle de los módulos relevantes); plan por partes unido en un único cambio y auto-corrección solo de la parte que falla; caché de blueprints acotada por tamaño |
+| `scripts-sandbox.test.ts` | 19 | Sandbox de scripts fuera del hilo principal: plazo duro y sustitución del hilo, recursiones y memoria cortadas sin romper el motor |
+| `jobs-webhooks.test.ts` | 19 | Webhooks salientes con plazo total y protección SSRF; cola con turnos por organización, trabajos colgados y recuperación de procesos caídos |
+| `audit-hardening.test.ts` | 29 | Arreglos de la auditoría de seguridad (motor de riesgo, validación de bucles y fórmulas, plantillas maliciosas, avisos según permisos) |
+| `audit-hardening-access.test.ts` | 11 | Segunda parte de la auditoría: enlaces de restablecimiento, invitaciones de administrador y correos |
+| `template.test.ts` | 10 | Despliegue desde la plantilla de Railway: claves derivadas de los secretos, modo producción y rol del worker automáticos, arranque solo con las variables de la plantilla |
 
 ## Build
 
@@ -119,6 +129,8 @@ El rol del proceso se elige con `PROCESS_ROLE` (`web`, `worker` o `all`; en prod
 
 Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.md](docs/RAILWAY_TEMPLATE.md).
 
+**Motor de código fuente (opcional):** servicio `CI` vacío (sin variables ni dominio), `CORTEX_SERVICE_ID=${{Cortex.RAILWAY_SERVICE_ID}}` y `CI_SERVICE_ID=${{CI.RAILWAY_SERVICE_ID}}` en el `Worker` y un token de proyecto de Railway en *Código fuente › Configuración* ([docs/RAILWAY_TEMPLATE.md](docs/RAILWAY_TEMPLATE.md#4-motor-de-código-fuente-servicio-ci-y-token)).
+
 **A mano con la CLI:** el mismo `Dockerfile` en dos servicios (`PROCESS_ROLE=web` y `worker`), `DATABASE_URL=${{Postgres.DATABASE_URL}}`, una `APP_ENCRYPTION_KEY` compartida por referencia y `railway up` en cada servicio. Las migraciones se aplican solas al arrancar y el cambio de versión no corta el servicio. Guía completa: [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md).
 
 ## Documentación
@@ -129,6 +141,7 @@ Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.m
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arquitectura, mapa del código, convenciones y decisiones (ADR) |
 | [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Tablas, índices, RLS y estructuras JSON (blueprint, scripts y change set) |
 | [AI_ENGINE.md](docs/AI_ENGINE.md) | EVOLVE AI ENGINE, scripts por organización, AI Provider Manager, asistente y memoria |
+| [CODE_ENGINE.md](docs/CODE_ENGINE.md) | Motor de código fuente de la instalación: agente, reglas, CI aislado en Railway, revisión, despliegue con canario y rollback |
 | [SECURITY.md](docs/SECURITY.md) | Modelo de amenazas, controles implementados y endurecimiento pendiente |
 | [API_SPECIFICATION.md](docs/API_SPECIFICATION.md) | Todos los endpoints, autenticación, errores y ejemplos |
 | [RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) | Despliegue, variables, rollback, CI opcional, copias y monitorización |
@@ -137,7 +150,8 @@ Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.m
 ## Limitaciones conocidas
 
 - Los adaptadores de IA están probados con HTTP simulado, **no contra las APIs reales** (en la última verificación de producción no había ninguna clave de proveedor configurada); Gemini, Mistral y Groq son experimentales. El envío de PDF a OpenAI y OpenRouter (parte `file` de Chat Completions) está implementado pero sin probar contra sus APIs ni cubierto por tests; el resto de proveedores compatibles con OpenAI rechazan los PDF.
-- La escritura de código de scripts por un modelo real no se ha ejercitado (solo con el proveedor simulado); un script no puede usar red ni credenciales, y lo que necesita una funcionalidad nueva de la plataforma solo queda registrado en la petición.
+- La escritura de código de scripts por un modelo real no se ha ejercitado (solo con el proveedor simulado); un script no puede usar red ni credenciales, y lo que necesita una funcionalidad nueva de la plataforma queda registrado en la petición y en la bandeja del motor de código fuente.
+- El motor de código fuente solo se ha probado con la IA y Railway simulados (el protocolo de subida, el esquema GraphQL y el tar están comprobados, pero no contra un proyecto real); la seguridad frente a un cambio de lógica malicioso que respete las reglas depende de la revisión humana del diff ([riesgos](docs/CODE_ENGINE.md#13-limitaciones-y-riesgos-abiertos)).
 - WhatsApp y Telegram están implementados pero sin probar con credenciales reales; Gmail, Outlook y Slack no están implementados (requieren apps OAuth de plataforma).
 - El correo requiere `RESEND_API_KEY` + `EMAIL_FROM` (sin configurar en la última verificación de producción); la verificación de email no bloquea el uso (con el correo configurado, solo muestra un aviso).
 - *Rate limiting* en memoria por instancia; respuestas del asistente sin *streaming*; sin 2FA/SSO; sin facturación; sin tests E2E en CI; archivos en PostgreSQL; la aplicación se conecta a PostgreSQL como superusuario (RLS mediante `SET LOCAL ROLE`).

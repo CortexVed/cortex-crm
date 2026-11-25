@@ -6,7 +6,7 @@ import { loadConfig } from '../src/config';
 import { normalizeClientIp } from '../src/lib/client-ip';
 import { Client, setup } from './helpers';
 import { assessRisk, assessTransition } from '../src/evolve/risk';
-import { validateBlueprint } from '../src/evolve/validate';
+import { MAX_FORMULAS_PER_MODULE, validateBlueprint } from '../src/evolve/validate';
 import { applyOperations } from '../src/evolve/apply';
 import { RecordService } from '../src/crm/record-service';
 import { MemoryRecordStore } from '../src/crm/store';
@@ -117,7 +117,7 @@ describe('validación del blueprint', () => {
   });
 
   it('limita el número de campos calculados por módulo', () => {
-    const many = Array.from({ length: 41 }, (_, i) => ({ op: 'add_field', module: 'companies', field: { key: `f${i}`, label: `F${i}`, type: 'formula', formula: { expression: '1 + 1', resultType: 'number' } } }));
+    const many = Array.from({ length: MAX_FORMULAS_PER_MODULE + 1 }, (_, i) => ({ op: 'add_field', module: 'companies', field: { key: `f${i}`, label: `F${i}`, type: 'formula', formula: { expression: '1 + 1', resultType: 'number' } } }));
     const bp = applyOperations(defaultBlueprint(), ops(many)).blueprint;
     expect(validateBlueprint(bp).some((i) => i.level === 'error' && i.message.includes('campos calculados'))).toBe(true);
   });

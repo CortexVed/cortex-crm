@@ -725,12 +725,13 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
     ['Módulos activos', activeModules.length],
     ['Automatizaciones', bp.automations.length],
     ['Paneles', bp.dashboards.length],
+    ['Páginas', bp.pages?.length ?? 0],
     ['Formularios', bp.forms.length],
     ['Integraciones', bp.integrations.length],
   ];
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {counters.map(([label, n]) => (
           <div key={label} className="rounded-lg bg-zinc-50 px-3 py-2 ring-1 ring-inset ring-zinc-200/70 dark:bg-zinc-800/40 dark:ring-zinc-800">
             <div className="text-lg font-semibold tabular-nums">{n}</div>

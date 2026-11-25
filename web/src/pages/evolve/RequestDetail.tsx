@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, Database, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, Database, Eye, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
+import { useBlueprint } from '../../lib/hooks';
+import type { Blueprint, Operation } from '../../lib/types';
+import { sanitizeCustomCss } from '../../../../shared/appearance';
 import { formatDate, relativeTime } from '../../lib/format';
-import { Alert, Badge, Button, Card, ConfirmDialog, cx, ErrorState, PageLoader, Textarea } from '../../components/ui';
+import { Alert, Badge, Button, Card, ConfirmDialog, cx, ErrorState, PageLoader, Skeleton, Textarea } from '../../components/ui';
+import { AppearancePreview, PageStructurePreview, previewBlueprint, VISUAL_OPS } from '../../components/AppearancePreview';
+import { Segmented } from '../settings/ai/shared';
 import { useToast } from '../../components/toast';
 import { RiskBadge, RUNNING, StatusBadge } from './shared';
 
@@ -37,6 +42,75 @@ function ScriptsCode({ operations }: { operations: any[] }) {
           </li>
         ))}
       </ul>
+    </Card>
+  );
+}
+
+/**
+ * Vista previa de los cambios VISUALES (apariencia, menú y páginas) sobre la versión en la que se planificó el
+ * cambio: una maqueta con los tokens propuestos (antes / después) y la estructura de cada página. El CSS
+ * personalizado se muestra como código para revisarlo (no se aplica en la maqueta).
+ */
+function VisualPreview({ request }: { request: any }) {
+  const ops: Operation[] = request.change_set?.operations ?? [];
+  const visual = ops.filter((o) => VISUAL_OPS.has(o.op));
+  const base = useQuery({
+    queryKey: ['evolve', 'version', request.base_version],
+    queryFn: () => get<{ blueprint: Blueprint }>(`/evolve/versions/${request.base_version}`),
+    enabled: visual.length > 0 && !!request.base_version,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const current = useBlueprint();
+  const [mode, setMode] = useState<'after' | 'before'>('after');
+  if (!visual.length) return null;
+  const before = base.data?.blueprint ?? (base.isLoading ? undefined : current.data?.blueprint);
+  const look = visual.some((o) => o.op === 'update_appearance' || o.op === 'update_navigation');
+  const pages = visual.flatMap((o) => (o.op === 'upsert_page' ? [o.page] : []));
+  const removed = visual.flatMap((o) => (o.op === 'remove_page' ? [o.page] : []));
+  const cssOp = visual.find((o): o is Extract<Operation, { op: 'update_appearance' }> => o.op === 'update_appearance' && o.changes.customCss !== undefined);
+  const css = cssOp?.changes.customCss;
+  const cssCheck = typeof css === 'string' && css.trim() ? sanitizeCustomCss(css) : null;
+  const after = before ? previewBlueprint(before, ops) : undefined;
+  const shown = mode === 'after' ? after : before;
+  return (
+    <Card
+      title={<span className="flex items-center gap-2"><Eye className="size-4 text-brand-500" /> Vista previa</span>}
+      description="Maqueta con los cambios visuales propuestos y datos de ejemplo. Nada cambia hasta que se apruebe y se publique."
+      actions={look && before ? <Segmented size="sm" value={mode} onChange={setMode} options={[{ key: 'after', label: 'Después' }, { key: 'before', label: 'Antes' }]} /> : undefined}
+    >
+      {!before || !after || !shown ? (
+        <Skeleton className="h-72" />
+      ) : (
+        <div className="space-y-4">
+          {look && <AppearancePreview appearance={shown.appearance} blueprint={shown} navigation={shown.navigation ?? null} />}
+          {css === null && <p className="text-sm text-zinc-500">Se quita el CSS personalizado.</p>}
+          {cssCheck && (
+            <div className="rounded-lg ring-1 ring-zinc-200 dark:ring-zinc-800">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                <FileCode2 className="size-4 text-amber-500" />
+                <span className="font-medium">CSS personalizado</span>
+                <Badge color={cssCheck.ok ? 'emerald' : 'red'} dot>{cssCheck.ok ? 'CSS plano, sin recursos externos' : 'No válido'}</Badge>
+                <span className="ml-auto text-xs text-zinc-400">{css!.length} caracteres · no se aplica en la maqueta</span>
+              </div>
+              <div className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                <p className="mb-2 text-xs text-zinc-500">Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.</p>
+                {!cssCheck.ok && <ul className="mb-2 list-disc pl-5 text-xs text-red-600 dark:text-red-400">{cssCheck.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+                <pre className="max-h-72 overflow-auto rounded-lg bg-zinc-950 p-3 text-[12px] leading-relaxed text-zinc-100">{css}</pre>
+              </div>
+            </div>
+          )}
+          {pages.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Páginas</h4>
+              {pages.map((p) => (
+                <PageStructurePreview key={p.key} page={p} blueprint={after} />
+              ))}
+            </div>
+          )}
+          {removed.length > 0 && <p className="text-sm text-zinc-500">Se eliminan las páginas: {removed.map((k) => before.pages?.find((p) => p.key === k)?.label ?? k).join(', ')}.</p>}
+        </div>
+      )}
     </Card>
   );
 }
@@ -273,6 +347,7 @@ export default function RequestDetail() {
               {cs.platformRequest ?? 'Esta parte no se puede resolver solo para tu organización.'} Queda registrada para el equipo de Cortex CRM; el resto del cambio (si lo hay) sigue el proceso normal.
             </Alert>
           )}
+          {cs?.operations?.length > 0 && <VisualPreview request={r} />}
           {r.impact && cs?.operations?.length > 0 && <Impact impact={r.impact} />}
           <ScriptsCode operations={cs?.operations ?? []} />
           {r.test_report && <TestReport report={r.test_report} />}

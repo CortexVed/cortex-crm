@@ -1,10 +1,24 @@
 import { z } from 'zod';
 import { COLORS, CONDITION_OPERATORS, FIELD_TYPES, ICONS, ROLES, SYSTEM_FIELD_KEYS } from './constants';
+import {
+  APPEARANCE_DEFAULTS,
+  APPEARANCE_DENSITIES,
+  APPEARANCE_FONTS,
+  APPEARANCE_RADII,
+  BLOCK_WIDTHS,
+  BUTTON_STYLES,
+  BUTTON_TARGETS,
+  HEX_COLOR_RE,
+  MAX_CUSTOM_CSS,
+  SIDEBAR_STYLES,
+  THEME_MODES,
+} from './appearance';
 
 /**
  * BLUEPRINT: definición versionada de la estructura del CRM de una organización
  * (módulos, campos, vistas, diseño de fichas, permisos, automatizaciones, paneles,
- * integraciones y formularios). EVOLVE AI ENGINE modifica el blueprint mediante
+ * integraciones, formularios, scripts y su capa visual: apariencia, menú y páginas
+ * propias). EVOLVE AI ENGINE modifica el blueprint mediante
  * "change sets" que se validan, prueban en sandbox, aprueban y publican como versiones.
  */
 
@@ -16,6 +30,34 @@ export const KeySchema = z
   .regex(KEY_RE, 'Clave inválida: usa snake_case (a-z, 0-9, _) empezando por letra, máximo 40 caracteres')
   .refine((k) => !RESERVED_KEYS.has(k), 'Clave reservada: elige otro nombre');
 const Label = z.string().trim().min(1).max(80);
+
+/**
+ * Límites del blueprint de una organización. Son deliberadamente muy altos (en la práctica, sin límite para
+ * un CRM real) y existen solo para que una petición desmedida o malintencionada no pueda agotar la memoria o
+ * la base de datos. Además, `validateBlueprint` limita el tamaño total del blueprint (`maxBlueprintBytes`).
+ */
+export const BLUEPRINT_LIMITS = {
+  modules: 2000,
+  fieldsPerModule: 1000,
+  viewsPerModule: 100,
+  layoutSections: 100,
+  layoutSectionFields: 1000,
+  viewColumns: 300,
+  selectOptions: 2000,
+  automations: 5000,
+  dashboards: 500,
+  widgetsPerDashboard: 200,
+  integrations: 500,
+  forms: 1000,
+  formFields: 300,
+  scripts: 1000,
+  /** Capa visual: páginas propias, bloques por página, grupos del menú y elementos por grupo. */
+  pages: 500,
+  blocksPerPage: 200,
+  navigationGroups: 100,
+  navigationItems: 2000,
+  maxBlueprintBytes: 25 * 1024 * 1024,
+} as const;
 const Text = (max: number) => z.string().max(max);
 
 /** Valores de condición acotados (texto ≤ 500, listas ≤ 100): se procesan en cada consulta. */
@@ -50,7 +92,7 @@ export const FieldBaseSchema = z.object({
   hidden: z.boolean().default(false),
   archived: z.boolean().default(false),
   system: z.boolean().default(false),
-  options: z.array(SelectOptionSchema).max(100).optional(),
+  options: z.array(SelectOptionSchema).max(BLUEPRINT_LIMITS.selectOptions).optional(),
   relation: z.object({ module: KeySchema }).optional(),
   currency: z
     .string()
@@ -100,7 +142,7 @@ export const ViewSchema = z.object({
   key: KeySchema,
   label: Label,
   type: z.enum(['table', 'kanban', 'calendar']),
-  columns: z.array(z.string().max(60)).max(40).optional(),
+  columns: z.array(z.string().max(60)).max(BLUEPRINT_LIMITS.viewColumns).optional(),
   groupBy: z.string().max(60).optional(),
   cardFields: z.array(z.string().max(60)).max(8).optional(),
   dateField: z.string().max(60).optional(),
@@ -114,7 +156,7 @@ export type View = z.infer<typeof ViewSchema>;
 
 export const LayoutSectionSchema = z.object({
   title: Label,
-  fields: z.array(z.string().max(60)).max(80),
+  fields: z.array(z.string().max(60)).max(BLUEPRINT_LIMITS.layoutSectionFields),
   columns: z.union([z.literal(1), z.literal(2)]).default(2),
 });
 export type LayoutSection = z.infer<typeof LayoutSectionSchema>;
@@ -137,9 +179,9 @@ export const ModuleBaseSchema = z.object({
   system: z.boolean().default(false),
   archived: z.boolean().default(false),
   primaryField: KeySchema,
-  fields: z.array(FieldSchema).min(1).max(120),
-  views: z.array(ViewSchema).min(1).max(20),
-  layout: z.array(LayoutSectionSchema).max(12).optional(),
+  fields: z.array(FieldSchema).min(1).max(BLUEPRINT_LIMITS.fieldsPerModule),
+  views: z.array(ViewSchema).min(1).max(BLUEPRINT_LIMITS.viewsPerModule),
+  layout: z.array(LayoutSectionSchema).max(BLUEPRINT_LIMITS.layoutSections).optional(),
   permissions: PermissionsSchema.prefault({}),
 });
 export const ModuleSchema = ModuleBaseSchema;
@@ -233,7 +275,7 @@ export type Widget = z.infer<typeof WidgetSchema>;
 export const DashboardSchema = z.object({
   key: KeySchema,
   label: Label,
-  widgets: z.array(WidgetSchema).max(30).default([]),
+  widgets: z.array(WidgetSchema).max(BLUEPRINT_LIMITS.widgetsPerDashboard).default([]),
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;
 
@@ -252,7 +294,7 @@ export const FormSchema = z.object({
   key: KeySchema,
   name: Label,
   module: KeySchema,
-  fields: z.array(KeySchema).min(1).max(40),
+  fields: z.array(KeySchema).min(1).max(BLUEPRINT_LIMITS.formFields),
   public: z.boolean().default(false),
   submitLabel: z.string().max(40).default('Enviar'),
   successMessage: Text(300).default('¡Gracias! Hemos recibido tus datos.'),
@@ -260,13 +302,112 @@ export const FormSchema = z.object({
 });
 export type Form = z.infer<typeof FormSchema>;
 
+// ---------------------------------------------------------------- capa visual: apariencia, menú y páginas
+// Solo presentación: no cambia datos ni permisos. Se versiona, prueba, aprueba y revierte como el resto.
+
+/** Color #rrggbb (se normaliza a minúsculas). */
+export const HexColorSchema = z.string().trim().regex(HEX_COLOR_RE, 'Color inválido: usa el formato #rrggbb').toLowerCase();
+export const AppNameSchema = z.string().trim().min(1).max(40);
+/**
+ * Aquí solo se limita la longitud: que sea CSS plano y seguro lo comprueba `validateBlueprint` con
+ * `sanitizeCustomCss` (shared/appearance.ts), y el navegador lo vuelve a comprobar antes de inyectarlo. Así,
+ * si las reglas se endurecen, una versión antigua sigue cargando (y su CSS simplemente no se aplica).
+ */
+export const CustomCssSchema = z.string().max(MAX_CUSTOM_CSS, `El CSS personalizado no puede superar ${MAX_CUSTOM_CSS} caracteres`);
+
+export const AppearanceSchema = z.object({
+  /** Color principal (tono 600 de la paleta: botones, enlaces, selección). */
+  brandColor: HexColorSchema.default(APPEARANCE_DEFAULTS.brandColor),
+  /** Color de acento (avisos y degradados). */
+  accentColor: HexColorSchema.optional(),
+  /** Nombre que se muestra en el menú lateral y en la pestaña del navegador. */
+  appName: AppNameSchema.optional(),
+  font: z.enum(APPEARANCE_FONTS).default(APPEARANCE_DEFAULTS.font),
+  radius: z.enum(APPEARANCE_RADII).default(APPEARANCE_DEFAULTS.radius),
+  density: z.enum(APPEARANCE_DENSITIES).default(APPEARANCE_DEFAULTS.density),
+  sidebar: z.enum(SIDEBAR_STYLES).default(APPEARANCE_DEFAULTS.sidebar),
+  /** Tema inicial para quien no ha elegido uno (la elección de cada persona manda). */
+  defaultTheme: z.enum(THEME_MODES).default(APPEARANCE_DEFAULTS.defaultTheme),
+  customCss: CustomCssSchema.optional(),
+});
+export type Appearance = z.infer<typeof AppearanceSchema>;
+
+export const NavItemSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('module'), key: KeySchema, label: Label.optional() }),
+  z.object({ type: z.literal('dashboard'), key: KeySchema, label: Label.optional() }),
+  z.object({ type: z.literal('page'), key: KeySchema, label: Label.optional() }),
+  // Ruta interna de la aplicación ("/m/deals") o URL https (lo comprueba validateBlueprint con navHrefKind).
+  z.object({ type: z.literal('link'), href: z.string().trim().min(1).max(500), label: Label }),
+]);
+export type NavItem = z.infer<typeof NavItemSchema>;
+
+export const NavGroupSchema = z.object({
+  key: KeySchema,
+  label: Label,
+  items: z.array(NavItemSchema).max(BLUEPRINT_LIMITS.navigationItems).default([]),
+});
+export type NavGroup = z.infer<typeof NavGroupSchema>;
+
+export const NavigationSchema = z.object({
+  /** Grupos del menú lateral. Sin grupos, el menú es la lista de módulos de siempre. */
+  groups: z.array(NavGroupSchema).max(BLUEPRINT_LIMITS.navigationGroups).default([]),
+  /** Lo que se muestra en "/" (por defecto, el primer panel). */
+  home: z.object({ type: z.enum(['dashboard', 'page']), key: KeySchema }).optional(),
+});
+export type Navigation = z.infer<typeof NavigationSchema>;
+
+const BlockWidthSchema = z.enum(BLOCK_WIDTHS).default('full');
+
+export const PageButtonSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  to: z.object({ type: z.enum(BUTTON_TARGETS), key: KeySchema }),
+  style: z.enum(BUTTON_STYLES).optional(),
+});
+export type PageButton = z.infer<typeof PageButtonSchema>;
+
+export const PageBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('heading'), text: z.string().trim().min(1).max(200), level: z.number().int().min(1).max(3).default(2), width: BlockWidthSchema }),
+  z.object({ type: z.literal('text'), markdown: z.string().trim().min(1).max(10_000), width: BlockWidthSchema }),
+  z.object({ type: z.literal('widget'), widget: WidgetSchema, width: BlockWidthSchema }),
+  z.object({
+    type: z.literal('records'),
+    module: KeySchema,
+    view: KeySchema.optional(),
+    title: Label.optional(),
+    filters: z.array(ConditionSchema).max(10).default([]),
+    limit: z.number().int().min(1).max(100).default(10),
+    columns: z.array(z.string().max(60)).max(BLUEPRINT_LIMITS.viewColumns).optional(),
+    width: BlockWidthSchema,
+  }),
+  z.object({ type: z.literal('form'), form: KeySchema, width: BlockWidthSchema }),
+  z.object({ type: z.literal('buttons'), items: z.array(PageButtonSchema).min(1).max(12), width: BlockWidthSchema }),
+  z.object({ type: z.literal('divider'), width: BlockWidthSchema }),
+]);
+export type PageBlock = z.infer<typeof PageBlockSchema>;
+
+/** Página propia de la organización (/p/<key>): una pantalla hecha de bloques. */
+export const PageSchema = z.object({
+  key: KeySchema,
+  label: Label,
+  icon: z.enum(ICONS).default('layers'),
+  description: Text(500).optional(),
+  /** Rol mínimo para verla. Además, cada rol solo ve los bloques de los módulos que puede leer. */
+  minRole: z.enum(ROLES).default('viewer'),
+  blocks: z.array(PageBlockSchema).max(BLUEPRINT_LIMITS.blocksPerPage).default([]),
+});
+export type Page = z.infer<typeof PageSchema>;
+
 export const BlueprintSchema = z.object({
-  modules: z.array(ModuleSchema).max(60),
-  automations: z.array(AutomationSchema).max(200).default([]),
-  dashboards: z.array(DashboardSchema).max(20).default([]),
-  integrations: z.array(IntegrationSchema).max(50).default([]),
-  forms: z.array(FormSchema).max(50).default([]),
-  scripts: z.array(ScriptSchema).max(50).default([]),
+  modules: z.array(ModuleSchema).max(BLUEPRINT_LIMITS.modules),
+  automations: z.array(AutomationSchema).max(BLUEPRINT_LIMITS.automations).default([]),
+  dashboards: z.array(DashboardSchema).max(BLUEPRINT_LIMITS.dashboards).default([]),
+  integrations: z.array(IntegrationSchema).max(BLUEPRINT_LIMITS.integrations).default([]),
+  forms: z.array(FormSchema).max(BLUEPRINT_LIMITS.forms).default([]),
+  scripts: z.array(ScriptSchema).max(BLUEPRINT_LIMITS.scripts).default([]),
+  // Capa visual (opcional: los blueprints anteriores siguen siendo válidos tal cual).
+  appearance: AppearanceSchema.optional(),
+  navigation: NavigationSchema.optional(),
+  pages: z.array(PageSchema).max(BLUEPRINT_LIMITS.pages).default([]),
 });
 export type Blueprint = z.infer<typeof BlueprintSchema>;
 
@@ -275,6 +416,10 @@ export const SYSTEM_QUERY_FIELDS = ['id', 'created_at', 'updated_at', 'last_acti
 
 export function findModule(bp: Blueprint, key: string): Module | undefined {
   return bp.modules.find((m) => m.key === key);
+}
+
+export function findPage(bp: Blueprint, key: string): Page | undefined {
+  return (bp.pages ?? []).find((p) => p.key === key);
 }
 
 export function findField(mod: Module, key: string): Field | undefined {

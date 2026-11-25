@@ -167,6 +167,7 @@ Extensiones admitidas: pdf, png, jpg, jpeg, gif, webp, txt, csv, md, json, doc, 
 | GET | `/api/members/lookup` | viewer | S/K | | `[{id, name, email, role}]` |
 | GET | `/api/search?q=` | viewer | S/K | | Búsqueda global en los módulos legibles: `{groups: [{module, label, icon, total, items: [{id, title, subtitle}] (≤ 5)}]}` |
 | GET | `/api/dashboards/:key/data` | viewer | S/K | | `{dashboard, data: {<widget>: WidgetData}}`. Un widget de un módulo que el rol no puede leer devuelve `{type: 'error', message: 'Sin acceso'}`; al agrupar por una relación hacia un módulo no legible, las etiquetas son «Registro restringido» |
+| GET | `/api/pages/:key/data` | viewer (+ rol mínimo de la página) | S/K | | Página propia del blueprint (`blueprint.pages`) → `{page, data: {<widget>: WidgetData}}`. La página se resuelve con la misma visibilidad que `/api/blueprint` (`404` si no existe o el rol no llega a su `minRole`; sin los bloques de módulos que el rol no puede leer) y solo se calculan los widgets legibles. Las listas de registros de la página se piden a `/api/records/:module` con sus permisos |
 | GET | `/api/reports/:type` | viewer (+ leer los módulos del informe) | S/K | | `type` ∈ `sales`, `conversion`, `activity`, `performance`, `customers` → `Report`; `403` si el rol no puede leer alguno de los módulos que agrega |
 | POST | `/api/reports/predictions` | member (+ leer oportunidades) | S/K | 6 | Predicción con IA → `{text (Markdown), provider, model, costUsd}` |
 
@@ -319,6 +320,27 @@ Token desconocido → `404`; firma inválida → `401`. Los mensajes se vinculan
 | GET | `/metrics` | PA | Métricas de la instancia: tiempo activo, peticiones por clase, latencias p50/p95/p99, memoria y rutas más usadas |
 | GET | `/errors` | PA | Últimos 100 `error_events` |
 | GET | `/jobs` | PA | Últimos 100 trabajos de la cola |
+
+### 14.1 Motor de código fuente (`/api/platform`)
+
+Cambios del código fuente de la instalación (afectan a todas las organizaciones). Todas las rutas exigen `PA` (una API key recibe `403`). Detalle del proceso en [CODE_ENGINE.md](CODE_ENGINE.md).
+
+| Método | Ruta | Lím./min | Descripción |
+|---|---|---|---|
+| GET | `/platform/code/steps` | | Pasos del proceso `[{key, label}]` |
+| GET | `/platform/code/settings` | | Estado de la configuración: si está lista y qué falta, pista del token (`••••abcd`), ids de proyecto, entorno y servicios (web, worker, CI) y versión en ejecución. Nunca devuelve el token |
+| PUT | `/platform/code/settings` | 10 | `{token}`: token de **proyecto** de Railway. Se valida contra el proyecto y el entorno en los que corre la instalación y se guarda cifrado → estado |
+| DELETE | `/platform/code/settings/token` | 10 | Borra el token |
+| POST | `/platform/code/settings/check` | 6 | Pide al worker que vuelva a publicar su configuración de Railway |
+| POST | `/platform/code/requests` | 6 | `{prompt}` → `{id}`. Usa la IA de la organización activa (hay que ser su administrador); `409` si esa organización permite menos de 150 peticiones de IA por hora, si falta configuración o si ya hay un cambio en curso |
+| GET | `/platform/code/requests` | | `{items, running: {version}}`: historial de cambios y versión en ejecución |
+| GET | `/platform/code/requests/:id` | | Detalle: archivos (antes y después), CI (intentos, errores, final del log), revisión, avisos, progreso, despliegue y `policy` |
+| POST | `/platform/code/requests/:id/refine` | 10 | `{feedback}`: vuelve a desarrollar con indicaciones |
+| POST | `/platform/code/requests/:id/approve` | 5 | `{confirmation: "DESPLEGAR", comment?}`: aprueba y despliega (worker primero, después web) |
+| POST | `/platform/code/requests/:id/rollback` | 5 | `{confirmation: "REVERTIR"}`: revierte el último cambio desplegado o un despliegue detenido |
+| POST | `/platform/code/requests/:id/cancel` | 20 | Cancela (y retira el CI en curso) |
+| GET | `/platform/requests` | | Peticiones de EVOLVE que necesitan la plataforma (`kind: platform` o `requiresPlatformChange`) de todas las organizaciones (100 más recientes), con el cambio de código que se haya creado a partir de cada una |
+| POST | `/platform/requests/:id/source-change` | 6 | `{note?}` → `{id}`: crea un cambio de código a partir de una de ellas (el texto de la organización viaja como dato, no como instrucción) |
 
 ## 15. Ejemplos con API key
 

@@ -1,5 +1,6 @@
-import type { Role } from '../../../shared/constants';
+import { ROLES, ROLE_LABELS, hasRole, type Role } from '../../../shared/constants';
 import { activeFields, findModule, type Blueprint, type Field, type Module } from '../../../shared/blueprint';
+import { sanitizeCustomCss } from '../../../shared/appearance';
 import type { ChangeSet, TestCase, TestStep } from '../../../shared/changeset';
 import { evaluateCondition } from '../../../shared/conditions';
 import { normalizeRecordInput } from '../../../shared/records';
@@ -10,6 +11,7 @@ import { RecordService } from '../crm/record-service';
 import { MemoryRecordStore, type StoredRecord } from '../crm/store';
 import { runScheduledAutomations } from '../crm/automations';
 import { buildScriptInput, runScript } from '../crm/scripts';
+import { blockModules, blueprintForRole } from '../crm/visibility';
 import { AppError } from '../lib/errors';
 import { isPrivateHostname } from '../lib/ssrf';
 import { applyOperations } from './apply';
@@ -152,6 +154,12 @@ function changedModules(before: Blueprint, after: Blueprint, cs: ChangeSet): Mod
     }
   }
   return [...keys].map((k) => findModule(after, k)).filter((m): m is Module => !!m && !m.archived);
+}
+
+/** Páginas que crea o modifica el change set (tal y como quedan en el blueprint resultante). */
+function changedPages(after: Blueprint, cs: ChangeSet): Blueprint['pages'] {
+  const keys = new Set(cs.operations.flatMap((op) => (op.op === 'upsert_page' ? [op.page.key] : [])));
+  return (after.pages ?? []).filter((p) => keys.has(p.key));
 }
 
 /** "@ref" → id de un registro creado antes en la prueba; "@member" → miembro del sandbox. */
@@ -369,6 +377,24 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
         );
       }
     }
+    // Páginas creadas o modificadas: cada lista de registros se puede consultar con su vista y sus filtros.
+    // (Los widgets se validan con las mismas reglas que los de los paneles.)
+    for (const page of changedPages(after, input.changeSet)) {
+      for (const b of page.blocks) {
+        if (b.type !== 'records') continue;
+        const mod = findModule(after, b.module);
+        if (!mod || mod.archived) continue;
+        integration.push(
+          await time(`Página «${page.label}» › lista de "${mod.labelPlural}" se puede consultar`, async () => {
+            const sb = new Sandbox(after, input.members, start, tz);
+            await makeRecord(sb, mod);
+            const view = b.view ? mod.views.find((v) => v.key === b.view) : undefined;
+            await sb.store.list(mod, { filters: [...(view?.filters ?? []), ...b.filters], sort: view?.sort, limit: b.limit, offset: 0 }, { now: new Date(sb.clock), tz });
+            return null;
+          }),
+        );
+      }
+    }
     const scheduled = after.automations.filter((a) => a.enabled && (a.trigger.type === 'date_reached' || a.trigger.type === 'inactivity'));
     if (scheduled.length) {
       integration.push(
@@ -420,6 +446,35 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
           const rec = await makeRecord(sb, mod);
           const scriptInput = await buildScriptInput(sb.svc(), rec, { trigger: users[0].trigger.type });
           await runScript(script.code, scriptInput, { timeoutMs: script.timeoutMs });
+          return null;
+        }),
+      );
+    }
+    // Capa visual: el CSS personalizado es CSS plano (nada que cargar ni ejecutar) y cada rol solo ve, en las
+    // páginas, los bloques de los módulos que puede leer.
+    const css = after.appearance?.customCss;
+    if (css !== undefined && css.trim()) {
+      security.push(
+        await time('CSS personalizado: solo CSS plano, sin recursos externos ni código', async () => {
+          const r = sanitizeCustomCss(css);
+          if (!r.ok) return r.errors.join('; ');
+          return { warn: 'Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.' };
+        }),
+      );
+    }
+    for (const page of changedPages(after, input.changeSet)) {
+      security.push(
+        await time(`Página «${page.label}»: cada rol solo ve los bloques de los módulos que puede leer`, async () => {
+          for (const role of ROLES) {
+            const visible = blueprintForRole(after, role);
+            const p = visible.pages.find((x) => x.key === page.key);
+            if (!hasRole(role, page.minRole)) {
+              if (p) return `El rol ${ROLE_LABELS[role]} vería la página aunque su rol mínimo es ${ROLE_LABELS[page.minRole]}`;
+              continue;
+            }
+            const readable = new Set(visible.modules.map((m) => m.key));
+            if (p?.blocks.some((b) => blockModules(after, b).some((k) => !readable.has(k)))) return `El rol ${ROLE_LABELS[role]} vería datos de un módulo que no puede leer`;
+          }
           return null;
         }),
       );

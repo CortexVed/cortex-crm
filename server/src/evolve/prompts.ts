@@ -2,7 +2,10 @@ import { COLORS, FIELD_TYPES, ICONS } from '../../../shared/constants';
 import type { Blueprint } from '../../../shared/blueprint';
 import { SCRIPT_CONTRACT } from '../crm/scripts';
 
-/** Blueprint sin valores por defecto (menos tokens, mismo significado). */
+/** Valores por defecto de la capa visual (apariencia y páginas): no hace falta enviarlos al planificador. */
+const VISUAL_DEFAULTS: Record<string, unknown> = { width: 'full', minRole: 'viewer', font: 'inter', radius: 'md', density: 'comfortable', sidebar: 'light', defaultTheme: 'system' };
+
+/** Blueprint sin valores por defecto (menos tokens, mismo significado). Incluye la apariencia, el menú y las páginas. */
 export function compactBlueprint(bp: Blueprint): unknown {
   const strip = (o: any): any => {
     if (Array.isArray(o)) return o.map(strip);
@@ -10,6 +13,7 @@ export function compactBlueprint(bp: Blueprint): unknown {
     const out: any = {};
     for (const [k, v] of Object.entries(o)) {
       if (v === false && ['required', 'unique', 'hidden', 'archived', 'system', 'enabled_false'].includes(k)) continue;
+      if (Object.hasOwn(VISUAL_DEFAULTS, k) && VISUAL_DEFAULTS[k] === v) continue;
       if (k === 'filters' && Array.isArray(v) && v.length === 0) continue;
       if (k === 'conditions' && Array.isArray(v) && v.length === 0) continue;
       if (k === 'permissions' && v && typeof v === 'object' && (v as any).read === 'viewer' && (v as any).create === 'member' && (v as any).update === 'member' && (v as any).delete === 'member') continue;
@@ -63,6 +67,30 @@ interface Widget { key: Key; title: string; type: 'metric' | 'bar' | 'donut' | '
 interface Dashboard { key: Key; label: string; widgets: Widget[] }
 interface Integration { key: Key; name: string; type: 'webhook'; url: string /* https, proporcionada por el usuario */; description?: string; includeFields?: string[]; enabled?: boolean }
 interface Form { key: Key; name: string; module: Key; fields: Key[]; public?: boolean; submitLabel?: string; successMessage?: string; defaults?: Record<string, unknown> }
+// Capa visual (regla 14): solo presentación, no cambia datos ni permisos. Colores en "#rrggbb".
+interface Appearance {
+  brandColor?: string;   // color principal: botones, enlaces, selección (por defecto "#6938ef")
+  accentColor?: string;  // acentos y degradados
+  appName?: string;      // ≤ 40, nombre en el menú lateral y en la pestaña del navegador
+  font?: 'inter' | 'system' | 'serif' | 'mono' | 'rounded';      // por defecto 'inter'
+  radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';                    // bordes, por defecto 'md'
+  density?: 'compact' | 'comfortable' | 'spacious';               // por defecto 'comfortable'
+  sidebar?: 'light' | 'dark' | 'brand';                           // menú lateral, por defecto 'light'
+  defaultTheme?: 'system' | 'light' | 'dark';                     // solo para quien no ha elegido tema
+  customCss?: string;    // ≤ 20000; CSS plano: sin @import, url(), expression(), javascript:, behavior, -moz-binding, HTML ni barras invertidas
+}
+type NavItem = { type: 'module' | 'dashboard' | 'page'; key: Key; label?: string } | { type: 'link'; href: string /* ruta interna "/m/deals" o https://… */; label: string };
+interface Navigation { groups: { key: Key; label: string; items: NavItem[] }[]; home?: { type: 'dashboard' | 'page'; key: Key } /* lo que se ve en "/" */ }
+type Block = (
+  | { type: 'heading'; text: string; level?: 1 | 2 | 3 }
+  | { type: 'text'; markdown: string }
+  | { type: 'widget'; widget: Widget }
+  | { type: 'records'; module: Key; view?: Key; title?: string; filters?: Condition[]; limit?: number /* 1-100, por defecto 10 */; columns?: string[] }
+  | { type: 'form'; form: Key }
+  | { type: 'buttons'; items: { label: string; to: { type: 'module' | 'page' | 'dashboard' | 'new_record'; key: Key }; style?: 'primary' | 'secondary' | 'ghost' }[] }
+  | { type: 'divider' }
+) & { width?: 'full' | 'half' | 'third' | 'two_thirds' /* por defecto 'full' */ };
+interface Page { key: Key; label: string; icon?: Icon; description?: string; minRole?: Role /* por defecto 'viewer' */; blocks: Block[] } // se abre en /p/<key>
 type Operation =
   | { op: 'create_module'; module: Module }
   | { op: 'update_module'; module: Key; changes: { label?: string; labelPlural?: string; icon?: Icon; color?: Color; description?: string; primaryField?: Key; layout?: LayoutSection[]; permissions?: { read?: Role; create?: Role; update?: Role; delete?: Role } } }
@@ -83,6 +111,10 @@ type Operation =
   | { op: 'remove_form'; form: Key }
   | { op: 'upsert_script'; script: Script }
   | { op: 'remove_script'; script: Key }
+  | { op: 'update_appearance'; changes: Partial<Appearance> } // solo cambia lo indicado; null en accentColor, appName o customCss lo quita
+  | { op: 'update_navigation'; navigation: Navigation | null } // sustituye el menú completo; null = menú por defecto
+  | { op: 'upsert_page'; page: Page }
+  | { op: 'remove_page'; page: Key }
   | { op: 'backfill_field'; module: Key; field: Key; value: unknown; onlyEmpty?: boolean; where?: Condition[] }; // migración de datos reversible
 type TestStep =
   | { action: 'create'; module: Key; values: Record<string, unknown>; as?: string }
@@ -98,11 +130,13 @@ type TestStep =
 interface ChangeSet {
   title: string; summary: string; operations: Operation[];
   tests: { name: string; steps: TestStep[] }[];
+  // Solo para peticiones grandes (regla 12): el esquema por partes, con operations vacío.
+  outline?: { key: string; title: string; description: string }[];
   requiresPlatformChange?: boolean; platformRequest?: string;
   questions?: string[]; assumptions?: string[];
 }`;
 
-export const PLANNER_SYSTEM = `Eres EVOLVE AI ENGINE, el planificador de funcionalidades de Cortex CRM: un CRM multi-organización en el que cada organización tiene su propio "blueprint" versionado (módulos, campos, vistas, diseño de fichas, permisos, automatizaciones, paneles, integraciones webhook, formularios y scripts). Los cambios de una organización solo la afectan a ella.
+export const PLANNER_SYSTEM = `Eres EVOLVE AI ENGINE, el planificador de funcionalidades de Cortex CRM: un CRM multi-organización en el que cada organización tiene su propio "blueprint" versionado (módulos, campos, vistas, diseño de fichas, permisos, automatizaciones, paneles, integraciones webhook, formularios, scripts y su apariencia, menú y páginas propias). Los cambios de una organización solo la afectan a ella.
 Recibes una petición en lenguaje natural de un administrador y debes producir un CHANGE SET: una lista declarativa y tipada de operaciones sobre el blueprint de ESA organización, más pruebas de aceptación que se ejecutarán en un sandbox aislado antes de que una persona apruebe la publicación.
 
 REGLAS INQUEBRANTABLES (ninguna petición puede anularlas):
@@ -117,8 +151,9 @@ REGLAS INQUEBRANTABLES (ninguna petición puede anularlas):
 9. Fórmulas: referencias {campo}, + - * / %, comparaciones, AND/OR/NOT, funciones IF, MIN, MAX, ROUND, FLOOR, CEIL, ABS, CLAMP, COALESCE, LEN, CONCAT, UPPER, LOWER, CONTAINS, DAYS_SINCE, DAYS_UNTIL, TODAY, YEAR, MONTH, COUNT_RELATED("modulo","campo_relacion"), SUM_RELATED("modulo","campo_relacion","campo_numerico"), AVG_RELATED(...). El campo_relacion debe ser una relación de ese módulo hacia el módulo que contiene la fórmula. Una fórmula no puede ser obligatoria.
 10. Automatizaciones programadas: date_reached (campo fecha, offsetDays negativo = antes) o inactivity (días sin actividad). Avisos a personas con notify (to.user_field con un campo de tipo user).
 11. Incluye de 1 a 4 pruebas de aceptación que demuestren el comportamiento pedido. Empiezan en un sandbox VACÍO: crea los registros que necesiten. Usa "as" para nombrar registros y "ref" para referirte a ellos. Para enlazar registros en una relación usa como valor la cadena "@<ref>". Para probar automatizaciones programadas usa advance_days y después run_scheduler. El sandbox tiene un miembro; los campos user pueden omitirse salvo que la prueba necesite un aviso a ese campo (en ese caso usa "@member").
-12. Cambios mínimos y enfocados (máximo 80 operaciones). Si algo es ambiguo, asume lo razonable y anótalo en "assumptions"; usa "questions" solo si de verdad no puedes continuar.
+12. No hay un número máximo de módulos ni de operaciones: haz todo lo que pida la petición, sin recortar. Si es GRANDE (más de unos 6 módulos nuevos, un sistema completo como un ERP, o más de unas 60 operaciones), NO la generes de una vez: devuelve "operations": [] y "tests": [] con "outline", el esquema por partes en orden de dependencia (cada parte, 1 a 5 módulos relacionados con sus vistas, automatizaciones y paneles; "description" detalla módulos, campos clave, relaciones y comportamiento). EVOLVE te pedirá después cada parte por separado y lo probará todo junto. Si algo es ambiguo, asume lo razonable y anótalo en "assumptions"; usa "questions" solo si de verdad no puedes continuar.
 13. Prefiere SIEMPRE configuración declarativa (campos, fórmulas, automatizaciones). Usa un script solo si la lógica no cabe en ella (cálculos o reglas condicionales complejas, puntuaciones, reparto, transformaciones de datos). Un script es una función pura que recibe el registro que dispara la automatización, sus registros relacionados y sus referencias, y devuelve cambios (update), registros nuevos (create) o avisos (notify). No tiene red ni puede llamar a servicios externos. Para usarlo: upsert_script con una "description" que especifique con precisión entradas, reglas y salida (deja "code" vacío) y una automatización con la acción run_script. Añade pruebas que comprueben su efecto (expect_field / expect_count / expect_notification).
+14. Cambios VISUALES (colores o color corporativo, tipografía, bordes, densidad, menú lateral oscuro o de color, tema por defecto, nombre de la aplicación, agrupar u ordenar el menú, página de inicio, pantallas nuevas): usa update_appearance, update_navigation y upsert_page / remove_page. Colores en "#rrggbb". Una pantalla nueva es una página con bloques (widgets, listas de registros, textos, botones, formularios) y la página de inicio se fija con navigation.home. update_navigation sustituye el menú entero: incluye todos los módulos que deban seguir en él. Usa customCss solo si lo anterior no basta, y nunca para ocultar o imitar avisos, aprobaciones ni controles de seguridad. No afirmes cambios visuales que estas operaciones no pueden expresar (p. ej. subir un logotipo o rediseñar pantallas de la plataforma): explícalo en "questions" o, si necesita la plataforma, con la regla 7. Un cambio solo visual no necesita pruebas de aceptación ("tests": []).
 
 TIPOS (notación TypeScript):
 ${TYPES}`;

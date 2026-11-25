@@ -1,6 +1,8 @@
 import { FIELD_TYPE_LABELS, ROLE_LABELS, type FieldType } from '../../../shared/constants';
-import { findModule, type Blueprint } from '../../../shared/blueprint';
-import type { ChangeSet, Operation } from '../../../shared/changeset';
+import { findModule, findPage, type Blueprint, type Page } from '../../../shared/blueprint';
+import type { AppearancePatch, ChangeSet, Operation } from '../../../shared/changeset';
+import { DENSITY_LABELS, FONT_LABELS, RADIUS_LABELS, SIDEBAR_LABELS, THEME_LABELS } from '../../../shared/appearance';
+import { blockModules } from '../crm/visibility';
 import type { RiskAssessment } from './risk';
 
 export interface ImpactChange {
@@ -27,6 +29,42 @@ export interface ImpactReport {
 }
 
 const typeLabel = (t: string) => FIELD_TYPE_LABELS[t as FieldType] ?? t;
+
+/** Cambios de apariencia en lenguaje llano ("color principal #0a7f6b · menú lateral oscuro"). */
+function describeAppearance(c: AppearancePatch): string {
+  const parts: string[] = [];
+  if (c.brandColor) parts.push(`color principal ${c.brandColor}`);
+  if (c.accentColor) parts.push(`color de acento ${c.accentColor}`);
+  else if (c.accentColor === null) parts.push('sin color de acento propio');
+  if (c.appName) parts.push(`nombre «${c.appName}»`);
+  else if (c.appName === null) parts.push('nombre por defecto');
+  if (c.font) parts.push(`tipografía ${FONT_LABELS[c.font].toLowerCase()}`);
+  if (c.radius) parts.push(`bordes: ${RADIUS_LABELS[c.radius].toLowerCase()}`);
+  if (c.density) parts.push(`densidad ${DENSITY_LABELS[c.density].toLowerCase()}`);
+  if (c.sidebar) parts.push(`menú lateral ${SIDEBAR_LABELS[c.sidebar].toLowerCase()}`);
+  if (c.defaultTheme) parts.push(`tema por defecto: ${THEME_LABELS[c.defaultTheme].toLowerCase()}`);
+  if (typeof c.customCss === 'string') parts.push(`CSS personalizado (${c.customCss.length} caracteres)`);
+  else if (c.customCss === null) parts.push('se quita el CSS personalizado');
+  return parts.join(' · ');
+}
+
+const BLOCK_NAMES: Record<Page['blocks'][number]['type'], [string, string]> = {
+  heading: ['título', 'títulos'],
+  text: ['texto', 'textos'],
+  widget: ['widget', 'widgets'],
+  records: ['lista de registros', 'listas de registros'],
+  form: ['formulario', 'formularios'],
+  buttons: ['grupo de botones', 'grupos de botones'],
+  divider: ['separador', 'separadores'],
+};
+
+/** "3 bloques: 2 widgets, 1 lista de registros". */
+function describeBlocks(page: Page): string {
+  const counts = new Map<Page['blocks'][number]['type'], number>();
+  for (const b of page.blocks) counts.set(b.type, (counts.get(b.type) ?? 0) + 1);
+  const parts = [...counts].map(([t, n]) => `${n} ${BLOCK_NAMES[t][n === 1 ? 0 : 1]}`);
+  return `${page.blocks.length} bloque(s)${parts.length ? `: ${parts.join(', ')}` : ''}`;
+}
 
 export function describeOperation(op: Operation, bp: Blueprint): ImpactChange & { index: number } {
   const modLabel = (k: string) => findModule(bp, k)?.labelPlural ?? k;
@@ -75,6 +113,19 @@ export function describeOperation(op: Operation, bp: Blueprint): ImpactChange & 
       return { index: 0, kind: (bp.scripts ?? []).some((s) => s.key === op.script.key) ? 'update' : 'add', title: `Script «${op.script.name}» (código en sandbox)`, detail: op.script.description?.slice(0, 200) };
     case 'remove_script':
       return { index: 0, kind: 'remove', title: `Eliminar script «${op.script}»` };
+    case 'update_appearance':
+      return { index: 0, kind: 'update', title: 'Apariencia del CRM', detail: describeAppearance(op.changes) || undefined };
+    case 'update_navigation': {
+      const n = op.navigation;
+      if (!n) return { index: 0, kind: 'update', title: 'Menú de navegación', detail: 'Vuelve el menú por defecto (todos los módulos en una lista)' };
+      const homeLabel = n.home ? (n.home.type === 'page' ? `página «${findPage(bp, n.home.key)?.label ?? n.home.key}»` : `panel «${bp.dashboards.find((d) => d.key === n.home!.key)?.label ?? n.home.key}»`) : null;
+      const groups = n.groups.map((g) => `${g.label} (${g.items.length})`).join(', ');
+      return { index: 0, kind: 'update', title: 'Menú de navegación', detail: [groups ? `Grupos: ${groups}` : 'Sin grupos (lista de módulos)', homeLabel && `inicio: ${homeLabel}`].filter(Boolean).join(' · ') };
+    }
+    case 'upsert_page':
+      return { index: 0, kind: findPage(bp, op.page.key) ? 'update' : 'add', title: `Página «${op.page.label}»`, detail: `${describeBlocks(op.page)} · visible desde el rol ${ROLE_LABELS[op.page.minRole]}` };
+    case 'remove_page':
+      return { index: 0, kind: 'remove', title: `Eliminar página «${findPage(bp, op.page)?.label ?? op.page}»` };
     case 'backfill_field':
       return { index: 0, kind: 'data', title: `Migración de datos en ${modLabel(op.module)}.${op.field}`, detail: `${op.onlyEmpty ? 'Solo registros vacíos' : 'Sobrescribe valores'} → ${JSON.stringify(op.value)}` };
   }
@@ -177,6 +228,22 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
       case 'remove_script':
         artifacts.push({ path: `blueprint/scripts/${op.script}.js`, action: 'delete' });
         break;
+      case 'update_appearance':
+        artifacts.push({ path: 'blueprint/appearance.json', action: 'update' });
+        if (typeof op.changes.customCss === 'string' && op.changes.customCss.trim()) {
+          artifacts.push({ path: 'blueprint/appearance/custom.css', action: 'update' });
+          permissions.push('El CSS personalizado se aplicará a toda la interfaz de la organización, salvo EVOLVE, Ajustes y Plataforma (no puede cargar recursos ni ejecutar código)');
+        }
+        break;
+      case 'update_navigation':
+        artifacts.push({ path: 'blueprint/navigation.json', action: 'update' });
+        break;
+      case 'upsert_page':
+        artifacts.push({ path: `blueprint/pages/${op.page.key}.json`, action: findPage(before, op.page.key) ? 'update' : 'create' });
+        break;
+      case 'remove_page':
+        artifacts.push({ path: `blueprint/pages/${op.page}.json`, action: 'delete' });
+        break;
       case 'backfill_field':
         dataMigrations.push({ module: op.module, field: op.field, mode: op.onlyEmpty ? 'only_empty' : 'overwrite', estimatedRows: counts[op.module] });
         touchedFields.add(`${op.module}.${op.field}`);
@@ -193,6 +260,8 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
   for (const d of ref.dashboards) for (const w of d.widgets) if (touchedModules.has(w.module) || touchedFields.has(`${w.module}.${w.field}`)) affected.add(`Panel «${d.label}» › ${w.title}`);
   for (const a of ref.automations) if (touchedModules.has(a.trigger.module)) affected.add(`Automatización «${a.name}»`);
   for (const f of ref.forms) if (touchedModules.has(f.module)) affected.add(`Formulario «${f.name}»`);
+  for (const p of ref.pages ?? []) if (p.blocks.some((b) => blockModules(ref, b).some((k) => touchedModules.has(k)))) affected.add(`Página «${p.label}»`);
+  if (ref.navigation?.groups.some((g) => g.items.some((it) => it.type === 'module' && touchedModules.has(it.key)))) affected.add('Menú de navegación');
   if (['deals', 'activities', 'contacts', 'companies', 'tasks'].some((k) => touchedModules.has(k))) affected.add('Informes comerciales');
 
   return {

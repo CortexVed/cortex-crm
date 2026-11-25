@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Role } from '../../../shared/constants';
 import { activeModules, findModule, type Blueprint } from '../../../shared/blueprint';
-import { ChangeSetSchema, type ChangeSet } from '../../../shared/changeset';
+import { CHANGESET_LIMITS, ChangeSetSchema, type ChangeSet, type Operation, type OutlinePart } from '../../../shared/changeset';
 import { describeModules } from '../crm/ai-features';
 import { applyOperations } from './apply';
 import type { AppDeps } from '../deps';
@@ -13,7 +13,8 @@ import { ProviderError } from '../ai/types';
 import { simulateChangeSet, type TestReport } from './simulator';
 import { assessRisk } from './risk';
 import { buildImpact } from './impact';
-import { PLANNER_SYSTEM, plannerUserMessage, REVIEW_SYSTEM, SCRIPT_CODE_SYSTEM, selfHealMessage } from './prompts';
+import { PLANNER_SYSTEM, REVIEW_SYSTEM, SCRIPT_CODE_SYSTEM, selfHealMessage } from './prompts';
+import { plannerMessage, plannerPartMessage, type PlannerContextInput } from './planner-context';
 import type { Issue } from './validate';
 
 export const PIPELINE_STEPS = [
@@ -36,6 +37,8 @@ interface ProgressEntry {
 }
 
 const MAX_SELF_HEAL = 2;
+/** Tope del change set que ve el revisor cruzado (un plan muy grande se le muestra recortado). */
+const REVIEW_MAX_CHARS = 150_000;
 
 const AUTOMATION_HINTS =
   /\b(automatiza\w*|automátic\w*|automatic\w*|recordatori\w*|recu[eé]rda\w*|av[ií]s\w*|notifica\w*|alerta\w*|webhook\w*|cada (d[ií]a|semana|mes|lunes|martes|mi[eé]rcoles|jueves|viernes)|cuando (se |un |una |el |la |ganemos|perdamos|cambie|pase|llegue|venza|lleve))/i;
@@ -143,6 +146,47 @@ async function loadSamples(q: Queryable, ws: string, bp: Blueprint, cs: ChangeSe
   return out;
 }
 
+/** Una parte generada de un plan grande. */
+interface PlanPart {
+  part: OutlinePart;
+  changeSet: ChangeSet;
+}
+
+/** Claves que toca una lista de operaciones (para atribuir los problemas de las pruebas a una parte). */
+function touchedKeys(ops: Operation[]): string[] {
+  const keys = new Set<string>();
+  for (const op of ops) {
+    if (op.op === 'create_module') keys.add(op.module.key);
+    else if ('module' in op && typeof op.module === 'string') keys.add(op.module);
+    if (op.op === 'upsert_automation') keys.add(op.automation.key);
+    if (op.op === 'upsert_dashboard') keys.add(op.dashboard.key);
+    if (op.op === 'upsert_form') keys.add(op.form.key);
+    if (op.op === 'upsert_integration') keys.add(op.integration.key);
+    if (op.op === 'upsert_script') keys.add(op.script.key);
+    if (op.op === 'upsert_page') keys.add(op.page.key);
+    if (op.op === 'remove_page') keys.add(op.page);
+    if (op.op === 'update_appearance') keys.add('appearance');
+    if (op.op === 'update_navigation') keys.add('navigation');
+  }
+  return [...keys];
+}
+
+/** Une las partes en un solo change set (una sola versión, probada y aprobada entera). */
+function mergeParts(outline: ChangeSet, parts: PlanPart[]): ChangeSet {
+  const all = parts.map((p) => p.changeSet);
+  const platform = all.filter((c) => c.requiresPlatformChange && c.platformRequest).map((c) => c.platformRequest);
+  return ChangeSetSchema.parse({
+    title: outline.title,
+    summary: outline.summary,
+    operations: all.flatMap((c) => c.operations),
+    tests: all.flatMap((c) => c.tests).slice(0, CHANGESET_LIMITS.tests),
+    requiresPlatformChange: all.some((c) => c.requiresPlatformChange) || outline.requiresPlatformChange,
+    platformRequest: [outline.platformRequest, ...platform].filter(Boolean).join('\n\n').slice(0, 6000) || undefined,
+    questions: [...outline.questions, ...all.flatMap((c) => c.questions)].slice(0, 6),
+    assumptions: [...outline.assumptions, ...all.flatMap((c) => c.assumptions)].slice(0, 10),
+  });
+}
+
 function problemsFrom(issues: Issue[], report: TestReport): string[] {
   const out = issues.filter((i) => i.level === 'error').map((i) => `${i.path}: ${i.message}`);
   for (const s of report.suites) for (const c of s.cases) if (!c.passed) out.push(`[${s.name}] ${c.name}: ${c.message ?? 'falló'}`);
@@ -193,28 +237,76 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     let changeSet: ChangeSet;
     const conversation: { role: 'user' | 'assistant'; content: string }[] = [];
     const feedback: string[] = (Array.isArray(req.conversation) ? req.conversation : []).filter((c: any) => c.role === 'feedback').map((c: any) => c.content);
+    const plannerInput: PlannerContextInput = {
+      orgName: ctx.loaded.name,
+      settings: ctx.loaded.settings,
+      version: ctx.loaded.version,
+      blueprint: ctx.loaded.blueprint,
+      releases: ctx.releases,
+      memory: ctx.memory,
+      prompt: req.prompt,
+      feedback,
+    };
+    // Plan por partes (peticiones grandes): esquema del planificador y cada parte generada aparte.
+    let outlineSet: ChangeSet | null = null;
+    let parts: PlanPart[] = [];
+
+    /** Genera (o regenera) la parte i sobre el blueprint que dejan las partes anteriores. */
+    const generatePart = async (i: number, problems: string[] = []): Promise<void> => {
+      const base = applyOperations(ctx.loaded.blueprint, parts.slice(0, i).flatMap((p) => p.changeSet.operations)).blueprint;
+      const part = outlineSet!.outline![i];
+      let lastProblems = problems;
+      for (let round = 0; round < 2; round++) {
+        const res = await deps.ai.runJson(
+          ws,
+          {
+            task: planTask,
+            system: PLANNER_SYSTEM,
+            messages: [{ role: 'user', content: plannerPartMessage({ ...plannerInput, blueprint: base, outline: outlineSet!.outline!, part, problems: lastProblems }) }],
+            maxTokens: 32_000,
+            userId: req.requested_by,
+            ref: requestId,
+          },
+          ChangeSetSchema,
+        );
+        saveLlm({ phase: `plan_part_${part.key}${round ? '_fix' : ''}`, provider: res.result.provider, model: res.result.model, costUsd: res.result.costUsd, latencyMs: res.result.latencyMs, rounds: res.rounds });
+        const fragment = { ...res.value, outline: undefined };
+        parts[i] = { part, changeSet: fragment };
+        // Comprobación rápida: la parte tiene operaciones y se puede aplicar sobre las anteriores.
+        if (!fragment.operations.length) {
+          lastProblems = ['La parte no contiene operaciones: genera las operaciones de esta parte (no el esquema general).'];
+          continue;
+        }
+        const errors = applyOperations(base, fragment.operations).errors;
+        if (!errors.length) return;
+        lastProblems = errors.slice(0, 20).map((e) => `${e.path}: ${e.message}`);
+      }
+    };
+
     if (req.source === 'manual') {
       changeSet = ChangeSetSchema.parse(req.change_set);
     } else {
-      conversation.push({
-        role: 'user',
-        content: plannerUserMessage({
-          orgName: ctx.loaded.name,
-          settings: ctx.loaded.settings,
-          version: ctx.loaded.version,
-          blueprint: ctx.loaded.blueprint,
-          releases: ctx.releases,
-          memory: ctx.memory,
-          prompt: req.prompt,
-          feedback,
-        }),
-      });
+      conversation.push({ role: 'user', content: plannerMessage(plannerInput) });
       const planned = await deps.ai.runJson(ws, { task: planTask, system: PLANNER_SYSTEM, messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
       changeSet = planned.value;
       conversation.push({ role: 'assistant', content: JSON.stringify(planned.value) });
       saveLlm({ phase: 'plan', provider: planned.result.provider, model: planned.result.model, costUsd: planned.result.costUsd, latencyMs: planned.result.latencyMs, rounds: planned.rounds });
+      if (changeSet.outline?.length && !changeSet.operations.length) {
+        outlineSet = changeSet;
+        parts = [];
+        const total = outlineSet.outline!.length;
+        for (let i = 0; i < total; i++) {
+          await progress(deps, ws, requestId, { step: 'plan', status: 'running', detail: `Plan por partes: ${i + 1}/${total} · ${outlineSet.outline![i].title}` });
+          await generatePart(i);
+        }
+        changeSet = mergeParts(outlineSet, parts);
+      }
     }
-    await progress(deps, ws, requestId, { step: 'plan', status: 'done', detail: `${changeSet.operations.length} operación(es), ${changeSet.tests.length} prueba(s)` });
+    await progress(deps, ws, requestId, {
+      step: 'plan',
+      status: 'done',
+      detail: `${changeSet.operations.length} operación(es), ${changeSet.tests.length} prueba(s)${outlineSet ? ` en ${parts.length} partes` : ''}`,
+    });
 
     // 4-5) Desarrollar en sandbox y probar, con auto-corrección
     let attempt = 0;
@@ -233,11 +325,26 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
       attempt++;
       const problems = problemsFrom(sim.issues, sim.report);
       await progress(deps, ws, requestId, { step: 'test', status: 'failed', detail: `Intento ${attempt}: ${problems.length} problema(s). Auto-corrección en curso…` });
-      conversation.push({ role: 'user', content: selfHealMessage(problems) });
-      const fixed = await deps.ai.runJson(ws, { task: planTask, system: PLANNER_SYSTEM, messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
-      changeSet = fixed.value;
-      conversation.push({ role: 'assistant', content: JSON.stringify(fixed.value) });
-      saveLlm({ phase: `self_heal_${attempt}`, provider: fixed.result.provider, model: fixed.result.model, costUsd: fixed.result.costUsd, latencyMs: fixed.result.latencyMs, rounds: fixed.rounds });
+      if (outlineSet) {
+        // Plan por partes: solo se regeneran las partes a las que apuntan los problemas (si no se pueden
+        // atribuir, la última), así un plan grande no tiene que reescribirse entero.
+        const implicated = parts
+          .map((p, i) => ({ i, keys: touchedKeys(p.changeSet.operations) }))
+          .filter(({ keys }) => problems.some((pr) => keys.some((k) => pr.includes(k))))
+          .map(({ i }) => i);
+        const targets = implicated.length ? implicated : [parts.length - 1];
+        for (const i of targets) {
+          const mine = problems.filter((pr) => touchedKeys(parts[i].changeSet.operations).some((k) => pr.includes(k)));
+          await generatePart(i, mine.length ? mine : problems);
+        }
+        changeSet = mergeParts(outlineSet, parts);
+      } else {
+        conversation.push({ role: 'user', content: selfHealMessage(problems) });
+        const fixed = await deps.ai.runJson(ws, { task: planTask, system: PLANNER_SYSTEM, messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
+        changeSet = fixed.value;
+        conversation.push({ role: 'assistant', content: JSON.stringify(fixed.value) });
+        saveLlm({ phase: `self_heal_${attempt}`, provider: fixed.result.provider, model: fixed.result.model, costUsd: fixed.result.costUsd, latencyMs: fixed.result.latencyMs, rounds: fixed.rounds });
+      }
       await develop(problems);
       const samples = await deps.db.tenant(ws, (q) => loadSamples(q, ws, ctx.loaded.blueprint, changeSet));
       sim = await simulateChangeSet({ before: ctx.loaded.blueprint, changeSet, samples, members: ctx.members, tz: ctx.loaded.settings.timezone, now: deps.now() });
@@ -255,6 +362,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     let crossReview: unknown = null;
     const planner = llmLog.length ? (llmLog[llmLog.length - 1] as { provider?: string }).provider : undefined;
     if (req.source !== 'manual' && changeSet.operations.length && sim.report.passed) {
+      const reviewJson = JSON.stringify(changeSet);
       const candidates = (await deps.ai.plan(ws, 'code_review')).filter((t) => t.provider !== planner);
       if (candidates.length) {
         await progress(deps, ws, requestId, { step: 'review', status: 'running' });
@@ -265,7 +373,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
               task: 'code_review',
               system: REVIEW_SYSTEM,
               target: candidates[0],
-              messages: [{ role: 'user', content: `Petición: ${req.prompt}\n\nChange set:\n${JSON.stringify(changeSet)}\n\nImpacto calculado:\n${JSON.stringify({ risk: risk.items, tables: impact.tables, permissions: impact.permissions })}` }],
+              messages: [{ role: 'user', content: `Petición: ${req.prompt}\n\nChange set${reviewJson.length > REVIEW_MAX_CHARS ? ' (recortado por tamaño; revisa con más atención el impacto y los riesgos calculados)' : ''}:\n${reviewJson.slice(0, REVIEW_MAX_CHARS)}\n\nImpacto calculado:\n${JSON.stringify({ risk: risk.items, tables: impact.tables, permissions: impact.permissions }).slice(0, 60_000)}` }],
               maxTokens: 8000,
               userId: req.requested_by,
               ref: requestId,

@@ -15,9 +15,9 @@ Cortex CRM es un CRM SaaS multi-organización que la IA puede hacer evolucionar 
 | Datos | PostgreSQL con Row Level Security (`pg`); PGlite (Postgres en WASM) en desarrollo y tests | `server/src/db` |
 | IA | AI Provider Manager propio: SDK oficial de Anthropic + adaptador compatible con OpenAI | `server/src/ai` |
 | Scripts por organización | Sandbox QuickJS compilado a WebAssembly (`quickjs-emscripten-core` + `@jitl/quickjs-wasmfile-release-sync`, 0.32.0) | `server/src/crm/scripts.ts` |
-| Tests | Vitest 5 (201 tests en 15 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
+| Tests | Vitest 5 (264 tests en 18 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
 
-Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker).
+Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker); en una instalación desde la plantilla, `Cortex` y `Worker`. Un tercer rol, `ci`, solo lo usa el servicio de CI del **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)): la administración de la plataforma pide cambios del código real, un agente de IA los escribe, se prueban en ese CI aislado y, con aprobación humana, se despliegan en los servicios de la propia instalación (nunca en GitHub).
 
 ## 2. Vista de sistema
 
@@ -32,6 +32,7 @@ flowchart LR
     P[("Postgres 18<br/>red privada")]
   end
   W -->|"SQL"| P
+  K -.->|"motor de código: tar.gz a probar"| CI["CI<br/>PROCESS_ROLE=ci<br/>sin variables ni dominio"]
   K -->|"SQL"| P
   W -.->|"chat, IA sobre datos, modelos"| L["Proveedores LLM"]
   K -.->|"planificación, código de scripts, revisión"| L
@@ -40,6 +41,7 @@ flowchart LR
 ```
 
 - El navegador solo habla con `cortex-crm`; la base de datos nunca se expone a Internet.
+- El servicio **CI** solo recibe del worker (vía la API de Railway, con un token de proyecto) el código de un cambio del motor de código fuente para construirlo y probarlo; después, con aprobación, el worker despliega ese mismo código en el worker (canario) y en el web.
 - El servicio web atiende peticiones síncronas (CRUD, asistente, funciones de IA sobre los datos, aprobaciones, publicación). El worker ejecuta lo lento o periódico (pipeline de EVOLVE, incluido el desarrollador de scripts; auditorías de seguridad; webhooks salientes; automatizaciones programadas; recálculo de fórmulas; limpieza).
 - Los **scripts de cada organización** se ejecutan en el proceso que dispara la automatización: en el web para los eventos de registros (alta, edición, borrado) y en el worker para las automatizaciones programadas y las pruebas del sandbox. Nunca salen de la plataforma ni se publican en un repositorio.
 - Ambos procesos comparten la base de datos, que es también la cola de trabajos (tabla `jobs`).
@@ -65,28 +67,35 @@ server/src/
   crm/automations.ts     Disparadores por evento, programados y ejecución de acciones (también run_script)
   crm/scripts.ts    Sandbox QuickJS/WebAssembly de los scripts por organización: runScript, buildScriptInput, contrato
   crm/effects.ts    SideEffects: notificaciones, webhooks (cola), ejecuciones; Pg y Memory
-  crm/context.ts    loadWorkspace (caché de blueprint por versión), ajustes, makeRecordService
+  crm/context.ts    loadWorkspace (caché LRU de blueprints por versión, acotada a 256 MB), ajustes, makeRecordService
   crm/refs.ts       Resolución de títulos de relaciones, usuarios y archivos para la UI
   crm/dashboards.ts Cálculo de widgets · crm/reports.ts Informes y datos para predicciones
-  crm/routes.ts     /api/blueprint, /records, /files, /lookup, /search, /dashboards, /reports e IA sobre
+  crm/routes.ts     /api/blueprint, /records, /files, /lookup, /search, /dashboards, /pages, /reports e IA sobre
                     los datos (/ai/query, …/classify, /files/:id/analyze; prompts y validación: crm/ai-features.ts)
   ai/manager.ts     AI PROVIDER MANAGER: credenciales, modelos, enrutado, límites, fallback, uso
   ai/providers/     anthropic.ts (SDK oficial) · openai-compatible.ts · registry.ts (catálogo)
   ai/pricing.ts · ai/memory.ts · ai/json.ts · ai/types.ts · ai/routes.ts (/api/ai)
   assistant/        routes.ts (chat contextual) · tools.ts (herramientas y propuestas)
-  evolve/           pipeline.ts (incluye el desarrollador de scripts) · prompts.ts · simulator.ts · apply.ts ·
-                    validate.ts · risk.ts · impact.ts · releases.ts · security.ts · routes.ts (/api/evolve)
+  evolve/           pipeline.ts (incluye el desarrollador de scripts y el plan por partes) · prompts.ts ·
+                    planner-context.ts (contexto del planificador: blueprint completo o índice + detalle) ·
+                    simulator.ts · apply.ts · validate.ts · risk.ts · impact.ts · releases.ts · security.ts ·
+                    routes.ts (/api/evolve)
   comms/            connectors.ts (WhatsApp, Telegram; Gmail/Outlook/Slack planificados) · routes.ts
   admin/routes.ts   /api/admin/* (plataforma) y rutas públicas (/api/public/forms, /api/client-errors)
+  code-engine/      Motor de código fuente (/api/platform/*): agent · guards · sql-guard · paths · source ·
+                    workspace · tar · diff · railway · ci · review · pipeline (code.plan) · deploy (code.deploy) ·
+                    store · settings · routes
   lib/              crypto · ssrf · jobs · mailer · audit · errors · metrics
-server/test/        helpers.ts + 15 archivos de tests Vitest (201 tests)
-shared/             constants · blueprint · changeset · formula · conditions · templates · records ·
+server/test/        helpers.ts + 18 archivos de tests Vitest (264 tests)
+shared/             constants · blueprint · changeset · appearance · formula · conditions · templates · records ·
                     time · default-blueprint
-web/src/            main.tsx (rutas) · components/ (Layout, AiPanel, AiTools, CommandPalette, ui, fields,
-                    charts, WidgetBody, Markdown, toast) · lib/ (api, session, hooks, types, format, colors,
-                    icons) · pages/ (Dashboard, ModulePage, RecordPage, Reports, auth/, evolve/, settings/)
+web/src/            main.tsx (rutas) · components/ (Layout, navigation, AiPanel, AiTools, CommandPalette, ui,
+                    fields, charts, WidgetBody, RecordTable, AppearancePreview, Markdown, toast) · lib/ (api,
+                    session, hooks, theme, types, format, colors, icons) · pages/ (Dashboard, ModulePage,
+                    RecordPage, CustomPage, Reports, auth/, evolve/, settings/)
+                    · pages/platform/ (CodeEngine: motor de código fuente, solo administración de la plataforma)
 .github/workflows/  ci.yml (typecheck, tests, build, npm audit): opcional, solo se ejecuta si el código se aloja en GitHub
-Dockerfile · railway.json · .env.example · package.json · tsconfig.json · vitest.config.ts
+Dockerfile · Dockerfile.ci (CI del motor de código) · railway.json · .env.example · package.json · tsconfig.json · vitest.config.ts
 ```
 
 ## 4. Convenciones para contribuir
@@ -94,7 +103,7 @@ Dockerfile · railway.json · .env.example · package.json · tsconfig.json · v
 1. **Validación en la frontera.** Toda entrada (`params`, `query`, `body`) se valida con zod en la ruta. Los `ZodError` se convierten en `400 validation_failed` automáticamente.
 2. **Errores tipados.** Usa los helpers de `server/src/lib/errors.ts` (`badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict`, `unprocessable`, `tooMany`, `unavailable`). Formato de respuesta: `{"error": {"code", "message", "details"}}`. Los mensajes al usuario van en español.
 3. **Autorización explícita.** Empieza cada ruta con `requireWorkspace(req, rolMinimo)`, `requireUserSession(req)` (acciones que no deben poder hacerse con API key, datos personales del usuario y funciones de IA) o `requirePlatformAdmin(req)`. Los permisos por módulo (`permissions.read/create/update/delete` del blueprint) los aplica `RecordService`.
-4. **Datos de organización siempre en `deps.db.tenant(workspaceId, q => …)`** y, además, con filtro explícito `workspace_id = $n` en cada consulta (defensa en profundidad con RLS). `deps.db.query`/`tx` (conexión privilegiada) se reserva a tablas de plataforma (`users`, `sessions`, `auth_tokens`, `jobs`, `error_events`) y a búsquedas inherentemente globales (token de API key, token de webhook, slug de formulario público).
+4. **Datos de organización siempre en `deps.db.tenant(workspaceId, q => …)`** y, además, con filtro explícito `workspace_id = $n` en cada consulta (defensa en profundidad con RLS). `deps.db.query`/`tx` (conexión privilegiada) se reserva a tablas de plataforma (`users`, `sessions`, `auth_tokens`, `jobs`, `error_events` y, solo desde el motor de código fuente, `source_changes` y `platform_settings`) y a búsquedas inherentemente globales (token de API key, token de webhook, slug de formulario público).
 5. **SQL parametrizado** siempre (`$1…$n`, `= ANY($n::uuid[])`, helper `inList`). Nunca interpolar valores. Los filtros del blueprint se traducen con `conditionsToSql`/`sortToSql` (`crm/store.ts`).
 6. **Mutaciones de registros a través de `RecordService`** (validación, fórmulas, historial, automatizaciones). Solo las migraciones de datos (`backfill_field`), la restauración y el rollback escriben `records` directamente. Los scripts tampoco escriben: devuelven intenciones que aplica `RecordService`.
 7. **IA solo vía `deps.ai`** (`run`, `runJson`, `runAgent`) indicando una `AiTask`. Ningún módulo llama a un proveedor directamente. La tarea decide el modelo (configurable por organización). Se llama al modelo fuera de `db.tenant()` y su salida se valida (zod + reglas deterministas como `validateBlueprint` o `toWidget`) antes de usarla; nada que genere el modelo se ejecuta como SQL, y el código de scripts que escribe solo se ejecuta en el sandbox.
@@ -154,7 +163,9 @@ sequenceDiagram
 
 ## 6. Núcleo metadata-driven
 
-**Blueprint** (`shared/blueprint.ts`): definición versionada de la estructura del CRM de cada organización: módulos (campos, vistas, diseño de ficha, permisos), automatizaciones, paneles, integraciones webhook, formularios y **scripts**. Cada versión es una fila inmutable de `blueprint_versions`; `workspaces.blueprint_version` apunta a la vigente. `loadWorkspace()` cachea el blueprint parseado por `(organización, versión)` (hasta 500 entradas).
+**Blueprint** (`shared/blueprint.ts`): definición versionada de la estructura del CRM de cada organización: módulos (campos, vistas, diseño de ficha, permisos), automatizaciones, paneles, integraciones webhook, formularios, **scripts** y su **capa visual** (apariencia, menú y páginas propias). Cada versión es una fila inmutable de `blueprint_versions`; `workspaces.blueprint_version` apunta a la vigente. `loadWorkspace()` cachea el blueprint parseado por `(organización, versión)` (hasta 500 entradas).
+
+**Capa visual** (`appearance`, `navigation`, `pages`; constantes y utilidades sin dependencias en `shared/appearance.ts`): solo presentación, nunca datos ni permisos. `appearance` fija el color principal (la paleta 50…950 se calcula en el navegador), el acento, el nombre de la aplicación, la tipografía, los radios, la densidad, el estilo del menú lateral, el tema por defecto y un CSS personalizado que solo puede ser CSS plano (`sanitizeCustomCss`, en el servidor al validar y otra vez en el navegador antes de inyectarlo); `navigation` agrupa el menú y elige la página de inicio; `pages` son pantallas propias (`/p/:key`) hechas de bloques (títulos, textos, widgets, listas de registros, formularios, botones y separadores) con un rol mínimo. Se cambian con las operaciones `update_appearance`, `update_navigation`, `upsert_page` y `remove_page` (riesgo bajo; medio si añaden CSS personalizado) y `blueprintForRole` (`crm/visibility.ts`) quita las páginas, bloques y enlaces que el rol no puede ver; `GET /api/pages/:key/data` calcula solo los widgets legibles. Los blueprints anteriores siguen siendo válidos (los tres campos son opcionales o vacíos por defecto). Detalle en [AI_ENGINE.md](AI_ENGINE.md#51-capa-visual-apariencia-menú-y-páginas).
 
 **Registros**: todos los módulos comparten la tabla `records` (`module_key` + `data` JSONB). Las columnas de sistema (`id`, `created_at`, `updated_at`, `last_activity_at`, `created_by`) son consultables en filtros y orden.
 
@@ -183,16 +194,16 @@ sequenceDiagram
 
 ## 8. Frontend
 
-- **Entrada** `web/src/main.tsx`: rutas con carga diferida (`lazy`). Públicas: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/invite/:token`, `/f/:slug/:form`. Con sesión (dentro de `AppLayout`): `/`, `/m/:module`, `/m/:module/:id`, `/reports`, `/evolve`, `/evolve/requests/:id`, `/evolve/releases`, `/evolve/security`, `/settings/:tab`.
+- **Entrada** `web/src/main.tsx`: rutas con carga diferida (`lazy`). Públicas: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/invite/:token`, `/f/:slug/:form`. Con sesión (dentro de `AppLayout`): `/`, `/m/:module`, `/m/:module/:id`, `/p/:page` (páginas propias), `/reports`, `/evolve`, `/evolve/requests/:id`, `/evolve/releases`, `/evolve/security`, `/settings/:tab`.
 - **Sesión** (`lib/session.tsx`): `GET /api/auth/me` devuelve usuario, organización activa, rol, `csrfToken` y *features* (`emailEnabled`, `signupEnabled`); el token CSRF se guarda en memoria y `lib/api.ts` lo envía en `X-CSRF-Token`. Los errores del servidor llegan como `ApiError` (incluidos los errores por campo de `details.fields`). El parámetro `next` del login solo admite rutas internas (empieza por una única `/`, sin barras invertidas ni caracteres de control); si no, redirige a `/`.
-- **Layout** (`components/Layout.tsx`): barra lateral generada a partir del blueprint (los módulos nuevos aparecen sin desplegar código), selector de organización, paleta de comandos (`⌘/Ctrl+K`), botón y panel **EVOLVE AI** (`⌘/Ctrl+J`), tema claro/oscuro/sistema, campana de notificaciones (sondeo cada 60 s), menú de usuario y aviso de verificación de correo. El panel de IA se abre por defecto en pantallas de 1280 px o más y solo se recuerda la elección explícita de la persona (`localStorage`, clave `evolve-ai-open`); en pantallas más estrechas es una capa que nunca se abre sola y se cierra al navegar.
+- **Layout** (`components/Layout.tsx`): barra lateral generada a partir del blueprint (los módulos nuevos aparecen sin desplegar código; con `navigation.groups`, grupos plegables más «Otros» con lo que no esté en ningún grupo; filtro si hay más de 12 módulos; páginas, paneles y enlaces), apariencia de la organización aplicada con `lib/theme.ts` (tokens de Tailwind en `<html>`, menú lateral claro/oscuro/de marca, tema por defecto si la persona no eligió otro, CSS personalizado salvo en EVOLVE, Ajustes y Plataforma; se restablece al cambiar de organización), selector de organización, paleta de comandos (`⌘/Ctrl+K`), botón y panel **EVOLVE AI** (`⌘/Ctrl+J`), tema claro/oscuro/sistema, campana de notificaciones (sondeo cada 60 s), menú de usuario y aviso de verificación de correo. El panel de IA se abre por defecto en pantallas de 1280 px o más y solo se recuerda la elección explícita de la persona (`localStorage`, clave `evolve-ai-open`); en pantallas más estrechas es una capa que nunca se abre sola y se cierra al navegar.
 - **Atajos** (`lib/hooks.ts`): `⌘K`, `⌘J`, `G D` (panel), `G E` (EVOLVE), `G R` (informes), `G S` (ajustes), `C` (crear registro en un módulo), `?` (ayuda).
-- **Páginas:** panel con widgets (personalizable por administradores mediante change sets manuales), módulo con vistas tabla/kanban (arrastrar y soltar cambia el campo de agrupación)/calendario mensual, ficha con diseño por secciones, edición, línea de tiempo (incluye las ejecuciones de automatizaciones y scripts con su log), notas, documentos (análisis con IA: `AnalyzeFileButton`), «Clasificar con IA» (`ClassifyButton`), mensajería y relacionados; informes con «Pregunta a tus datos» (`AskDataCard`; los tres en `components/AiTools.tsx`, widgets con `WidgetBody`) y predicción por IA; EVOLVE (peticiones con sondeo cada 2–3 s, detalle con pasos, plan, impacto, tarjeta «Código de los scripts», pruebas, revisión cruzada, aprobación y publicación, y aviso informativo cuando la petición necesita una funcionalidad de la plataforma; versiones con rollback y restauración; seguridad); ajustes por pestañas (Personalización incluye la tarjeta «Scripts de la organización»; API keys incluye los webhooks salientes y su secreto de firma).
+- **Páginas:** inicio (`navigation.home`: una página propia o un panel; `/?panel=<clave>` abre un panel concreto), panel con widgets (personalizable por administradores mediante change sets manuales), páginas propias (`pages/CustomPage.tsx`: rejilla de 6 columnas por ancho de bloque con `WidgetBody`, `RecordTable`, `Markdown`, formularios y botones), módulo con vistas tabla/kanban (arrastrar y soltar cambia el campo de agrupación)/calendario mensual, ficha con diseño por secciones, edición, línea de tiempo (incluye las ejecuciones de automatizaciones y scripts con su log), notas, documentos (análisis con IA: `AnalyzeFileButton`), «Clasificar con IA» (`ClassifyButton`), mensajería y relacionados; informes con «Pregunta a tus datos» (`AskDataCard`; los tres en `components/AiTools.tsx`, widgets con `WidgetBody`) y predicción por IA; EVOLVE (peticiones con sondeo cada 2–3 s, detalle con pasos, plan, «Vista previa» de los cambios visuales (maqueta antes/después, menú y estructura de las páginas), impacto, tarjeta «Código de los scripts», pruebas, revisión cruzada, aprobación y publicación, y aviso informativo cuando la petición necesita una funcionalidad de la plataforma; versiones con rollback y restauración; seguridad); ajustes por pestañas (Personalización incluye la tarjeta «Scripts de la organización»; Apariencia es el editor visual con vista previa en directo, que publica un cambio manual `update_appearance`; API keys incluye los webhooks salientes y su secreto de firma).
 - **Errores de cliente:** `window.onerror` y promesas rechazadas se envían a `POST /api/client-errors` (máx. 6 por carga de página).
 
 ## 9. Cola de trabajos y planificador
 
-`lib/jobs.ts` implementa una cola sobre PostgreSQL: reclama trabajos con `FOR UPDATE SKIP LOCKED`, reintenta con *backoff* exponencial (`min(3600, 30·2^(intento−1))` s) y marca `failed` al agotar intentos (y lo registra en `error_events`). Sondea cada 1,5 s y ejecuta **4 trabajos a la vez, como mucho 2 de la misma organización**, repartiendo turnos entre organizaciones (las que tienen menos en curso y llevan más tiempo sin turno primero), así que una organización no puede acaparar la cola. Cada trabajo tiene un **plazo** (webhooks 30 s, `evolve.*` 15 min, el resto 5 min): al vencer se libera su hueco, se avisa al manejador con una señal de cancelación y el trabajo se reintenta o falla según `max_attempts` (un resultado tardío nunca pisa uno ya reintentado). `recoverStale()` se ejecuta al arrancar y cada 5 min y devuelve a la cola (o marca `failed` si no quedan intentos) los trabajos de procesos caídos bloqueados más de 20 min. El latido del bucle alimenta `/api/health` del worker (503 si lleva más de 5 min sin latido o la base de datos no responde en 5 s) y un *watchdog* que termina el proceso tras 10 min sin latido para que Railway lo reinicie.
+`lib/jobs.ts` implementa una cola sobre PostgreSQL: reclama trabajos con `FOR UPDATE SKIP LOCKED`, reintenta con *backoff* exponencial (`min(3600, 30·2^(intento−1))` s) y marca `failed` al agotar intentos (y lo registra en `error_events`). Sondea cada 1,5 s y ejecuta **4 trabajos a la vez, como mucho 2 de la misma organización**, repartiendo turnos entre organizaciones (las que tienen menos en curso y llevan más tiempo sin turno primero), así que una organización no puede acaparar la cola. Cada trabajo tiene un **plazo** (webhooks 30 s, `evolve.*` 15 min, `code.*` 45 min, el resto 5 min): al vencer se libera su hueco, se avisa al manejador con una señal de cancelación y el trabajo se reintenta o falla según `max_attempts` (un resultado tardío nunca pisa uno ya reintentado). `recoverStale()` se ejecuta al arrancar y cada 5 min y devuelve a la cola (o marca `failed` si no quedan intentos) los trabajos de procesos caídos bloqueados más de 20 min. El latido del bucle alimenta `/api/health` del worker (503 si lleva más de 5 min sin latido o la base de datos no responde en 5 s) y un *watchdog* que termina el proceso tras 10 min sin latido para que Railway lo reinicie.
 
 | Tipo | Lo encola | Intentos | Qué hace |
 |---|---|---|---|
@@ -203,6 +214,8 @@ sequenceDiagram
 | `automations.scheduled` | Planificador (cada 5 min por organización) | 1 | `date_reached` e `inactivity` (y los scripts que ejecuten) |
 | `formulas.recompute` | Planificador (cada hora) y publicaciones con migración de datos | 1/3 | Recalcula fórmulas con `DAYS_*`, `TODAY` o `*_RELATED` |
 | `maintenance.cleanup` | Planificador (diario) | 1 | Purga trabajos, sesiones, tokens, avisos leídos y errores antiguos, y el contenido de los archivos borrados hace más de 7 días (`content` vacío y `size = 0`; la fila se conserva) |
+| `code.plan` | `POST /api/platform/code/requests`, `refine` (y a sí mismo) | 1 por ejecución | Motor de código fuente: agente, reglas deterministas, CI en Railway, auto-corrección y revisión. Cada ejecución es una fase acotada que se vuelve a encolar; con `{probe: true}`, solo publica la configuración del worker |
+| `code.deploy` | `POST /api/platform/code/requests/:id/approve`, `rollback` (y a sí mismo) | 1 por ejecución | Despliegue con canario (worker y después web), verificación de `/api/health` y rollback |
 
 El `Scheduler` se ejecuta cada 60 s y encola con **claves de deduplicación** (`sched:<org>:<bloque de 5 min>`, `formulas:<org>:<hora>`, `cleanup:<día>`), por lo que es seguro con varias instancias del worker.
 
@@ -212,6 +225,7 @@ El `Scheduler` se ejecuta cada 60 s y encola con **claves de deduplicación** (`
 - `evolve/*` (**EVOLVE AI ENGINE**): change sets sobre el blueprint de cada organización (configuración declarativa y, cuando no basta, scripts que escribe el desarrollador con la tarea `code_modification`), sandbox, revisión cruzada, aprobación y versiones. No existe ninguna integración con repositorios: lo que necesita la plataforma se registra como `platformRequest`.
 - `crm/scripts.ts` ejecuta los scripts de cada organización en el sandbox QuickJS.
 - `assistant/*` implementa el asistente contextual con herramientas que respetan rol y RLS; las escrituras solo se proponen.
+- `code-engine/*` (**motor de código fuente**, solo administración de la plataforma): un agente (`runAgent`, tarea `code_modification`, con herramientas sobre un espacio de trabajo virtual) cambia el código de la instalación; reglas deterministas, CI aislado en Railway, revisión `code_review` y aprobación humana antes de desplegar ([CODE_ENGINE.md](CODE_ENGINE.md)).
 - `crm/ai-features.ts` + `crm/routes.ts`: funciones de IA sobre los datos con su propia tarea cada una: preguntas en lenguaje natural (`sql_generation`), clasificación de registros (`customer_classification`) y análisis de documentos (`document_analysis`).
 - `ai/memory.ts` guarda la memoria por organización y por usuario.
 
@@ -232,12 +246,13 @@ Detalle completo en [AI_ENGINE.md](AI_ENGINE.md).
 | `web` (defecto en producción) | Fastify (API + SPA) en `HOST:PORT` | `GET /api/health` completo |
 | `worker` | `JobRunner` (4 en paralelo, 2 por organización, plazo por trabajo, recupera bloqueos > 20 min) + `Scheduler` + servidor HTTP mínimo | `GET /api/health` (`role: "worker"`, 503 si el bucle se detiene) |
 | `all` (defecto fuera de producción) | Ambos en el mismo proceso | El de `web` |
+| `ci` (servicio CI del motor de código; `--role=ci` en `Dockerfile.ci`) | Solo un servidor HTTP mínimo: sin base de datos, sin migraciones y sin exigir `DATABASE_URL`, `APP_ENCRYPTION_KEY` ni `APP_URL` | `GET /api/health` (`role: "ci"`) |
 
 6. Registra «Cortex CRM iniciado» (rol, puerto, base de datos y versión) y, con `SIGTERM`/`SIGINT`, hace un apagado ordenado: cierra servidor, worker (espera al trabajo en curso) y pool.
 
-`/api/health` responde `200 {status:"ok", role, db:"ok", version:{sha, name:"cortex-crm", version}, time}` o `503` si falla `SELECT 1`. `version.sha` sale de `RAILWAY_GIT_COMMIT_SHA` si el entorno la define o, si no, del archivo `.build-sha` que el `Dockerfile` escribe en el build con la variable `BUILD_SHA`.
+`/api/health` responde `200 {status:"ok", role, db:"ok", version:{sha, name:"cortex-crm", version, sourceVersion}, time}` o `503` si falla `SELECT 1`. `version.sha` sale de `RAILWAY_GIT_COMMIT_SHA` si el entorno la define o, si no, del archivo `.build-sha` que el `Dockerfile` escribe en el build con la variable `BUILD_SHA`. `version.sourceVersion` (`{id, base, createdAt}` o `null`) es el `source-version.json` de la versión que desplegó el motor de código fuente; con él se verifica cada despliegue. La imagen guarda además su código fuente exacto en `/app/source` (de solo lectura), del que parte el motor.
 
-**Despliegue de la plataforma**: la misma imagen se publica en los dos servicios de Railway con `railway up --service cortex-crm` y `railway up --service cortex-worker` ([RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md)). `.github/workflows/ci.yml` (typecheck, tests, build y `npm audit`) solo se ejecuta si alguien aloja el código en GitHub; no participa en el despliegue ni en los cambios de las organizaciones, que nunca van a un repositorio.
+**Despliegue de la plataforma**: la misma imagen se publica en los dos servicios de Railway con `railway up --service cortex-crm` y `railway up --service cortex-worker` ([RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md)). `.github/workflows/ci.yml` (typecheck, tests, build y `npm audit`) solo se ejecuta si alguien aloja el código en GitHub; no participa en el despliegue ni en los cambios de las organizaciones, que nunca van a un repositorio. Una instalación también puede cambiar su propio código con el **motor de código fuente**: sube el árbol (base + cambio) a su servicio CI y, tras la aprobación, a `Worker` y `Cortex` con el mismo protocolo que `railway up` ([CODE_ENGINE.md](CODE_ENGINE.md)).
 
 ## 12. Configuración
 
@@ -246,7 +261,7 @@ Las variables se validan en `server/src/config.ts` y están documentadas en `.en
 | Variable | Defecto | Uso |
 |---|---|---|
 | `NODE_ENV` | `development` (`production` en Railway) | `production` activa cookies `Secure`, HSTS y exigencias de configuración y desactiva la carga de `.env` (el Dockerfile lo fija) |
-| `PROCESS_ROLE` | `web` en producción, `all` fuera | Rol del proceso. También se puede indicar en el comando de arranque con `--role=web\|worker\|all` (la plantilla de Railway lo hace en el worker); la variable tiene prioridad |
+| `PROCESS_ROLE` | `web` en producción, `all` fuera | Rol del proceso. También se puede indicar en el comando de arranque con `--role=web\|worker\|all\|ci` (la plantilla de Railway lo hace en el worker; `ci` solo lo usa `Dockerfile.ci`); la variable tiene prioridad |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | Escucha HTTP |
 | `LOG_LEVEL` | `info` (`silent` en test) | Nivel de log |
 | `DATABASE_URL` | — | PostgreSQL; si falta (solo desarrollo) se usa PGlite |
@@ -263,6 +278,8 @@ Las variables se validan en `server/src/config.ts` y están documentadas en `.en
 | `MAX_UPLOAD_MB` | `10` | Tamaño máximo por archivo |
 | `LLM_ENABLE_MOCK` | `false` | Proveedor simulado (solo tests; prohibido en producción) |
 | `BUILD_SHA` (build) / `RAILWAY_GIT_COMMIT_SHA` | — | Versión desplegada expuesta en `/api/health` |
+| `RAILWAY_PROJECT_ID` / `RAILWAY_SERVICE_ID` | Las define Railway | Motor de código fuente: proyecto y servicio del propio proceso (con `RAILWAY_ENVIRONMENT_ID`) |
+| `CORTEX_SERVICE_ID` / `CI_SERVICE_ID` | — | Solo en el worker, por referencia (`${{Cortex.RAILWAY_SERVICE_ID}}`, `${{CI.RAILWAY_SERVICE_ID}}`): servicios web y de CI del motor de código fuente. Se validan al usarlos, nunca impiden arrancar |
 
 Fuera de producción, `index.ts` y `cli.ts` cargan el `.env` del directorio de trabajo con `process.loadEnvFile` (no se usa `dotenv`); en producción solo cuenta el entorno del proceso. `loadConfig()` trata las variables vacías como no definidas, así que una copia de `.env.example` sin cambios es válida (ver el README para desarrollo local).
 
@@ -398,3 +415,22 @@ Formato: contexto → decisión → alternativas consideradas → consecuencias.
 **Consecuencias.**
 - (+) Sin dependencia de puertos SMTP; plantilla HTML con escapado.
 - (−) Dependencia de un tercero para el correo; sin él, la verificación de email no se puede completar y el rol de administrador de plataforma (que se concede al verificar) solo puede asignarse con la CLI.
+
+### ADR-009 · Motor de código fuente por instalación: CI aislado en Railway, sin GitHub
+
+**Contexto.** Hay peticiones que ninguna organización puede resolver con EVOLVE (integraciones con OAuth, pantallas nuevas, rediseños): necesitan cambiar el código común. Cada instalación es un proyecto de Railway independiente desplegado desde la plantilla y su administración quiere evolucionarla sin un equipo de desarrollo ni un repositorio, sin que ningún cambio llegue a GitHub ni a otras instalaciones, y sin que el código generado por la IA se ejecute en producción antes de que una persona lo apruebe. Railway no ofrece Docker-in-Docker ni contenedores efímeros dentro de un proceso.
+
+**Decisión.** Cada imagen guarda su propio código fuente (`/app/source`, con `source-version.json`). Un agente de IA (`runAgent`, tarea `code_modification`) edita un **espacio de trabajo virtual** (texto en memoria, sin disco ni ejecución); unas **reglas deterministas** protegen el núcleo (autenticación, cifrado, RLS, CSP, el propio motor, las pruebas de seguridad, las dependencias y el CI), imponen migraciones aditivas y prohíben patrones peligrosos; el árbol resultante se sube como tar.gz, con el protocolo de `railway up` y un **token de proyecto**, a un **servicio CI** de la propia instalación **sin variables, secretos ni dominio**, cuyo `Dockerfile.ci` (protegido) ejecuta tipos, pruebas y build; los errores del log vuelven al agente (auto-corrección); una revisión de seguridad con otro modelo y los avisos deterministas acompañan al **diff** que revisa una persona, que aprueba escribiendo `DESPLEGAR`; el mismo árbol se despliega primero en el **worker (canario)** y después en el **web**, se verifica `/api/health` y, si algo falla, se revierte con `deploymentRollback`. El estado es una máquina de estados en `source_changes` procesada por trabajos acotados con lease y latido, porque el propio worker se sustituye durante el despliegue.
+
+**Alternativas consideradas.**
+- *Rama + Pull Request + CI en GitHub* (el antiguo motor, eliminado): publicaba el código fuera de la instalación, dependía de tokens de GitHub y de un flujo de despliegue externo, y mezclaba las instalaciones en un repositorio común.
+- *Compilar y probar dentro del worker o del web*: ejecutaría código no aprobado en un proceso con `DATABASE_URL`, `APP_ENCRYPTION_KEY` y las claves de IA.
+- *Aplicar el parche en caliente o con hot reload*: sin tipos, pruebas ni rollback de imagen, y con el código generado corriendo en producción.
+- *Tokens de cuenta de Railway*: permitirían actuar sobre cualquier proyecto; el token de proyecto queda limitado a un proyecto y entorno y a despliegues.
+
+**Consecuencias.**
+- (+) Cada instalación evoluciona por su cuenta, con el mismo rigor que un CI tradicional (tipos, pruebas, build) y revisión humana del diff; nada sale a GitHub.
+- (+) El código no aprobado solo se ejecuta en el CI, sin secretos; el rollback usa las imágenes anteriores de Railway.
+- (−) La seguridad frente a un cambio de lógica malicioso que respete las reglas depende de la revisión humana (con la de IA como ayuda); una vez desplegado, el código es la plataforma.
+- (−) El contenedor del CI comparte la red privada del proyecto durante unos minutos; las migraciones no se deshacen al revertir; un despliegue desde el repositorio de la plantilla sustituiría el código modificado.
+- (−) Cada cambio cuesta minutos de CI y bastantes llamadas a la IA (límites por organización).

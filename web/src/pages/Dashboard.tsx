@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowRight, LayoutGrid, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { errorMessage, get, post } from '../lib/api';
@@ -10,6 +10,7 @@ import type { Dashboard as DashboardT, Widget, WidgetData } from '../lib/types';
 import { Button, Card, cx, EmptyState, ErrorState, Field, Input, Modal, PageLoader, Select, Skeleton } from '../components/ui';
 import { WidgetBody } from '../components/WidgetBody';
 import { useToast } from '../components/toast';
+import { PageView } from './CustomPage';
 
 const SIZE: Record<string, string> = { sm: 'md:col-span-1', md: 'md:col-span-2', lg: 'md:col-span-2 xl:col-span-2', xl: 'md:col-span-2 xl:col-span-4' };
 
@@ -92,9 +93,13 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const toast = useToast();
   const dashboards = bp.data?.blueprint.dashboards ?? [];
-  const [selected, setSelected] = useState<string | null>(null);
-  const dashboard = dashboards.find((d) => d.key === selected) ?? dashboards[0];
-  const data = useQuery({ queryKey: ['dashboard', dashboard?.key, bp.data?.version], queryFn: () => get<{ data: Record<string, WidgetData> }>(`/dashboards/${dashboard!.key}/data`), enabled: !!dashboard });
+  // Inicio de la organización (navigation.home): una página propia o un panel. «?panel=<clave>» abre un panel concreto.
+  const [params, setParams] = useSearchParams();
+  const panel = params.get('panel');
+  const home = bp.data?.blueprint.navigation?.home;
+  const homePage = !panel && home?.type === 'page' ? bp.data?.blueprint.pages?.find((p) => p.key === home.key) : undefined;
+  const dashboard = dashboards.find((d) => d.key === (panel ?? (home?.type === 'dashboard' ? home.key : undefined))) ?? dashboards[0];
+  const data = useQuery({ queryKey: ['dashboard', dashboard?.key, bp.data?.version], queryFn: () => get<{ data: Record<string, WidgetData> }>(`/dashboards/${dashboard!.key}/data`), enabled: !!dashboard && !homePage });
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
   const removeWidget = useMutation({
@@ -112,6 +117,7 @@ export default function Dashboard() {
 
   if (bp.isLoading) return <PageLoader />;
   if (bp.error) return <ErrorState error={bp.error} onRetry={() => bp.refetch()} className="py-24" />;
+  if (homePage) return <PageView key={homePage.key} page={homePage} />;
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -121,7 +127,7 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dashboards.length > 1 && (
-            <Select value={dashboard?.key} onChange={(e) => setSelected(e.target.value)} className="w-48">
+            <Select value={dashboard?.key} onChange={(e) => setParams({ panel: e.target.value })} className="w-48">
               {dashboards.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
             </Select>
           )}

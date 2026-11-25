@@ -27,6 +27,8 @@ const RequestDetail = lazy(() => import('./pages/evolve/RequestDetail'));
 const Releases = lazy(() => import('./pages/evolve/Releases'));
 const Security = lazy(() => import('./pages/evolve/Security'));
 const Settings = lazy(() => import('./pages/settings/Settings'));
+const CustomPage = lazy(() => import('./pages/CustomPage'));
+const CodeEngine = lazy(() => import('./pages/platform/CodeEngine'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 window.addEventListener('error', (e) => reportClientError(e.message, e.error?.stack));
@@ -67,6 +69,8 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="/evolve/requests/:id" element={<RequestDetail />} />
                   <Route path="/evolve/releases" element={<Releases />} />
                   <Route path="/evolve/security" element={<Security />} />
+                  <Route path="/p/:page" element={<CustomPage />} />
+                  <Route path="/platform/code" element={<CodeEngine />} />
                   <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
                   <Route path="/settings/:tab" element={<Settings />} />
                   <Route path="*" element={<NotFound />} />

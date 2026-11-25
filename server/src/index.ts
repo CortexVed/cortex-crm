@@ -22,6 +22,7 @@ async function main() {
   // En desarrollo se carga .env si existe (en producción las variables vienen de Railway).
   if (process.env.NODE_ENV !== 'production' && fs.existsSync('.env')) process.loadEnvFile('.env');
   const config = loadConfig();
+  if (config.role === 'ci') return startCiRole(config);
   const db = await createDb({ url: config.databaseUrl, pgliteDir: config.pgliteDir ?? (config.databaseUrl ? undefined : '.data/pglite'), poolMax: config.dbPoolMax });
   // En una instalación nueva (plantilla de Railway) los servicios arrancan a la vez que Postgres: se espera a
   // que acepte conexiones en lugar de fallar y depender de los reinicios de la plataforma.
@@ -117,6 +118,33 @@ async function main() {
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
+}
+
+/**
+ * Rol del servicio de CI del motor de código fuente (docs/CODE_ENGINE.md). La comprobación de verdad ya ha
+ * ocurrido al construir la imagen (Dockerfile.ci: tipos, pruebas y build); aquí solo se demuestra que el
+ * bundle arranca y se responde al health check de Railway. Sin base de datos, sin secretos y sin ninguna
+ * otra ruta: el servicio de CI no tiene variables ni dominio y el motor retira el despliegue en cuanto
+ * conoce el resultado.
+ */
+function startCiRole(config: ReturnType<typeof loadConfig>) {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url?.split('?')[0] === '/api/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ status: 'ok', role: 'ci', version: buildVersion() }));
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  server.listen(config.port, config.host);
+  log.info({ role: 'ci', port: config.port, version: buildVersion() }, 'Cortex CRM iniciado');
+  const stop = (signal: string) => {
+    log.info({ signal }, 'Apagado ordenado');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5_000).unref();
+  };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
 }
 
 main().catch((e) => {

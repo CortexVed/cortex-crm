@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from './api';
 import type { Blueprint, Member } from './types';
 import type { WorkspaceSettingsView } from './session';
 
-export function useBlueprint() {
+export function useBlueprint(enabled = true) {
   return useQuery({
     queryKey: ['blueprint'],
     queryFn: () => get<{ version: number; blueprint: Blueprint; settings: WorkspaceSettingsView }>('/blueprint'),
     staleTime: 30_000,
+    enabled,
   });
 }
 
@@ -70,28 +71,47 @@ export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>,
 }
 
 type Theme = 'light' | 'dark' | 'system';
-export function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      return (localStorage.getItem('evolve-theme') as Theme) || 'system';
-    } catch {
-      return 'system';
-    }
-  });
+const THEME_KEY = 'evolve-theme';
+const THEME_EXPLICIT_KEY = 'evolve-theme-explicit';
+
+/** Tema que la persona ha elegido EXPLÍCITAMENTE (null si nunca lo ha cambiado). */
+function readExplicitTheme(): Theme | null {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    // Las versiones anteriores guardaban «system» aunque nadie lo eligiera: solo cuenta con la marca explícita.
+    if (v === 'light' || v === 'dark') return v;
+    if (v === 'system' && localStorage.getItem(THEME_EXPLICIT_KEY) === '1') return 'system';
+  } catch {
+    /* almacenamiento no disponible */
+  }
+  return null;
+}
+
+/**
+ * Tema claro/oscuro/sistema. La elección explícita de la persona manda; si no ha elegido ninguno, se usa el tema
+ * por defecto de su organización (`appearance.defaultTheme`) y, si tampoco hay, el del sistema.
+ */
+export function useTheme(orgDefault?: Theme): [Theme, (t: Theme) => void] {
+  const [explicit, setExplicit] = useState<Theme | null>(readExplicitTheme);
+  const theme: Theme = explicit ?? orgDefault ?? 'system';
   useEffect(() => {
     const apply = () => {
       const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       document.documentElement.classList.toggle('dark', dark);
     };
     apply();
-    try {
-      localStorage.setItem('evolve-theme', theme);
-    } catch {
-      /* almacenamiento no disponible */
-    }
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [theme]);
+  const setTheme = useCallback((t: Theme) => {
+    setExplicit(t);
+    try {
+      localStorage.setItem(THEME_KEY, t);
+      localStorage.setItem(THEME_EXPLICIT_KEY, '1');
+    } catch {
+      /* almacenamiento no disponible */
+    }
+  }, []);
   return [theme, setTheme];
 }

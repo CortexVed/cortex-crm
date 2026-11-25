@@ -1,20 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Bell, Check, ChevronsUpDown, GitBranch, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun, X } from 'lucide-react';
+import { BarChart3, Bell, Check, ChevronDown, ChevronsUpDown, Code2, ExternalLink, GitBranch, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun, X } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { useBlueprint, useHotkeys, useTheme } from '../lib/hooks';
 import { ModuleIcon } from '../lib/icons';
-import { MODULE_ACCENT } from '../lib/colors';
 import { get, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
-import { ROLE_LABELS, hasRole, type Color } from '../../../shared/constants';
+import { applyAppearance, cacheAppearance, cachedAppearance, resetAppearance, setCustomCss, sidebarClass } from '../lib/theme';
+import { ROLE_LABELS, hasRole } from '../../../shared/constants';
 import { Avatar, Button, cx, IconButton, Input, Kbd, Modal, PageLoader, Spinner } from './ui';
 import { CommandPalette } from './CommandPalette';
 import { AiPanel } from './AiPanel';
 import { useToast } from './toast';
+import { buildSections, type NavEntry } from './navigation';
 
-function Logo() {
+/** Logotipo: el de Cortex CRM o, si la organización tiene nombre propio (appearance.appName), su monograma y su nombre. */
+function Logo({ appName }: { appName?: string }) {
+  if (appName) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">{appName.slice(0, 1).toUpperCase()}</span>
+        <span className="truncate text-[15px] font-bold tracking-tight">{appName}</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
       <img src="/favicon.svg" alt="" className="size-7" />
@@ -84,15 +94,14 @@ function WorkspaceSwitcher() {
   );
 }
 
-function NavItem({ to, icon, label, end, badge }: { to: string; icon: React.ReactNode; label: string; end?: boolean; badge?: React.ReactNode }) {
+const NAV_LINK_BASE = 'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] font-medium transition';
+const NAV_LINK_IDLE = 'text-zinc-600 hover:bg-zinc-900/[0.04] hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-100';
+const NAV_LINK_ACTIVE = 'bg-zinc-900/[0.06] text-zinc-900 dark:bg-white/10 dark:text-white';
+
+/** Enlace del menú. `active` fuerza el estado (NavLink no distingue la query: «/?panel=x» frente a «/»). */
+function NavItem({ to, icon, label, end, badge, active }: { to: string; icon: React.ReactNode; label: string; end?: boolean; badge?: React.ReactNode; active?: boolean }) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        cx('group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] font-medium transition', isActive ? 'bg-zinc-900/[0.06] text-zinc-900 dark:bg-white/10 dark:text-white' : 'text-zinc-600 hover:bg-zinc-900/[0.04] hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-100')
-      }
-    >
+    <NavLink to={to} end={end} className={({ isActive }) => cx(NAV_LINK_BASE, (active ?? isActive) ? NAV_LINK_ACTIVE : NAV_LINK_IDLE)}>
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge}
@@ -100,26 +109,118 @@ function NavItem({ to, icon, label, end, badge }: { to: string; icon: React.Reac
   );
 }
 
+function NavEntryLink({ entry }: { entry: NavEntry }) {
+  if (entry.href) {
+    return (
+      <a href={entry.href} target="_blank" rel="noopener noreferrer" className={cx(NAV_LINK_BASE, NAV_LINK_IDLE)}>
+        {entry.icon}
+        <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+        <ExternalLink className="size-3 shrink-0 text-zinc-400" aria-label="(se abre en otra pestaña)" />
+      </a>
+    );
+  }
+  return <NavItem to={entry.to!} icon={entry.icon} label={entry.label} active={entry.active} />;
+}
+
+const normalizeText = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Grupos plegados del menú (preferencia de cada persona y organización). */
+function useCollapsedGroups(workspaceId: string | undefined): [Set<string>, (key: string) => void] {
+  const storageKey = `cortex-nav-collapsed:${workspaceId ?? ''}`;
+  const read = useCallback(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+      return new Set<string>(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    } catch {
+      return new Set<string>();
+    }
+  }, [storageKey]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(read);
+  useEffect(() => setCollapsed(read()), [read]);
+  const toggle = useCallback(
+    (key: string) =>
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          /* sin almacenamiento */
+        }
+        return next;
+      }),
+    [storageKey],
+  );
+  return [collapsed, toggle];
+}
+
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { data } = useBlueprint();
   const { can, me } = useSession();
-  const modules = (data?.blueprint.modules ?? []).filter((m) => !m.archived);
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const [filter, setFilter] = useState('');
+  const [collapsed, toggleGroup] = useCollapsedGroups(me?.workspace?.id);
+  const bp = data?.blueprint;
+  const panel = location.pathname === '/' ? params.get('panel') : null;
+  const sections = useMemo(() => buildSections(bp, panel), [bp, panel]);
+  const moduleCount = (bp?.modules ?? []).filter((m) => !m.archived).length;
+  const home = bp?.navigation?.home;
+  const homePage = home?.type === 'page' ? bp?.pages?.find((p) => p.key === home.key) : undefined;
+  const dashboards = bp?.dashboards ?? [];
+  const navHasDashboards = !!bp?.navigation?.groups.some((g) => g.items.some((it) => it.type === 'dashboard'));
+  const term = normalizeText(filter.trim());
+  const visible = term ? sections.map((s) => ({ ...s, entries: s.entries.filter((e) => normalizeText(e.label).includes(term)) })).filter((s) => s.entries.length > 0) : sections;
   return (
     <nav className="flex h-full flex-col gap-4 px-3 py-4" onClick={(e) => (e.target as HTMLElement).closest('a') && onNavigate?.()}>
       <div className="px-2">
-        <Logo />
+        <Logo appName={bp?.appearance?.appName} />
       </div>
       <WorkspaceSwitcher />
       <div className="space-y-0.5">
-        <NavItem to="/" end icon={<LayoutDashboard className="size-4" />} label="Panel" />
+        <NavItem to="/" end icon={homePage ? <ModuleIcon name={homePage.icon} className="size-4" /> : <LayoutDashboard className="size-4" />} label={homePage?.label ?? 'Panel'} active={(location.pathname === '/' && !panel) || (!!homePage && location.pathname === `/p/${homePage.key}`)} />
+        {homePage && dashboards.length > 0 && !navHasDashboards && <NavItem to={`/?panel=${encodeURIComponent(dashboards[0].key)}`} icon={<LayoutDashboard className="size-4" />} label={dashboards.length > 1 ? 'Paneles' : dashboards[0].label} active={!!panel} />}
         <NavItem to="/reports" icon={<BarChart3 className="size-4" />} label="Informes" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Módulos</div>
-        <div className="space-y-0.5">
-          {modules.map((m) => (
-            <NavItem key={m.key} to={`/m/${m.key}`} icon={<span className={cx('flex size-5 items-center justify-center rounded-md', MODULE_ACCENT[m.color as Color])}><ModuleIcon name={m.icon} className="size-3.5" /></span>} label={m.labelPlural} />
-          ))}
+        {moduleCount > 12 && (
+          <div className="relative mb-3">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+              placeholder="Filtrar el menú…"
+              aria-label="Filtrar el menú"
+              className="h-8 w-full rounded-lg bg-zinc-900/[0.04] pl-8 pr-2 text-[13px] outline-none ring-1 ring-transparent placeholder:text-zinc-400 focus:ring-brand-500 dark:bg-white/5"
+            />
+          </div>
+        )}
+        <div className="space-y-4">
+          {visible.map((s) => {
+            const isCollapsed = !term && s.collapsible && collapsed.has(s.key);
+            return (
+              <div key={s.key}>
+                {s.collapsible ? (
+                  <button type="button" onClick={() => toggleGroup(s.key)} aria-expanded={!isCollapsed} className="mb-1 flex w-full items-center gap-1 px-2 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-400 transition hover:text-zinc-600 dark:hover:text-zinc-300">
+                    <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                    <ChevronDown className={cx('size-3.5 shrink-0 transition', isCollapsed && '-rotate-90')} />
+                  </button>
+                ) : (
+                  <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{s.label}</div>
+                )}
+                {!isCollapsed && (
+                  <div className="space-y-0.5">
+                    {s.entries.map((e) => (
+                      <NavEntryLink key={e.id} entry={e} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {term && !visible.length && <p className="px-2 text-xs text-zinc-500">Nada coincide con «{filter.trim()}»</p>}
         </div>
         <div className="mb-1 mt-5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Evolución</div>
         <div className="space-y-0.5">
@@ -131,6 +232,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="space-y-0.5 border-t border-zinc-200/70 pt-3 dark:border-zinc-800">
         <NavItem to="/settings/general" icon={<Settings className="size-4" />} label="Ajustes" />
         {me?.user.isPlatformAdmin && <NavItem to="/settings/platform" icon={<GitBranch className="size-4" />} label="Plataforma" />}
+        {me?.user.isPlatformAdmin && <NavItem to="/platform/code" icon={<Code2 className="size-4" />} label="Código fuente" />}
       </div>
     </nav>
   );
@@ -157,7 +259,7 @@ function Notifications() {
     <div className="relative" ref={ref}>
       <IconButton label="Notificaciones" onClick={() => setOpen((o) => !o)} className="relative">
         <Bell className="size-4" />
-        {!!q.data?.unread && <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-fuchsia-500 text-[9px] font-bold text-white">{q.data.unread > 9 ? '9+' : q.data.unread}</span>}
+        {!!q.data?.unread && <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">{q.data.unread > 9 ? '9+' : q.data.unread}</span>}
       </IconButton>
       {open && (
         <div className="absolute right-0 top-full z-30 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-xl bg-white shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
@@ -177,7 +279,7 @@ function Notifications() {
             ) : (
               q.data.items.map((n) => (
                 <button key={n.id} onClick={() => read(n)} className="flex w-full gap-3 border-b border-zinc-50 px-4 py-3 text-left transition last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/50">
-                  <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', n.read_at ? 'bg-transparent' : 'bg-fuchsia-500')} />
+                  <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', n.read_at ? 'bg-transparent' : 'bg-accent')} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">{n.title}</span>
                     {n.body && <span className="mt-0.5 block truncate text-xs text-zinc-500">{n.body}</span>}
@@ -241,11 +343,29 @@ const SHORTCUTS: [string, string][] = [
 
 const isWide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches;
 
+/** Rutas de gobierno: nunca llevan el CSS personalizado, para que no pueda ocultar ni falsear aprobaciones, versiones o el propio editor. */
+const GOVERNANCE_ROUTES = /^\/(evolve|settings|platform)(\/|$)/;
+
 export function AppLayout() {
   const { me, loading } = useSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const [theme, setTheme] = useTheme();
+  // Apariencia de la organización (blueprint.appearance). Mientras carga se usa la última conocida en este
+  // navegador para esta organización (solo tokens; nunca el CSS personalizado).
+  const workspaceId = me?.workspace?.id;
+  const blueprint = useBlueprint(!!workspaceId);
+  const cached = useMemo(() => cachedAppearance(workspaceId), [workspaceId]);
+  const appearance = blueprint.data ? blueprint.data.blueprint.appearance : cached;
+  const [theme, setTheme] = useTheme(appearance?.defaultTheme);
+  // useLayoutEffect: los tokens se aplican antes de pintar (sin destello de la paleta por defecto).
+  useLayoutEffect(() => {
+    applyAppearance(appearance);
+    if (workspaceId && blueprint.data) cacheAppearance(workspaceId, appearance);
+  }, [appearance, workspaceId, blueprint.data]);
+  const customCss = blueprint.data && !GOVERNANCE_ROUTES.test(location.pathname) ? appearance?.customCss : undefined;
+  useLayoutEffect(() => setCustomCss(customCss), [customCss]);
+  // Al salir (cerrar sesión) vuelve el aspecto de Cortex CRM.
+  useEffect(() => () => resetAppearance(), []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Por defecto EVOLVE AI acompaña siempre en pantallas anchas (panel lateral); en pantallas estrechas es una
   // capa a pantalla completa y nunca se abre sola. Solo se recuerda la elección explícita (⌘J o el botón).
@@ -312,12 +432,12 @@ export function AppLayout() {
   const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
   return (
     <div className="flex h-dvh overflow-hidden">
-      <aside className="hidden w-64 shrink-0 border-r border-zinc-200/70 bg-zinc-50/80 lg:block dark:border-zinc-800 dark:bg-zinc-950">
+      <aside className={cx('hidden w-64 shrink-0 border-r lg:block', sidebarClass(appearance?.sidebar))}>
         <Sidebar />
       </aside>
       {mobileNav && (
         <div className="fixed inset-0 z-40 bg-zinc-950/40 lg:hidden" onClick={() => setMobileNav(false)}>
-          <aside className="h-full w-72 bg-zinc-50 shadow-2xl animate-slide-in dark:bg-zinc-950" onClick={(e) => e.stopPropagation()}>
+          <aside className={cx('h-full w-72 shadow-2xl animate-slide-in', sidebarClass(appearance?.sidebar, true))} onClick={(e) => e.stopPropagation()}>
             <Sidebar onNavigate={() => setMobileNav(false)} />
           </aside>
         </div>

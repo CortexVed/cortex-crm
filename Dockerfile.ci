@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+
+# CI aislado del motor de código fuente (docs/CODE_ENGINE.md). Se construye en el servicio CI de Railway, que
+# no tiene variables, secretos ni dominio: el código generado solo se ejecuta aquí antes de que una persona lo
+# apruebe. Si cualquier paso falla, el build falla y el motor lee el log para auto-corregirse.
+
+# ---------- comprobaciones ----------
+FROM node:24-alpine AS build
+WORKDIR /app
+# CI=true: Vitest no interactivo y un .only hace fallar la ejecución.
+ENV CI=true NO_COLOR=1 FORCE_COLOR=0
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN test -f source-version.json || echo '{}' > source-version.json
+RUN npm run typecheck
+RUN npx vitest run
+RUN npm run build && npm prune --omit=dev
+
+# ---------- runtime ----------
+# El código generado (aún sin aprobar) SOLO se ejecuta en la fase de build de arriba, que no tiene secretos ni
+# acceso a la red privada del proyecto. El contenedor que queda en marcha NO carga nada de ese código: es un
+# servidor de salud mínimo definido aquí (este archivo está protegido frente al motor), para que el código no
+# aprobado nunca quede vivo dentro de la red privada. El motor retira este despliegue en cuanto conoce el resultado.
+FROM node:24-alpine AS runtime
+WORKDIR /app
+RUN apk add --no-cache tini
+COPY --from=build /app/source-version.json ./source-version.json
+USER node
+EXPOSE 8080
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "-e", "require('node:http').createServer((q,r)=>{r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({status:'ok',role:'ci'}))}).listen(Number(process.env.PORT)||8080,'0.0.0.0')"]

@@ -200,6 +200,41 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         bp.scripts = scripts.filter((x) => x.key !== op.script);
         break;
       }
+      case 'update_appearance': {
+        // Parche: solo cambia lo indicado; null quita los campos opcionales. Los valores por defecto los
+        // rellena BlueprintSchema al normalizar el resultado.
+        const changes = Object.entries(op.changes).filter(([, v]) => v !== undefined);
+        if (!changes.length) {
+          fail('update_appearance no indica ningún cambio');
+          break;
+        }
+        const next: Record<string, unknown> = { ...(bp.appearance ?? {}) };
+        for (const [k, v] of changes) {
+          if (v === null) delete next[k];
+          else next[k] = v;
+        }
+        bp.appearance = next as Blueprint['appearance'];
+        break;
+      }
+      case 'update_navigation': {
+        // Sustituye el menú completo; null vuelve al menú por defecto (lista de módulos).
+        if (op.navigation) bp.navigation = structuredClone(op.navigation);
+        else delete bp.navigation;
+        break;
+      }
+      case 'upsert_page': {
+        const pages = (bp.pages ??= []);
+        const idx = pages.findIndex((p) => p.key === op.page.key);
+        if (idx >= 0) pages[idx] = structuredClone(op.page);
+        else pages.push(structuredClone(op.page));
+        break;
+      }
+      case 'remove_page': {
+        const pages = (bp.pages ??= []);
+        if (!pages.some((p) => p.key === op.page)) fail(`No existe la página "${op.page}"`);
+        bp.pages = pages.filter((p) => p.key !== op.page);
+        break;
+      }
       case 'backfill_field': {
         const f = needModule()?.fields.find((x) => x.key === op.field);
         if (mod && (!f || f.archived || f.type === 'formula' || f.type === 'file')) {

@@ -1,10 +1,14 @@
 import {
+  BLUEPRINT_LIMITS,
   SYSTEM_QUERY_FIELDS,
   findModule,
   type Blueprint,
   type Field,
   type Module,
+  type Widget,
 } from '../../../shared/blueprint';
+import { contrastRatio, navHrefKind, sanitizeCustomCss } from '../../../shared/appearance';
+import { ROLE_LABELS } from '../../../shared/constants';
 import { collectFieldRefs, collectRelatedCalls, parseFormula } from '../../../shared/formula';
 import { normalizeValue } from '../../../shared/records';
 import { isPrivateHostname } from '../lib/ssrf';
@@ -20,8 +24,8 @@ const NUMERIC = new Set(['number', 'currency', 'percent', 'rating']);
 const PRIMARY_TYPES = new Set(['text', 'email', 'phone', 'url', 'number', 'select', 'date']);
 const WRITABLE_EXCLUDED = new Set(['formula']);
 /** Límites de coste: cada escritura recalcula las fórmulas del módulo (y las que dependen de él). */
-export const MAX_FORMULAS_PER_MODULE = 40;
-export const MAX_FORMULA_CHARS = 60_000;
+export const MAX_FORMULAS_PER_MODULE = 300;
+export const MAX_FORMULA_CHARS = 2_000_000;
 
 function isNumeric(f: Field | undefined): boolean {
   if (!f) return false;
@@ -36,6 +40,9 @@ export function validateBlueprint(bp: Blueprint): Issue[] {
   const issues: Issue[] = [];
   const err = (path: string, message: string) => issues.push({ level: 'error', path, message });
   const warn = (path: string, message: string) => issues.push({ level: 'warning', path, message });
+  // Único tope global: el tamaño. Los recuentos (módulos, campos…) son muy altos (BLUEPRINT_LIMITS).
+  const bytes = Buffer.byteLength(JSON.stringify(bp));
+  if (bytes > BLUEPRINT_LIMITS.maxBlueprintBytes) err('blueprint', `La configuración ocupa ${Math.round(bytes / 1048576)} MB; el máximo es ${BLUEPRINT_LIMITS.maxBlueprintBytes / 1048576} MB`);
   const dupes = (keys: string[], path: string, what: string) => {
     const seen = new Set<string>();
     for (const k of keys) {
@@ -220,22 +227,22 @@ export function validateBlueprint(bp: Blueprint): Issue[] {
     if (!bp.automations.some((a) => a.actions.some((x) => x.type === 'run_script' && x.script === s.key))) warn(sp, `Ninguna automatización usa el script "${s.key}"`);
   }
 
-  // Paneles
+  // Paneles (las mismas reglas de widgets se aplican a los widgets de las páginas)
+  const checkWidget = (w: Widget, wp: string) => {
+    const m = findModule(bp, w.module);
+    if (!m) {
+      err(wp, `Módulo inexistente "${w.module}"`);
+      return;
+    }
+    if (w.aggregate !== 'count' && !isNumeric(activeField(m, w.field ?? ''))) err(wp, `"${w.field}" debe ser numérico para ${w.aggregate}`);
+    if ((w.type === 'bar' || w.type === 'donut') && (!w.groupBy || !queryable(m, w.groupBy))) err(wp, 'El gráfico necesita un campo de agrupación válido');
+    if (w.type === 'line' && (!w.dateField || !isDateLike(m, w.dateField))) err(wp, 'El gráfico de evolución necesita un campo de fecha');
+    for (const f of w.filters) if (!queryable(m, f.field)) err(wp, `Filtro sobre campo inexistente "${f.field}"`);
+  };
   dupes(bp.dashboards.map((d) => d.key), 'dashboards', 'Panel');
   for (const d of bp.dashboards) {
     dupes(d.widgets.map((w) => w.key), `dashboards.${d.key}`, 'Widget');
-    for (const w of d.widgets) {
-      const wp = `dashboards.${d.key}.${w.key}`;
-      const m = findModule(bp, w.module);
-      if (!m) {
-        err(wp, `Módulo inexistente "${w.module}"`);
-        continue;
-      }
-      if (w.aggregate !== 'count' && !isNumeric(activeField(m, w.field ?? ''))) err(wp, `"${w.field}" debe ser numérico para ${w.aggregate}`);
-      if ((w.type === 'bar' || w.type === 'donut') && (!w.groupBy || !queryable(m, w.groupBy))) err(wp, 'El gráfico necesita un campo de agrupación válido');
-      if (w.type === 'line' && (!w.dateField || !isDateLike(m, w.dateField))) err(wp, 'El gráfico de evolución necesita un campo de fecha');
-      for (const f of w.filters) if (!queryable(m, f.field)) err(wp, `Filtro sobre campo inexistente "${f.field}"`);
-    }
+    for (const w of d.widgets) checkWidget(w, `dashboards.${d.key}.${w.key}`);
   }
 
   // Integraciones
@@ -268,6 +275,81 @@ export function validateBlueprint(bp: Blueprint): Issue[] {
     for (const f of m.fields) {
       if (f.required && !f.archived && f.defaultValue === undefined && !form.fields.includes(f.key) && form.defaults[f.key] === undefined) {
         warn(fp, `El formulario no incluye el campo obligatorio "${f.key}"`);
+      }
+    }
+  }
+
+  // Capa visual: apariencia, páginas y menú. Las referencias (módulos, vistas, paneles, páginas, formularios)
+  // deben existir; un módulo archivado solo avisa (su bloque o su enlace dejan de mostrarse).
+  const look = bp.appearance;
+  if (look) {
+    const ratio = contrastRatio(look.brandColor, '#ffffff');
+    if (ratio < 3) warn('appearance.brandColor', `El texto blanco sobre el color principal ${look.brandColor} tiene poco contraste (${ratio.toFixed(1)}:1): los botones principales pueden leerse mal`);
+    if (look.accentColor && look.accentColor === look.brandColor) warn('appearance.accentColor', 'El color de acento es igual al principal');
+    if (look.customCss !== undefined) for (const e of sanitizeCustomCss(look.customCss).errors) err('appearance.customCss', e);
+  }
+  const pages = bp.pages ?? [];
+  const pageKeys = new Set(pages.map((p) => p.key));
+  const dashboardKeys = new Set(bp.dashboards.map((d) => d.key));
+  const moduleRef = (path: string, key: string, what: string) => {
+    const m = findModule(bp, key);
+    if (!m) err(path, `${what} usa un módulo inexistente "${key}"`);
+    else if (m.archived) warn(path, `${what} usa el módulo archivado "${key}": no se mostrará`);
+    return m;
+  };
+  dupes(pages.map((p) => p.key), 'pages', 'Página');
+  for (const page of pages) {
+    const pp = `pages.${page.key}`;
+    dupes(page.blocks.flatMap((b) => (b.type === 'widget' ? [b.widget.key] : [])), pp, 'Widget');
+    page.blocks.forEach((b, i) => {
+      const bpath = `${pp}.blocks[${i}]`;
+      if (b.type === 'widget') checkWidget(b.widget, `${bpath}.${b.widget.key}`);
+      else if (b.type === 'records') {
+        const m = moduleRef(bpath, b.module, 'La lista de registros');
+        if (!m) return;
+        if (b.view && !m.views.some((v) => v.key === b.view)) err(bpath, `La vista "${b.view}" no existe en "${m.key}"`);
+        for (const f of b.filters) if (!queryable(m, f.field)) err(bpath, `Filtro sobre campo inexistente "${f.field}"`);
+        for (const c of b.columns ?? []) if (!queryable(m, c)) warn(bpath, `La columna "${c}" no existe o está archivada`);
+      } else if (b.type === 'form') {
+        if (!bp.forms.some((f) => f.key === b.form)) err(bpath, `Formulario inexistente "${b.form}"`);
+      } else if (b.type === 'buttons') {
+        b.items.forEach((it, j) => {
+          const ip = `${bpath}.items[${j}]`;
+          const t = it.to;
+          if (t.type === 'module' || t.type === 'new_record') moduleRef(ip, t.key, `El botón «${it.label}»`);
+          else if (t.type === 'page' && !pageKeys.has(t.key)) err(ip, `El botón «${it.label}» enlaza a la página inexistente "${t.key}"`);
+          else if (t.type === 'dashboard' && !dashboardKeys.has(t.key)) err(ip, `El botón «${it.label}» enlaza al panel inexistente "${t.key}"`);
+        });
+      }
+    });
+  }
+  const nav = bp.navigation;
+  if (nav) {
+    dupes(nav.groups.map((g) => g.key), 'navigation.groups', 'Grupo del menú');
+    const listed = new Set<string>();
+    for (const g of nav.groups) {
+      g.items.forEach((it, j) => {
+        const ip = `navigation.groups.${g.key}.items[${j}]`;
+        const where = `El menú («${g.label}»)`;
+        if (it.type === 'module') {
+          listed.add(it.key);
+          moduleRef(ip, it.key, where);
+        } else if (it.type === 'page' && !pageKeys.has(it.key)) err(ip, `${where} enlaza a la página inexistente "${it.key}"`);
+        else if (it.type === 'dashboard' && !dashboardKeys.has(it.key)) err(ip, `${where} enlaza al panel inexistente "${it.key}"`);
+        else if (it.type === 'link' && !navHrefKind(it.href)) err(ip, `${where}: enlace no permitido "${it.href.slice(0, 80)}" (usa una ruta de la aplicación que empiece por / o una URL https://)`);
+      });
+    }
+    const home = nav.home;
+    if (home?.type === 'page') {
+      const target = pages.find((p) => p.key === home.key);
+      if (!target) err('navigation.home', `La página de inicio "${home.key}" no existe`);
+      else if (target.minRole !== 'viewer') warn('navigation.home', `La página de inicio solo la ve el rol ${ROLE_LABELS[target.minRole]} o superior: el resto verá el panel`);
+    } else if (home?.type === 'dashboard' && !dashboardKeys.has(home.key)) err('navigation.home', `El panel de inicio "${home.key}" no existe`);
+    if (nav.groups.length) {
+      const unlisted = bp.modules.filter((m) => !m.archived && !listed.has(m.key));
+      if (unlisted.length) {
+        const names = unlisted.slice(0, 5).map((m) => m.labelPlural).join(', ');
+        warn('navigation', `${unlisted.length} módulo(s) no aparecen en ningún grupo del menú (${names}${unlisted.length > 5 ? '…' : ''}): se mostrarán al final del menú, en «Otros»`);
       }
     }
   }

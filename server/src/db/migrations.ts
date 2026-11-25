@@ -519,6 +519,61 @@ export const MIGRATIONS: { id: string; sql: () => string }[] = [
   // Aditiva (solo un índice): el planificador de trabajos busca los listos por organización para repartir
   // turnos de forma equitativa entre organizaciones.
   { id: '004_jobs_workspace_ready_idx', sql: () => `CREATE INDEX IF NOT EXISTS jobs_ws_ready_idx ON jobs (workspace_id, run_at) WHERE status = 'queued';` },
+  // Aditiva: motor de código fuente de la instalación (docs/CODE_ENGINE.md). Son tablas de PLATAFORMA: sin
+  // RLS y sin ningún permiso para evolve_tenant; solo las usan las rutas de administración de la plataforma
+  // y el worker con la conexión privilegiada. El token de Railway se guarda cifrado (SecretBox, AAD
+  // platform:railway-token). Como mucho un cambio en preparación o despliegue a la vez (el servicio de CI es
+  // único) y como mucho un despliegue o rollback a la vez; un rollback urgente no espera a que termine de
+  // prepararse otro cambio.
+  {
+    id: '005_source_code_engine',
+    sql: () => `
+CREATE TABLE IF NOT EXISTS platform_settings (
+  key text PRIMARY KEY,
+  value jsonb NOT NULL DEFAULT '{}',
+  secret_ciphertext text,
+  secret_hint text,
+  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS source_changes (
+  id uuid PRIMARY KEY,
+  ai_workspace_id uuid REFERENCES workspaces(id) ON DELETE SET NULL,
+  requested_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  origin jsonb,
+  prompt text NOT NULL,
+  title text,
+  summary text,
+  status text NOT NULL,
+  base_version text,
+  base_tree_hash text,
+  patch jsonb NOT NULL DEFAULT '{"files":[]}',
+  stats jsonb NOT NULL DEFAULT '{}',
+  guards jsonb,
+  flags jsonb NOT NULL DEFAULT '[]',
+  problems jsonb NOT NULL DEFAULT '[]',
+  ci jsonb NOT NULL DEFAULT '{"attempts":[]}',
+  review jsonb,
+  risk text NOT NULL DEFAULT 'high',
+  approvals jsonb NOT NULL DEFAULT '[]',
+  deploy jsonb NOT NULL DEFAULT '{}',
+  conversation jsonb NOT NULL DEFAULT '[]',
+  progress jsonb NOT NULL DEFAULT '[]',
+  llm jsonb NOT NULL DEFAULT '[]',
+  lease_token text,
+  lease_until timestamptz,
+  heartbeat_at timestamptz,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deployed_at timestamptz,
+  rolled_back_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS source_changes_created_idx ON source_changes (created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS source_changes_single_active_uq ON source_changes ((true)) WHERE status IN ('queued','planning','testing','deploying');
+CREATE UNIQUE INDEX IF NOT EXISTS source_changes_single_release_uq ON source_changes ((true)) WHERE status IN ('deploying','rolling_back');
+`,
+  },
 ];
 
 export async function runMigrations(db: Db, log: (msg: string) => void = () => {}) {

@@ -41,4 +41,6 @@ export const EXAMPLES = [
   'Quiero cambiar completamente el diseño del módulo de oportunidades.',
   'Quiero integrar WhatsApp y que los mensajes de los clientes aparezcan automáticamente en su ficha.',
   'Añade una vista calendario de tareas por prioridad y un panel con las tareas vencidas por comercial.',
+  'Usa nuestro color corporativo #0A7F6B, pon el menú lateral oscuro y agrupa el menú en Comercial y Operaciones.',
+  'Crea una página de inicio para ventas con KPIs y la lista de oportunidades abiertas.',
 ];

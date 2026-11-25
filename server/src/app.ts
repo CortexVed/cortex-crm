@@ -23,6 +23,7 @@ import { aiRoutes } from './ai/routes';
 import { assistantRoutes } from './assistant/routes';
 import { commsRoutes } from './comms/routes';
 import { adminRoutes, publicRoutes } from './admin/routes';
+import { codeEngineRoutes } from './code-engine/routes';
 import { ProviderError } from './ai/types';
 
 export function buildVersion() {
@@ -32,7 +33,23 @@ export function buildVersion() {
   } catch {
     /* sin archivo */
   }
-  return { sha, name: 'cortex-crm', version: '0.1.0' };
+  // Versión del código fuente que desplegó el motor de código de la instalación (source-version.json, que
+  // el Dockerfile copia junto al bundle). Con ella se verifica cada despliegue; null en una imagen
+  // construida desde el repositorio.
+  let sourceVersion: { id: string; base: string | null; createdAt: string | null } | null = null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'source-version.json'), 'utf8')) as Record<string, unknown> | null;
+    if (raw && typeof raw.id === 'string' && raw.id) {
+      sourceVersion = {
+        id: raw.id.slice(0, 100),
+        base: typeof raw.base === 'string' ? raw.base.slice(0, 100) : null,
+        createdAt: typeof raw.createdAt === 'string' ? raw.createdAt.slice(0, 40) : null,
+      };
+    }
+  } catch {
+    /* sin archivo o no válido */
+  }
+  return { sha, name: 'cortex-crm', version: '0.1.0', sourceVersion };
 }
 
 export { sanitizeUrl };
@@ -197,6 +214,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await assistantRoutes(r, deps);
       await commsRoutes(r, deps);
       await adminRoutes(r, deps);
+      await codeEngineRoutes(r, deps);
       await publicRoutes(r, deps);
     },
     { prefix: '/api' },

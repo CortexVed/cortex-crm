@@ -237,6 +237,25 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
       case 'remove_script':
         add('medium', `Se elimina el script "${op.script}"`, i);
         break;
+      case 'update_appearance': {
+        // Colores, tipografía, bordes, densidad o menú lateral: solo presentación. El CSS personalizado es de
+        // riesgo medio: aunque no puede cargar nada ni ejecutar código, puede ocultar o imitar elementos.
+        const css = op.changes.customCss;
+        const prev = before.appearance?.customCss;
+        if (typeof css === 'string' && css.trim() && css !== prev) add('medium', 'CSS personalizado: puede ocultar o imitar elementos de la interfaz (revísalo antes de aprobar; nunca se aplica en EVOLVE, Ajustes ni Plataforma)', i);
+        else add('low', css === null && prev ? 'Apariencia del CRM (se quita el CSS personalizado)' : 'Apariencia del CRM (colores, tipografía, bordes, menú lateral…)', i);
+        break;
+      }
+      case 'update_navigation':
+        add('low', op.navigation ? `Menú de navegación (${op.navigation.groups.length} grupo(s))` : 'Vuelve el menú de navegación por defecto', i);
+        break;
+      case 'upsert_page':
+        // Cada rol solo ve las páginas de su rol mínimo y los bloques de los módulos que puede leer.
+        add('low', `Página «${op.page.label}»`, i);
+        break;
+      case 'remove_page':
+        add('low', `Se elimina la página "${op.page}"`, i);
+        break;
       case 'backfill_field':
         if (!op.onlyEmpty) destructive = true;
         add(op.onlyEmpty ? 'medium' : 'high', op.onlyEmpty ? `Migración de datos: rellenar "${op.module}.${op.field}" donde esté vacío` : `Migración de datos: SOBRESCRIBIR "${op.module}.${op.field}"`, i);

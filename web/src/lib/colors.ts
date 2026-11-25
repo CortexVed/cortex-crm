@@ -65,7 +65,8 @@ export const HEX: Record<Color, string> = {
   rose: '#f43f5e',
 };
 
-export const CHART_SEQUENCE = ['#7a5af8', '#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#14b8a6', '#d946ef', '#6366f1', '#84cc16', '#f97316', '#a1a1aa', '#ec4899'];
+/** Colores de las series sin color propio. El primero es el de la marca de la organización (variable CSS). */
+export const CHART_SEQUENCE = ['var(--color-brand-500)', '#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#14b8a6', '#d946ef', '#6366f1', '#84cc16', '#f97316', '#a1a1aa', '#ec4899'];
 
 export const MODULE_ACCENT: Record<Color, string> = {
   slate: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-300',

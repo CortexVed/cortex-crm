@@ -11,7 +11,8 @@ const EnvSchema = z.object({
   // Sin valor: 'production' en Railway (RAILWAY_ENVIRONMENT_ID) y 'development' fuera de él. Así un despliegue
   // nunca arranca en modo desarrollo por una variable vacía (las plantillas generadas vacían los literales).
   NODE_ENV: z.enum(['development', 'test', 'production']).optional(),
-  PROCESS_ROLE: z.enum(['web', 'worker', 'all']).optional(),
+  // 'ci' = servicio de CI del motor de código fuente: solo un health check, sin base de datos ni secretos.
+  PROCESS_ROLE: z.enum(['web', 'worker', 'all', 'ci']).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
@@ -45,8 +46,17 @@ const EnvSchema = z.object({
   // petición pública (X-Real-IP), por eso es la que se usa por defecto al correr en Railway; 'none' la
   // desactiva y entonces solo se confía en el salto inmediato.
   CLIENT_IP_HEADER: z.string().regex(/^[A-Za-z0-9-]{1,60}$/).optional(),
-  // Railway la define automáticamente en todos los servicios (se usa solo para detectar la plataforma).
+  // Railway la define automáticamente en todos los servicios (detecta la plataforma y, en el motor de código
+  // fuente, el entorno al que se despliega).
   RAILWAY_ENVIRONMENT_ID: z.string().optional(),
+  // Motor de código fuente (docs/CODE_ENGINE.md). Railway define RAILWAY_PROJECT_ID y RAILWAY_SERVICE_ID en
+  // cada servicio; la plantilla pasa al worker, por referencia, el id del servicio web (CORTEX_SERVICE_ID =
+  // ${{Cortex.RAILWAY_SERVICE_ID}}) y el del servicio de CI (CI_SERVICE_ID = ${{CI.RAILWAY_SERVICE_ID}}).
+  // Se validan al usarlos (no aquí): un valor raro nunca impide arrancar la aplicación.
+  RAILWAY_PROJECT_ID: z.string().max(100).optional(),
+  RAILWAY_SERVICE_ID: z.string().max(100).optional(),
+  CORTEX_SERVICE_ID: z.string().max(100).optional(),
+  CI_SERVICE_ID: z.string().max(100).optional(),
   // Solo tests / desarrollo
   LLM_ENABLE_MOCK: bool(false),
 });
@@ -72,12 +82,12 @@ export function parseEncryptionKey(raw: string): Buffer {
   return crypto.createHash('sha256').update(`cortex-crm:app-encryption-key:v1:${value}`, 'utf8').digest();
 }
 
-function roleFromArgv(argv: readonly string[]): 'web' | 'worker' | 'all' | undefined {
+function roleFromArgv(argv: readonly string[]): 'web' | 'worker' | 'all' | 'ci' | undefined {
   const arg = argv.find((a) => a.startsWith('--role='));
   if (!arg) return undefined;
   const role = arg.slice('--role='.length);
-  if (role === 'web' || role === 'worker' || role === 'all') return role;
-  throw new Error(`Configuración inválida: --role=${role.slice(0, 20)} (usa web, worker o all)`);
+  if (role === 'web' || role === 'worker' || role === 'all' || role === 'ci') return role;
+  throw new Error(`Configuración inválida: --role=${role.slice(0, 20)} (usa web, worker, all o ci)`);
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Record<string, string> = {}, argv: readonly string[] = process.argv) {
@@ -95,8 +105,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
 
   // URL pública: APP_URL o, en Railway, el dominio público del propio servicio.
   const appUrl = (e.APP_URL ?? (e.RAILWAY_PUBLIC_DOMAIN ? `https://${e.RAILWAY_PUBLIC_DOMAIN}` : undefined))?.replace(/\/$/, '');
+  // PROCESS_ROLE o el argumento --role= del comando de arranque (la plantilla de Railway arranca el worker
+  // con `… dist/server/index.js --role=worker`: es un ajuste del servicio, no una variable).
+  const role = e.PROCESS_ROLE ?? roleFromArgv(argv) ?? (isProd ? 'web' : 'all');
 
-  if (isProd) {
+  // El rol 'ci' (servicio de CI del motor de código) no tiene variables ni secretos a propósito: no abre la
+  // base de datos ni descifra nada, así que no se le exigen.
+  if (isProd && role !== 'ci') {
     const missing: string[] = [];
     if (!e.DATABASE_URL) missing.push('DATABASE_URL');
     if (!e.APP_ENCRYPTION_KEY) missing.push('APP_ENCRYPTION_KEY');
@@ -115,9 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
     env: nodeEnv,
     isProd,
     isTest,
-    // PROCESS_ROLE o el argumento --role= del comando de arranque (la plantilla de Railway arranca el worker
-    // con `… dist/server/index.js --role=worker`: es un ajuste del servicio, no una variable).
-    role: e.PROCESS_ROLE ?? roleFromArgv(argv) ?? (isProd ? 'web' : 'all'),
+    role,
     port: e.PORT,
     host: e.HOST,
     logLevel: e.LOG_LEVEL ?? (isTest ? 'silent' : 'info'),
@@ -144,5 +157,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
     platformAdminSetupToken: e.PLATFORM_ADMIN_SETUP_TOKEN?.trim() || null,
     /** Cabecera de la IP real del cliente (null = solo el salto inmediato). */
     clientIpHeader: ipHeader === 'none' ? null : (ipHeader ?? (e.RAILWAY_ENVIRONMENT_ID ? 'x-real-ip' : null)),
+    /**
+     * Identificadores de Railway que usa el motor de código fuente. `serviceId` es el del propio proceso;
+     * en el worker, `webServiceId` y `ciServiceId` llegan por referencia desde la plantilla.
+     */
+    railway: {
+      projectId: e.RAILWAY_PROJECT_ID ?? null,
+      environmentId: e.RAILWAY_ENVIRONMENT_ID ?? null,
+      serviceId: e.RAILWAY_SERVICE_ID ?? null,
+      webServiceId: e.CORTEX_SERVICE_ID ?? null,
+      ciServiceId: e.CI_SERVICE_ID ?? null,
+    },
   };
 }

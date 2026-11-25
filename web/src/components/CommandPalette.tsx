@@ -44,6 +44,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
     const nav: Item[] = [
       { id: 'nav-home', group: 'Navegación', label: 'Panel', icon: <LayoutDashboard className="size-4" />, run: go('/') },
       ...modules.map((m) => ({ id: `nav-${m.key}`, group: 'Navegación', label: m.labelPlural, icon: <ModuleIcon name={m.icon} className="size-4" />, run: go(`/m/${m.key}`) })),
+      ...(data?.blueprint.pages ?? []).map((p) => ({ id: `page-${p.key}`, group: 'Navegación', label: p.label, hint: 'Página', icon: <ModuleIcon name={p.icon} className="size-4" />, run: go(`/p/${p.key}`) })),
       { id: 'nav-reports', group: 'Navegación', label: 'Informes', icon: <BarChart3 className="size-4" />, run: go('/reports') },
       { id: 'nav-evolve', group: 'Navegación', label: 'EVOLVE AI ENGINE', icon: <Sparkles className="size-4" />, run: go('/evolve') },
       { id: 'nav-releases', group: 'Navegación', label: 'Historial de versiones', icon: <History className="size-4" />, run: go('/evolve/releases') },

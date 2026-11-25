@@ -1,23 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, CalendarDays, ChevronLeft, ChevronRight, Columns3, Filter, Plus, Search, Sparkles, Table2, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Columns3, Filter, Plus, Search, Sparkles, Table2, X } from 'lucide-react';
 import { ApiError, errorMessage, get, patch, post } from '../lib/api';
 import { useBlueprint, useDebounced, useHotkeys } from '../lib/hooks';
 import { useSession } from '../lib/session';
 import { ModuleIcon } from '../lib/icons';
 import { MODULE_ACCENT, DOT } from '../lib/colors';
-import { formatCurrency, relativeTime } from '../lib/format';
+import { formatCurrency } from '../lib/format';
 import type { Condition, Field, Module, RecordItem, RecordList, View } from '../lib/types';
 import { recordTitle } from '../../../shared/records';
 import type { Color } from '../../../shared/constants';
 import { Badge, Button, cx, Drawer, EmptyState, ErrorState, Input, PageLoader, Select, Skeleton } from '../components/ui';
 import { FieldValue, RecordForm } from '../components/fields';
+import { RecordTable } from '../components/RecordTable';
 import { useToast } from '../components/toast';
 import NotFound from './NotFound';
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
-const SYSTEM_COLS: Record<string, string> = { created_at: 'Creado', updated_at: 'Actualizado', last_activity_at: 'Última actividad' };
 const OPERATORS: { value: Condition['operator']; label: string }[] = [
   { value: 'eq', label: 'es' },
   { value: 'neq', label: 'no es' },
@@ -27,13 +27,6 @@ const OPERATORS: { value: Condition['operator']; label: string }[] = [
   { value: 'is_empty', label: 'está vacío' },
   { value: 'is_not_empty', label: 'no está vacío' },
 ];
-
-function Cell({ mod, col, rec, refs }: { mod: Module; col: string; rec: RecordItem; refs: RecordList['refs'] }) {
-  if (SYSTEM_COLS[col]) return <span className="text-zinc-500">{relativeTime((rec as any)[col === 'created_at' ? 'createdAt' : col === 'updated_at' ? 'updatedAt' : 'lastActivityAt'])}</span>;
-  const f = mod.fields.find((x) => x.key === col);
-  if (!f) return null;
-  return <FieldValue field={f} value={rec.data[col]} refs={refs} compact />;
-}
 
 function CreateDrawer({ mod, open, onClose, prefill }: { mod: Module; open: boolean; onClose: () => void; prefill: Record<string, unknown> }) {
   const [values, setValues] = useState<Record<string, unknown>>(prefill);
@@ -74,43 +67,6 @@ function CreateDrawer({ mod, open, onClose, prefill }: { mod: Module; open: bool
         </div>
       </form>
     </Drawer>
-  );
-}
-
-function TableView({ mod, view, data, sort, setSort, onOpen }: { mod: Module; view: View; data: RecordList; sort: { field: string; dir: 'asc' | 'desc' } | null; setSort: (s: { field: string; dir: 'asc' | 'desc' }) => void; onOpen: (r: RecordItem) => void }) {
-  const cols = (view.columns?.length ? view.columns : [mod.primaryField, ...mod.fields.filter((f) => !f.archived && !f.hidden && f.key !== mod.primaryField).slice(0, 5).map((f) => f.key)]).filter((c) => SYSTEM_COLS[c] || mod.fields.some((f) => f.key === c && !f.archived));
-  const label = (c: string) => SYSTEM_COLS[c] ?? mod.fields.find((f) => f.key === c)?.label ?? c;
-  return (
-    <div className="overflow-x-auto rounded-xl bg-white ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800">
-      <table className="w-full min-w-[720px] text-sm">
-        <thead>
-          <tr className="border-b border-zinc-100 text-left text-xs font-medium text-zinc-500 dark:border-zinc-800">
-            {cols.map((c) => {
-              const active = sort?.field === c;
-              return (
-                <th key={c} className="sticky top-0 bg-zinc-50/80 px-4 py-2.5 font-medium backdrop-blur first:rounded-tl-xl last:rounded-tr-xl dark:bg-zinc-900/80">
-                  <button className="inline-flex items-center gap-1 hover:text-zinc-900 dark:hover:text-zinc-100" onClick={() => setSort({ field: c, dir: active && sort?.dir === 'asc' ? 'desc' : 'asc' })}>
-                    {label(c)}
-                    {active && (sort?.dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
-                  </button>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {data.items.map((r) => (
-            <tr key={r.id} onClick={() => onOpen(r)} className="cursor-pointer border-b border-zinc-50 transition last:border-0 hover:bg-zinc-50/80 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40">
-              {cols.map((c) => (
-                <td key={c} className={cx('max-w-[280px] truncate px-4 py-2.5', c === mod.primaryField && 'font-medium text-zinc-900 dark:text-zinc-100')}>
-                  {c === mod.primaryField ? recordTitle(mod, r.data) : <Cell mod={mod} col={c} rec={r} refs={data.refs} />}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -457,7 +413,7 @@ export default function ModulePage() {
         <CalendarView mod={mod} view={view} data={list.data!} onOpen={open} onCreate={openCreate} />
       ) : (
         <>
-          <TableView mod={mod} view={view} data={list.data!} sort={sort ?? (view.sort ? { field: view.sort.field, dir: view.sort.direction } : null)} setSort={(s) => { setSort(s); setPage(1); }} onOpen={open} />
+          <RecordTable mod={mod} columns={view.columns} data={list.data!} sort={sort ?? (view.sort ? { field: view.sort.field, dir: view.sort.direction } : null)} setSort={(s) => { setSort(s); setPage(1); }} onOpen={open} />
           {list.data!.total > 50 && (
             <div className="flex items-center justify-between text-sm text-zinc-500">
               <span>
