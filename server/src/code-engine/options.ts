@@ -1,5 +1,6 @@
 import { resolveLockfileWithNpm } from './lockfile';
 import { resolveSourceRoot } from './source';
+import { ensureToolchain, typecheckTree, type TypecheckResult } from './typecheck';
 
 /** Parámetros de funcionamiento del motor de código fuente (plazos, sondeos y ubicación del código). */
 export interface CodeEngineOptions {
@@ -28,6 +29,11 @@ export interface CodeEngineOptions {
   maxAgentSteps: number;
   /** Calcula package-lock.json para un package.json con dependencias nuevas (npm; los tests lo sustituyen). */
   resolveLockfile: (packageJson: string, baseLock: string, signal?: AbortSignal) => Promise<string>;
+  /**
+   * Comprueba los tipos del árbol del cambio en el worker, antes del CI (tsc; ver typecheck.ts). Los tests lo
+   * sustituyen; null = no comprobar (lo hará el CI).
+   */
+  typecheck: ((files: ReadonlyMap<string, Buffer>, packageJson: string, lockfile: string, signal?: AbortSignal) => Promise<TypecheckResult>) | null;
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -46,6 +52,16 @@ const DEFAULTS: CodeEngineOptions = {
   verifyIntervalMs: 10_000,
   maxAgentSteps: 60,
   resolveLockfile: (packageJson, baseLock, signal) => resolveLockfileWithNpm(packageJson, baseLock, { signal }),
+  typecheck: async (files, packageJson, lockfile, signal) => {
+    try {
+      const toolchain = await ensureToolchain(packageJson, lockfile, { signal });
+      return await typecheckTree(files, toolchain, { signal });
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      // Sin herramientas (p. ej. sin acceso al registro de npm): el CI lo comprobará igualmente.
+      return { ok: false, errors: [], durationMs: 0, skipped: String((e as Error).message ?? e).slice(0, 500) };
+    }
+  },
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 

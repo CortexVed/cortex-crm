@@ -9,11 +9,14 @@ export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ');
 }
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ai';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'dangerGhost' | 'danger' | 'ai';
 const VARIANTS: Record<Variant, string> = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 shadow-sm shadow-brand-600/20 disabled:bg-brand-600/60',
   secondary: 'bg-white text-zinc-800 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:bg-zinc-800',
   ghost: 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+  // Acción destructiva discreta (Eliminar, Rechazar…): `cx` no resuelve conflictos de clases de Tailwind, así que el
+  // color va en su propia variante en lugar de sobrescribir el de `ghost` con className.
+  dangerGhost: 'text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300',
   danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm disabled:bg-red-600/60',
   ai: 'evolve-gradient text-white shadow-sm shadow-fuchsia-500/25 hover:brightness-110 disabled:opacity-60',
 };
@@ -39,9 +42,24 @@ export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLBut
   },
 );
 
-export function IconButton({ label, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+/**
+ * Botón de icono. `danger` para quitar o archivar (el color de hover no se puede cambiar con className: `cx` no
+ * resuelve conflictos de Tailwind). Desactivado se atenúa y no reacciona al hover; su `title` sigue explicando por qué.
+ */
+export function IconButton({ label, className, children, danger, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean }) {
   return (
-    <button aria-label={label} title={label} className={cx('inline-flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100', className)} {...rest}>
+    <button
+      aria-label={label}
+      title={label}
+      className={cx(
+        'inline-flex size-8 items-center justify-center rounded-lg text-zinc-500 transition dark:text-zinc-400 disabled:cursor-not-allowed disabled:opacity-30',
+        danger
+          ? 'enabled:hover:bg-red-50 enabled:hover:text-red-600 dark:enabled:hover:bg-red-500/10 dark:enabled:hover:text-red-400'
+          : 'enabled:hover:bg-zinc-100 enabled:hover:text-zinc-900 dark:enabled:hover:bg-zinc-800 dark:enabled:hover:text-zinc-100',
+        className,
+      )}
+      {...rest}
+    >
       {children}
     </button>
   );
@@ -66,19 +84,33 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   );
 });
 
-export function Field({ label, hint, error, required, children, className }: { label?: string; hint?: string; error?: string; required?: boolean; children: ReactNode; className?: string }) {
-  return (
-    <label className={cx('block', className)}>
+/**
+ * Campo de formulario. Por defecto es un <label> (clicar el texto enfoca el control). Para controles compuestos
+ * (varios botones, estrellas, archivos, buscadores) usa `as="div"`: un <label> reenviaría el clic a su primer
+ * botón y, p. ej., alternaría la primera opción o quitaría el primer adjunto.
+ */
+export function Field({ label, hint, error, required, children, className, as = 'label' }: { label?: string; hint?: string; error?: string; required?: boolean; children: ReactNode; className?: string; as?: 'label' | 'div' }) {
+  const labelId = useId();
+  const body = (
+    <>
       {label && (
-        <span className="mb-1.5 block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
+        <span id={labelId} className="mb-1.5 block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
           {label}
           {required && <span className="ml-0.5 text-red-500">*</span>}
         </span>
       )}
       {children}
       {error ? <span className="mt-1 block text-xs text-red-600 dark:text-red-400">{error}</span> : hint ? <span className="mt-1 block text-xs text-zinc-500">{hint}</span> : null}
-    </label>
+    </>
   );
+  if (as === 'div') {
+    return (
+      <div role="group" aria-labelledby={label ? labelId : undefined} className={cx('block', className)}>
+        {body}
+      </div>
+    );
+  }
+  return <label className={cx('block', className)}>{body}</label>;
 }
 
 export function Badge({ color = 'slate', children, dot, className }: { color?: Color | string; children: ReactNode; dot?: boolean; className?: string }) {
@@ -160,41 +192,112 @@ export function ErrorState({ error, onRetry, className }: { error: unknown; onRe
   );
 }
 
-export function Alert({ tone = 'info', title, children, className }: { tone?: 'info' | 'warning' | 'danger' | 'success'; title?: ReactNode; children?: ReactNode; className?: string }) {
+/** `onDark`: sobre una superficie siempre oscura (p. ej. la cabecera de EVOLVE), con colores claros en cualquier tema. */
+export function Alert({ tone = 'info', title, children, className, onDark }: { tone?: 'info' | 'warning' | 'danger' | 'success'; title?: ReactNode; children?: ReactNode; className?: string; onDark?: boolean }) {
   const tones = {
     info: 'bg-sky-50 text-sky-900 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/20',
     warning: 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/20',
     danger: 'bg-red-50 text-red-900 ring-red-200 dark:bg-red-500/10 dark:text-red-200 dark:ring-red-500/20',
     success: 'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/20',
   };
+  const darkSurface = {
+    info: 'bg-sky-500/10 text-sky-100 ring-sky-500/30',
+    warning: 'bg-amber-500/10 text-amber-100 ring-amber-500/30',
+    danger: 'bg-red-500/10 text-red-100 ring-red-500/30',
+    success: 'bg-emerald-500/10 text-emerald-100 ring-emerald-500/30',
+  };
   return (
-    <div className={cx('rounded-lg px-3.5 py-3 text-sm ring-1 ring-inset', tones[tone], className)} role={tone === 'danger' ? 'alert' : undefined}>
+    <div className={cx('rounded-lg px-3.5 py-3 text-sm ring-1 ring-inset', onDark ? darkSurface[tone] : tones[tone], className)} role={tone === 'danger' ? 'alert' : undefined}>
       {title && <div className="font-semibold">{title}</div>}
       {children && <div className={cx(!!title && 'mt-0.5', 'opacity-90')}>{children}</div>}
     </div>
   );
 }
 
-function useEscape(open: boolean, onClose: () => void) {
+/**
+ * Pila de capas para Escape: modales, cajones, la paleta, los menús y los desplegables se apilan y solo responde la
+ * de arriba (antes cada una escuchaba en window y un Escape las cerraba todas, perdiendo lo no guardado).
+ */
+const escapeStack: { close: () => void }[] = [];
+let escapeListening = false;
+function onEscapeKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  const top = escapeStack[escapeStack.length - 1];
+  if (!top) return;
+  e.preventDefault();
+  e.stopPropagation();
+  top.close();
+}
+
+export function useEscapeLayer(open: boolean, onClose: () => void) {
+  const latest = useRef(onClose);
+  latest.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, onClose]);
+    const entry = { close: () => latest.current() };
+    escapeStack.push(entry);
+    if (!escapeListening) {
+      window.addEventListener('keydown', onEscapeKey, true);
+      escapeListening = true;
+    }
+    return () => {
+      const i = escapeStack.lastIndexOf(entry);
+      if (i >= 0) escapeStack.splice(i, 1);
+    };
+  }, [open]);
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Foco de una capa: al abrir va dentro (el primer campo o [data-autofocus]); al cerrar vuelve a donde estaba. */
+function useLayerFocus(open: boolean, ref: { current: HTMLElement | null }) {
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const t = setTimeout(() => {
+      const el = ref.current;
+      if (!el || el.contains(document.activeElement)) return;
+      (el.querySelector<HTMLElement>('[data-autofocus]') ?? el.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select') ?? el.querySelector<HTMLElement>(FOCUSABLE))?.focus();
+    }, 30);
+    return () => {
+      clearTimeout(t);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [open, ref]);
+}
+
+/** Tab y Mayús+Tab no salen de la capa (foco atrapado mientras está abierta). */
+function trapTab(e: { key: string; shiftKey: boolean; preventDefault: () => void }, container: HTMLElement | null) {
+  if (e.key !== 'Tab' || !container) return;
+  const items = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+/** Clic en el fondo (no en la barra de scroll del propio fondo, que es parte del mismo elemento). */
+function isBackdropClick(e: { target: EventTarget; currentTarget: HTMLElement; clientX: number }) {
+  if (e.target !== e.currentTarget) return false;
+  const el = e.currentTarget;
+  return e.clientX < el.getBoundingClientRect().left + el.clientWidth;
 }
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children?: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg' | 'xl' }) {
-  useEscape(open, onClose);
+  useEscapeLayer(open, onClose);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (open) setTimeout(() => ref.current?.querySelector<HTMLElement>('input, textarea, select, button[data-autofocus]')?.focus(), 30);
-  }, [open]);
+  useLayerFocus(open, ref);
   if (!open) return null;
   const widths = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/40 p-4 pt-[8vh] backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" className={cx('w-full rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800', widths[size])}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/40 p-4 pt-[8vh] backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => isBackdropClick(e) && onClose()}>
+      <div ref={ref} role="dialog" aria-modal="true" onKeyDown={(e) => trapTab(e, ref.current)} className={cx('w-full rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800', widths[size])}>
         <div className="flex items-start justify-between gap-4 px-5 pt-5">
           <div>
             <h2 className="text-base font-semibold">{title}</h2>
@@ -213,11 +316,13 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 }
 
 export function Drawer({ open, onClose, title, children, width = 'max-w-xl' }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: string }) {
-  useEscape(open, onClose);
+  useEscapeLayer(open, onClose);
+  const ref = useRef<HTMLDivElement>(null);
+  useLayerFocus(open, ref);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-40 flex justify-end bg-zinc-950/30 animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={cx('flex h-full w-full flex-col bg-white shadow-2xl animate-slide-in dark:bg-zinc-900', width)}>
+    <div className="fixed inset-0 z-40 flex justify-end bg-zinc-950/30 animate-fade-in" onMouseDown={(e) => isBackdropClick(e) && onClose()}>
+      <div ref={ref} role="dialog" aria-modal="true" onKeyDown={(e) => trapTab(e, ref.current)} className={cx('flex h-full w-full flex-col bg-white shadow-2xl animate-slide-in dark:bg-zinc-900', width)}>
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
           <h2 className="text-base font-semibold">{title}</h2>
           <IconButton label="Cerrar" onClick={onClose}>
@@ -276,7 +381,8 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
         onClick={() => onChange(!checked)}
         className={cx('relative inline-flex h-5 w-9 shrink-0 rounded-full transition disabled:opacity-50', checked ? 'bg-brand-600' : 'bg-zinc-300 dark:bg-zinc-700')}
       >
-        <span className={cx('absolute top-0.5 size-4 rounded-full bg-white shadow transition', checked ? 'left-[18px]' : 'left-0.5')} />
+        {/* transform (no left): no recalcula el diseño en cada fotograma y escala con la densidad (rem). */}
+        <span className={cx('absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow transition-transform', checked && 'translate-x-4')} />
       </button>
       {label && (
         <label htmlFor={id} className="text-sm">
@@ -303,7 +409,7 @@ export function PageHeader({ title, description, actions, icon }: { title: React
 }
 
 /** Diálogo de confirmación; con `typed` exige escribir una palabra (operaciones de riesgo). */
-export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = 'Confirmar', danger, typed, loading, children }: { open: boolean; onClose: () => void; onConfirm: (typedValue: string) => void; title: string; description?: ReactNode; confirmLabel?: string; danger?: boolean; typed?: string; loading?: boolean; children?: ReactNode }) {
+export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', danger, typed, loading, children }: { open: boolean; onClose: () => void; onConfirm: (typedValue: string) => void; title: string; description?: ReactNode; confirmLabel?: string; cancelLabel?: string; danger?: boolean; typed?: string; loading?: boolean; children?: ReactNode }) {
   const [value, setValue] = useState('');
   useEffect(() => {
     if (open) setValue('');
@@ -317,8 +423,9 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
       size="sm"
       footer={
         <>
-          <Button onClick={onClose}>Cancelar</Button>
-          <Button variant={danger ? 'danger' : 'primary'} loading={loading} disabled={!!typed && value !== typed} onClick={() => onConfirm(value)} data-autofocus>
+          {/* En una acción destructiva el foco va a Cancelar: un Enter repetido no borra nada por accidente. */}
+          <Button onClick={onClose} data-autofocus={danger && !typed ? true : undefined}>{cancelLabel}</Button>
+          <Button variant={danger ? 'danger' : 'primary'} loading={loading} disabled={!!typed && value !== typed} onClick={() => onConfirm(value)} data-autofocus={!danger ? true : undefined}>
             {confirmLabel}
           </Button>
         </>

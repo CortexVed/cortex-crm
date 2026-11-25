@@ -25,8 +25,23 @@ export function setCsrfToken(t: string | null) {
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-export async function api<T = any>(path: string, opts: { method?: Method; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+export interface RequestOptions {
+  /** Cancela la petición (p. ej. el botón «Detener» del asistente). */
+  signal?: AbortSignal;
+  /** Tiempo máximo de espera: pasado, la petición falla con el código `timeout` en vez de quedarse colgada. */
+  timeoutMs?: number;
+}
+
+export async function api<T = any>(path: string, opts: { method?: Method; body?: unknown; headers?: Record<string, string> } & RequestOptions = {}): Promise<T> {
   const method = opts.method ?? 'GET';
+  const timeout = opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined;
+  const signal = timeout && opts.signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, opts.signal]) : (timeout ?? opts.signal);
+  const aborted = () =>
+    opts.signal?.aborted
+      ? new ApiError(0, 'aborted', 'Petición cancelada.')
+      : timeout?.aborted
+        ? new ApiError(0, 'timeout', 'El servidor está tardando demasiado en responder.')
+        : null;
   const isBinary = opts.body instanceof Blob || opts.body instanceof ArrayBuffer;
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
   if (opts.body !== undefined && !isBinary) headers['Content-Type'] = 'application/json';
@@ -38,11 +53,14 @@ export async function api<T = any>(path: string, opts: { method?: Method; body?:
       credentials: 'same-origin',
       headers,
       body: opts.body === undefined ? undefined : isBinary ? (opts.body as BodyInit) : JSON.stringify(opts.body),
+      signal,
     });
   } catch {
-    throw new ApiError(0, 'network', 'No se pudo conectar con el servidor. Revisa tu conexión.');
+    throw aborted() ?? new ApiError(0, 'network', 'No se pudo conectar con el servidor. Revisa tu conexión.');
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
+  const cut = aborted();
+  if (cut && data === null && res.status !== 204) throw cut;
   if (!res.ok) {
     throw new ApiError(res.status, data?.error?.code ?? 'error', data?.error?.message ?? `Error ${res.status}`, data?.error?.details);
   }
@@ -50,7 +68,7 @@ export async function api<T = any>(path: string, opts: { method?: Method; body?:
 }
 
 export const get = <T = any>(path: string) => api<T>(path);
-export const post = <T = any>(path: string, body?: unknown) => api<T>(path, { method: 'POST', body: body ?? {} });
+export const post = <T = any>(path: string, body?: unknown, opts?: RequestOptions) => api<T>(path, { method: 'POST', body: body ?? {}, ...opts });
 export const put = <T = any>(path: string, body?: unknown) => api<T>(path, { method: 'PUT', body: body ?? {} });
 export const patch = <T = any>(path: string, body?: unknown) => api<T>(path, { method: 'PATCH', body: body ?? {} });
 export const del = <T = any>(path: string) => api<T>(path, { method: 'DELETE' });

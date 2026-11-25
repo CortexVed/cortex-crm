@@ -33,27 +33,35 @@ export function SettingsPanel() {
   const settings = useCodeSettings();
   const [token, setToken] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [checking, setChecking] = useState(false);
+  // Comprobación en curso: guarda el último informe del worker al empezar. Termina en cuanto llega uno nuevo (antes la
+  // rueda giraba siempre 20 s) o, como mucho, a los 20 s.
+  const [pendingCheck, setPendingCheck] = useState<{ from: string | null } | null>(null);
+  const checking = pendingCheck !== null;
   const refresh = () => qc.invalidateQueries({ queryKey: SETTINGS_KEY });
+  const startChecking = () => setPendingCheck({ from: qc.getQueryData<CodeSettings>(SETTINGS_KEY)?.worker?.reportedAt ?? null });
+  const reportedAt = settings.data?.worker?.reportedAt ?? null;
 
   // Tras guardar el token o pedir una comprobación, el worker publica lo que ve en unos segundos.
   useEffect(() => {
-    if (!checking) return;
+    if (!pendingCheck) return;
     const timer = setInterval(refresh, 2500);
-    const stop = setTimeout(() => setChecking(false), 20_000);
+    const stop = setTimeout(() => setPendingCheck(null), 20_000);
     return () => {
       clearInterval(timer);
       clearTimeout(stop);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checking]);
+  }, [pendingCheck]);
+  useEffect(() => {
+    if (pendingCheck && reportedAt !== pendingCheck.from) setPendingCheck(null);
+  }, [reportedAt, pendingCheck]);
 
   const save = useMutation({
     mutationFn: () => put<CodeSettings>('/platform/code/settings', { token: token.trim() }),
     onSuccess: (s) => {
       qc.setQueryData(SETTINGS_KEY, s);
       setToken('');
-      setChecking(true);
+      startChecking();
       toast('Token validado y guardado cifrado');
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -70,7 +78,7 @@ export function SettingsPanel() {
   const check = useMutation({
     mutationFn: () => post('/platform/code/settings/check'),
     onSuccess: () => {
-      setChecking(true);
+      startChecking();
       toast('Comprobando la configuración del worker…', 'info');
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -119,7 +127,7 @@ export function SettingsPanel() {
                 Guardado: <code>{s.token.hint}</code>
                 <span className="ml-2 text-xs text-zinc-500">{s.token.updatedAt ? `actualizado ${formatDate(s.token.updatedAt, true)}` : ''}</span>
               </span>
-              <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>
+              <Button size="sm" variant="dangerGhost" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>
                 Eliminar
               </Button>
             </div>

@@ -302,6 +302,8 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
     setOpen(true);
     setCreated({});
     run.reset();
+    // Un análisis nuevo se puede volver a guardar (antes «Guardado como nota» se quedaba del anterior).
+    saveNote.reset();
     run.mutate();
   };
   const a = run.data?.analysis;
@@ -348,7 +350,7 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
                       {tasks && can(tasks.permissions.create) && (created[i] ? (
                         <Badge color="emerald">Creada</Badge>
                       ) : (
-                        <Button size="sm" icon={<Plus className="size-3.5" />} loading={createTask.isPending && createTask.variables?.i === i} onClick={() => createTask.mutate({ t, i })}>Crear tarea</Button>
+                        <Button size="sm" icon={<Plus className="size-3.5" />} loading={createTask.isPending && createTask.variables?.i === i} disabled={createTask.isPending && createTask.variables?.i !== i} onClick={() => createTask.mutate({ t, i })}>Crear tarea</Button>
                       ))}
                     </li>
                   ))}

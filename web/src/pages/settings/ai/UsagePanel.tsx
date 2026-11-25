@@ -199,7 +199,7 @@ export function UsagePanel({ providers, onConfigurePrices }: { providers: Provid
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                          <div className="h-full rounded-full bg-brand-500 transition-all duration-500" style={{ width: `${Math.max(share, 1.5)}%` }} />
+                          <div className="h-full rounded-full bg-brand-500 transition-[width] duration-500" style={{ width: `${Math.max(share, 1.5)}%` }} />
                         </div>
                         <span className="w-12 text-right text-[11px] tabular-nums text-zinc-500">{formatNumber(share)} %</span>
                       </div>

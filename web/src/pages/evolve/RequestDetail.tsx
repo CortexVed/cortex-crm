@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, Code2, Database, Eye, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, CircleSlash, Code2, Database, Eye, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
 import { STATUS as CODE_STATUS, type PlatformRequest } from '../platform/codeTypes';
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
@@ -172,15 +172,18 @@ function Steps({ steps, progress, status }: { steps: { key: string; label: strin
     <ol className="space-y-3">
       {steps.map((s) => {
         const p = last.get(s.key);
-        const state = p?.status ?? (RUNNING.has(status) ? 'pending' : 'pending');
+        // Un paso «en curso» de una petición que ya no trabaja (fallida, cancelada…) quedó interrumpido: antes seguía
+        // girando para siempre.
+        const raw: string = p?.status ?? 'pending';
+        const state = raw === 'running' && !RUNNING.has(status) ? 'interrupted' : raw;
         return (
           <li key={s.key} className="flex gap-3">
             <span className="mt-0.5">
-              {state === 'done' ? <CheckCircle2 className="size-5 text-emerald-500" /> : state === 'running' ? <Loader2 className="size-5 animate-spin text-brand-500" /> : state === 'failed' ? <XCircle className="size-5 text-red-500" /> : state === 'skipped' ? <MinusCircle className="size-5 text-zinc-300 dark:text-zinc-600" /> : <CircleDashed className="size-5 text-zinc-300 dark:text-zinc-700" />}
+              {state === 'done' ? <CheckCircle2 className="size-5 text-emerald-500" /> : state === 'running' ? <Loader2 className="size-5 animate-spin text-brand-500" /> : state === 'failed' ? <XCircle className="size-5 text-red-500" /> : state === 'interrupted' ? <CircleSlash className="size-5 text-amber-500" /> : state === 'skipped' ? <MinusCircle className="size-5 text-zinc-300 dark:text-zinc-600" /> : <CircleDashed className="size-5 text-zinc-300 dark:text-zinc-700" />}
             </span>
             <div className="min-w-0">
               <div className={cx('text-sm font-medium', state === 'pending' && 'text-zinc-400')}>{s.label}</div>
-              {p?.detail && <div className="text-xs text-zinc-500">{p.detail}</div>}
+              {state === 'interrupted' ? <div className="text-xs text-amber-600 dark:text-amber-400">Interrumpido</div> : p?.detail && <div className="text-xs text-zinc-500">{p.detail}</div>}
             </div>
           </li>
         );
@@ -294,8 +297,14 @@ function Impact({ impact }: { impact: any }) {
   );
 }
 
-export default function RequestDetail() {
+// Una instancia por petición: al pasar de una a otra no se arrastran el comentario, las indicaciones ni el resultado
+// de publicar de la anterior.
+export default function RequestDetailRoute() {
   const { id = '' } = useParams();
+  return <RequestDetail key={id} id={id} />;
+}
+
+function RequestDetail({ id }: { id: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { can, me } = useSession();
@@ -304,6 +313,7 @@ export default function RequestDetail() {
   const [feedback, setFeedback] = useState('');
   const [comment, setComment] = useState('');
   const [confirmApprove, setConfirmApprove] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [deployResult, setDeployResult] = useState<any>(null);
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['evolve'] });
@@ -323,6 +333,10 @@ export default function RequestDetail() {
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
+  // Cada botón muestra su propia carga; mientras hay una acción en curso no se puede lanzar otra (antes «Rechazar» y
+  // «Cancelar» seguían activos mientras se aprobaba, y la carga aparecía en todos los botones a la vez).
+  const pending = (action: string) => mut.isPending && !!mut.variables?.path.endsWith(`/${action}`);
+  const busy = mut.isPending;
 
   if (q.isLoading) return <PageLoader />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-24" />;
@@ -408,7 +422,7 @@ export default function RequestDetail() {
           {canRefine && (
             <Card title="Refinar el plan" description="Indica qué quieres cambiar; la IA volverá a planificar y probar.">
               <Textarea rows={2} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Ej.: El aviso debe ser 15 días antes, no 30, y también para el responsable de la empresa." />
-              <div className="mt-2 flex justify-end"><Button variant="primary" size="sm" disabled={feedback.trim().length < 3} loading={mut.isPending} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/refine`, body: { feedback } })}>Replanificar</Button></div>
+              <div className="mt-2 flex justify-end"><Button variant="primary" size="sm" disabled={feedback.trim().length < 3 || (busy && !pending('refine'))} loading={pending('refine')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/refine`, body: { feedback } })}>Replanificar</Button></div>
             </Card>
           )}
         </div>
@@ -422,8 +436,8 @@ export default function RequestDetail() {
                 <div className="space-y-2">
                   <Textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentario (opcional)" />
                   <div className="flex gap-2">
-                    <Button variant="primary" className="flex-1" loading={mut.isPending} onClick={() => (r.policy.needsConfirmation ? setConfirmApprove(true) : mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment } }))}>Aprobar</Button>
-                    <Button variant="ghost" className="text-red-600" onClick={() => mut.mutate({ path: `/evolve/requests/${id}/reject`, body: { comment } })}>Rechazar</Button>
+                    <Button variant="primary" className="flex-1" loading={pending('approve')} disabled={busy && !pending('approve')} onClick={() => (r.policy.needsConfirmation ? setConfirmApprove(true) : mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment } }))}>Aprobar</Button>
+                    <Button variant="dangerGhost" loading={pending('reject')} disabled={busy && !pending('reject')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/reject`, body: { comment } })}>Rechazar</Button>
                   </div>
                   <p className="text-xs text-zinc-500">Requiere: {r.policy.requiredRoleLabel}{r.policy.requireDistinctApprover ? ' · distinta persona a quien lo pidió' : ''}</p>
                 </div>
@@ -437,7 +451,7 @@ export default function RequestDetail() {
             <Card title="Publicar">
               <p className="mb-3 text-sm text-zinc-500">Se creará la versión v{r.policy.currentVersion + 1}. Tras publicar se verifica automáticamente y, si algo falla, se restaura la versión anterior.</p>
               {can(r.risk === 'high' ? 'owner' : 'admin') ? (
-                <Button variant="ai" className="w-full" icon={<Rocket className="size-4" />} loading={mut.isPending} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/deploy` })}>Publicar ahora</Button>
+                <Button variant="ai" className="w-full" icon={<Rocket className="size-4" />} loading={pending('deploy')} disabled={busy && !pending('deploy')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/deploy` })}>Publicar ahora</Button>
               ) : (
                 <p className="text-sm text-zinc-500">Un {r.risk === 'high' ? 'propietario' : 'administrador'} debe publicarlo.</p>
               )}
@@ -471,11 +485,12 @@ export default function RequestDetail() {
           )}
 
           {['queued', 'planning', 'testing', 'ready_for_review', 'needs_input', 'failed', 'approved'].includes(r.status) && can('builder') && (
-            <button className="w-full text-center text-xs text-zinc-400 hover:text-red-600" onClick={() => mut.mutate({ path: `/evolve/requests/${id}/cancel` })}>Cancelar petición</button>
+            <button className="w-full text-center text-xs text-zinc-400 transition-colors hover:text-red-600 disabled:pointer-events-none disabled:opacity-50 dark:hover:text-red-400" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancelar petición</button>
           )}
         </div>
       </div>
       <ConfirmDialog open={confirmApprove} onClose={() => setConfirmApprove(false)} typed="APLICAR" title="Aprobar cambio de riesgo alto" description="Este cambio incluye operaciones de riesgo alto (salida de datos, cambios destructivos o de permisos). Revisa el impacto antes de continuar." onConfirm={(v) => { setConfirmApprove(false); mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment, confirmation: v } }); }} confirmLabel="Aprobar" />
+      <ConfirmDialog open={confirmCancel} onClose={() => setConfirmCancel(false)} danger title="¿Cancelar la petición?" description="Se detiene el trabajo de EVOLVE AI ENGINE sobre esta petición y no se publicará. El CRM no cambia." confirmLabel="Cancelar petición" cancelLabel="Seguir" onConfirm={() => { setConfirmCancel(false); mut.mutate({ path: `/evolve/requests/${id}/cancel` }); }} />
     </div>
   );
 }

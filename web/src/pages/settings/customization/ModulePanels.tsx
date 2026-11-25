@@ -197,7 +197,7 @@ export function FieldsPanel({ bp, mod, modules, defaultCurrency, onEditOptions }
                   </IconButton>
                 ) : (
                   <span title={archiveBlocked ?? undefined} className="inline-flex">
-                    <IconButton label={archiveBlocked ?? 'Archivar campo'} disabled={!!archiveBlocked} onClick={() => setConfirm({ field: f, action: 'archive' })} className="hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500">
+                    <IconButton label={archiveBlocked ?? 'Archivar campo'} disabled={!!archiveBlocked} onClick={() => setConfirm({ field: f, action: 'archive' })} danger>
                       <Archive className="size-4" />
                     </IconButton>
                   </span>

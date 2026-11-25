@@ -89,7 +89,8 @@ const DEFAULT_EFFORT: Record<AiTask, Effort> = {
   chat: 'medium',
   crm_analysis: 'medium',
   feature_creation: 'high',
-  code_modification: 'high',
+  // El agente de código escribe funcionalidades completas en varios archivos: máximo razonamiento útil.
+  code_modification: 'xhigh',
   code_review: 'high',
   security: 'high',
   sql_generation: 'medium',

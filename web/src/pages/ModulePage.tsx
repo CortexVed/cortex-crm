@@ -11,7 +11,7 @@ import { formatCurrency } from '../lib/format';
 import type { Condition, Field, Module, RecordItem, RecordList, View } from '../lib/types';
 import { recordTitle } from '../../../shared/records';
 import type { Color } from '../../../shared/constants';
-import { Badge, Button, cx, Drawer, EmptyState, ErrorState, Input, PageLoader, Select, Skeleton } from '../components/ui';
+import { Alert, Badge, Button, cx, Drawer, EmptyState, ErrorState, Input, PageLoader, Select, Skeleton } from '../components/ui';
 import { FieldValue, RecordForm } from '../components/fields';
 import { RecordTable } from '../components/RecordTable';
 import { useToast } from '../components/toast';
@@ -109,7 +109,10 @@ function KanbanView({ mod, view, data, onOpen, onCreate }: { mod: Module; view: 
           <div
             key={col.value ?? '__none'}
             onDragOver={(e) => { e.preventDefault(); setOver(col.value ?? '__none'); }}
-            onDragLeave={() => setOver(null)}
+            // Al pasar por encima de las tarjetas (hijas) también salta dragleave: solo se apaga al salir de la columna.
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null);
+            }}
             onDrop={(e) => {
               e.preventDefault();
               setOver(null);
@@ -133,7 +136,15 @@ function KanbanView({ mod, view, data, onOpen, onCreate }: { mod: Module; view: 
                   onDragStart={(e) => { e.dataTransfer.setData('text/plain', r.id); setDragging(r.id); }}
                   onDragEnd={() => setDragging(null)}
                   onClick={() => onOpen(r)}
-                  className={cx('cursor-pointer rounded-lg bg-white p-3 shadow-xs ring-1 ring-zinc-200/80 transition hover:-translate-y-px hover:shadow-md dark:bg-zinc-800 dark:ring-zinc-700', dragging === r.id && 'opacity-50')}
+                  role="link"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onOpen(r);
+                    }
+                  }}
+                  className={cx('cursor-pointer rounded-lg bg-white p-3 shadow-xs ring-1 ring-zinc-200/80 transition hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:bg-zinc-800 dark:ring-zinc-700', dragging === r.id && 'opacity-50')}
                 >
                   <div className="text-sm font-medium leading-snug">{recordTitle(mod, r.data)}</div>
                   {cardFields.some((f) => !isEmpty(r.data[f.key])) && (
@@ -162,19 +173,40 @@ function KanbanView({ mod, view, data, onOpen, onCreate }: { mod: Module; view: 
   );
 }
 
-function CalendarView({ mod, view, data, onOpen, onCreate }: { mod: Module; view: View; data: RecordList; onOpen: (r: RecordItem) => void; onCreate: (prefill: Record<string, unknown>) => void }) {
-  const [month, setMonth] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
+const thisMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+};
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Primer día (lunes) de la cuadrícula de 6 semanas del mes. */
+function gridStart(month: Date) {
+  const start = new Date(month);
+  start.setDate(1 - ((start.getDay() + 6) % 7));
+  return start;
+}
+/**
+ * Filtro de fechas de la cuadrícula visible: el calendario pide los registros de esas semanas (antes pedía 500
+ * registros cualquiera y, con más, faltaban días). Un día de margen por cada lado: la hora de un campo fecha-hora
+ * se compara en UTC y la cuadrícula se pinta en la hora local.
+ */
+function calendarRange(field: string, month: Date): Condition[] {
+  const start = gridStart(month);
+  const from = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1);
+  const to = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 42);
+  return [
+    { field, operator: 'gte', value: dayKey(from) },
+    { field, operator: 'lte', value: dayKey(to) },
+  ];
+}
+
+function CalendarView({ mod, view, data, month, setMonth, onOpen, onCreate }: { mod: Module; view: View; data: RecordList; month: Date; setMonth: (m: Date) => void; onOpen: (r: RecordItem) => void; onCreate: (prefill: Record<string, unknown>) => void }) {
   const { can } = useSession();
   const df = view.dateField!;
   const dateField = mod.fields.find((f) => f.key === df);
   const colorField = mod.fields.find((f) => f.key === view.colorBy);
-  const start = new Date(month);
-  start.setDate(1 - ((start.getDay() + 6) % 7));
+  const start = gridStart(month);
   const days = Array.from({ length: 42 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
-  const keyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const keyOf = dayKey;
   const byDay = new Map<string, RecordItem[]>();
   for (const r of data.items) {
     const v = df === 'created_at' ? r.createdAt : df === 'updated_at' ? r.updatedAt : (r.data[df] as string | undefined);
@@ -189,7 +221,7 @@ function CalendarView({ mod, view, data, onOpen, onCreate }: { mod: Module; view
         <div className="text-sm font-semibold capitalize">{month.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</div>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Mes anterior"><ChevronLeft className="size-4" /></Button>
-          <Button size="sm" variant="ghost" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Hoy</Button>
+          <Button size="sm" variant="ghost" onClick={() => setMonth(thisMonth())}>Hoy</Button>
           <Button size="sm" variant="ghost" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Mes siguiente"><ChevronRight className="size-4" /></Button>
         </div>
       </div>
@@ -231,8 +263,14 @@ function CalendarView({ mod, view, data, onOpen, onCreate }: { mod: Module; view
   );
 }
 
-export default function ModulePage() {
+// Una instancia por módulo: al cambiar de módulo no se arrastran búsqueda, filtros, orden ni el formulario de alta
+// del anterior (antes se pedía un instante la lista del módulo nuevo con los filtros del viejo).
+export default function ModulePageRoute() {
   const { module = '' } = useParams();
+  return <ModulePage key={module} module={module} />;
+}
+
+function ModulePage({ module }: { module: string }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const bp = useBlueprint();
@@ -248,6 +286,7 @@ export default function ModulePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [prefill, setPrefill] = useState<Record<string, unknown>>({});
   const [filterDraft, setFilterDraft] = useState<{ field: string; operator: Condition['operator']; value: string } | null>(null);
+  const [calMonth, setCalMonth] = useState(thisMonth);
   useEffect(() => {
     setSearch('');
     setFilters([]);
@@ -277,7 +316,8 @@ export default function ModulePage() {
     const p = new URLSearchParams();
     if (view) p.set('view', view.key);
     if (debounced) p.set('search', debounced);
-    if (filters.length) p.set('filters', JSON.stringify(filters));
+    const conds = view?.type === 'calendar' && view.dateField ? [...filters, ...calendarRange(view.dateField, calMonth)] : filters;
+    if (conds.length) p.set('filters', JSON.stringify(conds));
     if (sort) {
       p.set('sort', sort.field);
       p.set('dir', sort.dir);
@@ -285,10 +325,12 @@ export default function ModulePage() {
     p.set('page', String(all ? 1 : page));
     p.set('pageSize', all ? '500' : '50');
     return p.toString();
-  }, [view, debounced, filters, sort, page, all]);
+  }, [view, debounced, filters, sort, page, all, calMonth]);
   const list = useQuery({ queryKey: ['records', module, qs], queryFn: () => get<RecordList>(`/records/${module}?${qs}`), enabled: !!mod, placeholderData: keepPreviousData });
 
   if (bp.isLoading) return <PageLoader />;
+  // Un fallo al cargar la estructura no es «página no encontrada»: se muestra el error y se puede reintentar.
+  if (bp.error && !bp.data) return <ErrorState error={bp.error} onRetry={() => bp.refetch()} className="py-24" />;
   if (!mod || !view) return <NotFound />;
   const open = (r: RecordItem) => navigate(`/m/${mod.key}/${r.id}`);
   const openCreate = (p: Record<string, unknown>) => {
@@ -369,22 +411,31 @@ export default function ModulePage() {
                 setPage(1);
               }}
             >
-              <Select className="h-8 w-40" value={filterDraft.field} onChange={(e) => setFilterDraft({ ...filterDraft, field: e.target.value, value: '' })}>
-                {filterable.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-              </Select>
-              <Select className="h-8 w-36" value={filterDraft.operator} onChange={(e) => setFilterDraft({ ...filterDraft, operator: e.target.value as Condition['operator'] })}>
-                {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
+              {/* El ancho va en un envoltorio: las clases base (w-full, h-9) no se pueden anular con className. */}
+              <div className="w-40">
+                <Select aria-label="Campo" value={filterDraft.field} onChange={(e) => setFilterDraft({ ...filterDraft, field: e.target.value, value: '' })}>
+                  {filterable.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                </Select>
+              </div>
+              <div className="w-36">
+                <Select aria-label="Condición" value={filterDraft.operator} onChange={(e) => setFilterDraft({ ...filterDraft, operator: e.target.value as Condition['operator'] })}>
+                  {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
               {!['is_empty', 'is_not_empty'].includes(filterDraft.operator) &&
                 (() => {
                   const fd = mod.fields.find((x) => x.key === filterDraft.field);
-                  return fd?.options ? (
-                    <Select className="h-8 w-40" value={filterDraft.value} onChange={(e) => setFilterDraft({ ...filterDraft, value: e.target.value })}>
-                      <option value="">Elige…</option>
-                      {fd.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </Select>
-                  ) : (
-                    <Input className="h-8 w-40" type={fd && ['date', 'datetime'].includes(fd.type) ? 'date' : 'text'} value={filterDraft.value} onChange={(e) => setFilterDraft({ ...filterDraft, value: e.target.value })} />
+                  return (
+                    <div className="w-40">
+                      {fd?.options ? (
+                        <Select aria-label="Valor" value={filterDraft.value} onChange={(e) => setFilterDraft({ ...filterDraft, value: e.target.value })}>
+                          <option value="">Elige…</option>
+                          {fd.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </Select>
+                      ) : (
+                        <Input aria-label="Valor" type={fd && ['date', 'datetime'].includes(fd.type) ? 'date' : fd && ['number', 'currency', 'percent', 'rating'].includes(fd.type) ? 'number' : 'text'} value={filterDraft.value} onChange={(e) => setFilterDraft({ ...filterDraft, value: e.target.value })} />
+                      )}
+                    </div>
                   );
                 })()}
               <Button size="sm" type="submit" variant="primary">Aplicar</Button>
@@ -407,10 +458,13 @@ export default function ModulePage() {
             action={!debounced && !filters.length && can(mod.permissions.create) ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => openCreate({})}>Nuevo {mod.label.toLowerCase()}</Button> : undefined}
           />
         </div>
-      ) : view.type === 'kanban' ? (
-        <KanbanView mod={mod} view={view} data={list.data!} onOpen={open} onCreate={openCreate} />
-      ) : view.type === 'calendar' ? (
-        <CalendarView mod={mod} view={view} data={list.data!} onOpen={open} onCreate={openCreate} />
+      ) : view.type === 'kanban' || view.type === 'calendar' ? (
+        <>
+          {list.data!.total > list.data!.items.length && (
+            <Alert tone="info">Se muestran {list.data!.items.length} de {list.data!.total} {mod.labelPlural.toLowerCase()}. Usa la búsqueda o un filtro para ver el resto.</Alert>
+          )}
+          {view.type === 'kanban' ? <KanbanView mod={mod} view={view} data={list.data!} onOpen={open} onCreate={openCreate} /> : <CalendarView mod={mod} view={view} data={list.data!} month={calMonth} setMonth={setCalMonth} onOpen={open} onCreate={openCreate} />}
+        </>
       ) : (
         <>
           <RecordTable mod={mod} columns={view.columns} data={list.data!} sort={sort ?? (view.sort ? { field: view.sort.field, dir: view.sort.direction } : null)} setSort={(s) => { setSort(s); setPage(1); }} onOpen={open} />

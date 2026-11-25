@@ -103,7 +103,7 @@ flowchart TD
 
 Otras transiciones: **cancelar** (`cancelled`) desde cualquier estado salvo `applied`, `rolled_back` y `deploying`; **rechazar** también desde `approved`, `needs_input` y `failed`. El estado `deploying` existe en las constantes pero la publicación es una única transacción y no lo usa.
 
-Una cancelación hecha mientras el worker procesa la petición es definitiva: cada registro de progreso (`progress()` en `pipeline.ts`) solo cambia el estado si la petición sigue en `queued`/`planning`/`testing` y, si la encuentra cancelada (o ya no existe), lanza `PipelineStopped` y el pipeline termina sin tocar nada más. La llamada al modelo que esté en curso no se interrumpe: el pipeline se detiene cuando esa llamada termina, al intentar registrar el paso siguiente (cubierto por `ai-features.test.ts`).
+Una cancelación hecha mientras el worker procesa la petición es definitiva: cada registro de progreso (`progress()` en `pipeline.ts`) solo cambia el estado si la petición sigue en `queued`/`planning`/`testing` y, si la encuentra cancelada (o ya no existe), no añade nada, lanza `PipelineStopped` y el pipeline termina sin tocar nada más. Al cancelar, los pasos que seguían «en curso» se cierran en el progreso (`skipped`, «Cancelado»); si el pipeline falla, se cierran como `failed` («Interrumpido por un error»), así que la interfaz nunca muestra un paso trabajando en una petición que ya no trabaja (`closeOpenSteps`). La llamada al modelo que esté en curso no se interrumpe: el pipeline se detiene cuando esa llamada termina, al intentar registrar el paso siguiente (cubierto por `ai-features.test.ts`).
 
 ## 4. El pipeline, paso a paso
 
@@ -390,7 +390,7 @@ Además, las instrucciones del sistema del planificador, del desarrollador de sc
 
 | Id | Adaptador | URL base | Nivel | Herramientas | JSON nativo | PDF (adaptador) | Particularidades |
 |---|---|---|---|---|---|---|---|
-| `anthropic` | SDK oficial `@anthropic-ai/sdk` | `api.anthropic.com` | núcleo | sí | no (instrucción en el sistema) | sí (bloque `document`) | Modelo sugerido `claude-opus-5-5`; caché de *prompt*; `effort` en modelos compatibles; *fallback* de rechazos en servidor en algunos modelos |
+| `anthropic` | SDK oficial `@anthropic-ai/sdk` | `api.anthropic.com` | núcleo | sí | no (instrucción en el sistema) | sí (bloque `document`) | Modelo sugerido `claude-opus-5-5`; caché de *prompt*; `effort` en modelos compatibles (`xhigh` y `max` solo en la familia 5, Fable y Mythos; en el resto se rebajan a `high`, igual que en `reasoning_effort` de OpenAI); en los bucles de herramientas se reenvía el contenido nativo de cada respuesta, con sus bloques de razonamiento; *fallback* de rechazos en servidor en algunos modelos |
 | `openai` | compatible OpenAI | `api.openai.com/v1` | núcleo | sí | sí | sí* (parte `file`) | `max_completion_tokens`; `reasoning_effort` en modelos `o*`/`gpt-5*`; filtra modelos que no son de chat |
 | `deepseek` | compatible OpenAI | `api.deepseek.com` | núcleo | sí | sí | no | Máximo 8.192 tokens de salida |
 | `openrouter` | compatible OpenAI | `openrouter.ai/api/v1` | núcleo | sí | sí | sí* (parte `file`) | Catálogo y precios en vivo **sin necesidad de clave**; coste real por llamada (`usage.include`); cabeceras `HTTP-Referer` (`APP_URL`, si está definida) y `X-Title: Cortex CRM` |
@@ -422,7 +422,7 @@ Añadir un proveedor con API compatible con OpenAI es añadir una entrada a `PRO
 | `chat` | Conversación general | medio | Asistente, comparación de modelos, prueba de proveedor |
 | `crm_analysis` | Análisis de CRM | medio | Predicciones de informes, asesor de mejoras |
 | `feature_creation` | Creación de funcionalidades | alto | Planificador y auto-corrección de EVOLVE (peticiones que no son de automatizaciones) |
-| `code_modification` | Modificación de código | alto | Desarrollador de EVOLVE: escribe el código de los scripts de la organización (`developScripts`, sección 4.4) |
+| `code_modification` | Modificación de código | muy alto (`xhigh`; `high` en los modelos que no lo admiten) | Desarrollador de EVOLVE: escribe el código de los scripts de la organización (`developScripts`, sección 4.4); agente del motor de código fuente ([CODE_ENGINE.md](CODE_ENGINE.md)) |
 | `code_review` | Revisión de código | alto | Revisión cruzada de los change sets, incluido el código de sus scripts (sección 4.7) |
 | `security` | Seguridad | alto | Auditoría de seguridad |
 | `sql_generation` | Generación de SQL | medio | «Pregunta a tus datos» (`POST /api/ai/query`). Pese a la etiqueta, el modelo no genera SQL: devuelve una consulta estructurada (sección 13.1) |

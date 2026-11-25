@@ -232,21 +232,29 @@ export function setCustomCss(css: string | null | undefined): void {
 
 const CACHE_KEY = 'cortex-appearance';
 
-/** Guarda los tokens (nunca el CSS personalizado) de la última apariencia aplicada en esta organización. */
+/**
+ * Guarda los tokens (nunca el CSS personalizado) de la última apariencia aplicada en esta organización, también ya
+ * convertidos en variables CSS (`vars`): los aplica public/theme-init.js antes del primer pintado.
+ */
 export function cacheAppearance(workspaceId: string, a: Appearance | undefined): void {
   try {
     if (!a) localStorage.removeItem(CACHE_KEY);
-    else localStorage.setItem(CACHE_KEY, JSON.stringify({ ws: workspaceId, a: { ...a, customCss: undefined } }));
+    else localStorage.setItem(CACHE_KEY, JSON.stringify({ ws: workspaceId, a: { ...a, customCss: undefined }, vars: appearanceVars(a) }));
   } catch {
     /* sin almacenamiento */
   }
 }
 
-export function cachedAppearance(workspaceId: string | undefined): Appearance | undefined {
-  if (!workspaceId) return undefined;
+/**
+ * Última apariencia guardada en este navegador para esa organización. Con `workspaceId` undefined, la última de
+ * cualquier organización: se usa al arrancar, mientras aún no se sabe quién ha iniciado sesión, para que la primera
+ * pantalla (el cargador) no salga con la paleta por defecto y cambie de color medio segundo después.
+ */
+export function cachedAppearance(workspaceId: string | undefined, anyWorkspace = false): Appearance | undefined {
+  if (!workspaceId && !anyWorkspace) return undefined;
   try {
     const raw = JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null') as { ws?: unknown; a?: unknown } | null;
-    if (!raw || raw.ws !== workspaceId || !raw.a || typeof raw.a !== 'object') return undefined;
+    if (!raw || (workspaceId && raw.ws !== workspaceId) || !raw.a || typeof raw.a !== 'object') return undefined;
     // Se normaliza campo a campo: solo valores permitidos (colores #rrggbb y opciones conocidas).
     const { customCss: _ignored, ...rest } = resolveAppearance(raw.a as Partial<Appearance>);
     void _ignored;

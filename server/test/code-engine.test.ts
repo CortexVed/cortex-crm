@@ -8,6 +8,10 @@ import { loadConfig, type AppConfig } from '../src/config';
 import { analyzeCiLogs, TREE_HASH_EXCLUDE } from '../src/code-engine/ci';
 import { checkChanges } from '../src/code-engine/guards';
 import { LockfileError, verifyLockfile } from '../src/code-engine/lockfile';
+import { codeAgentSystem, codebaseMap } from '../src/code-engine/prompts';
+import { formatTsErrors, parseTscOutput, typecheckTree, type TypecheckResult } from '../src/code-engine/typecheck';
+import { outline } from '../src/code-engine/agent';
+import { anthropicEffort } from '../src/ai/providers/anthropic';
 import { configureCodeEngine, resetCodeEngine } from '../src/code-engine/options';
 import { normalizePath, PathError, protectedReason } from '../src/code-engine/paths';
 import { RailwayClient, RailwayError } from '../src/code-engine/railway';
@@ -445,6 +449,68 @@ describe('cliente de Railway (formato de las peticiones)', () => {
   });
 });
 
+/** Comprobación de tipos simulada (la real necesita las herramientas instaladas): cola de resultados. */
+const tcQueue: TypecheckResult[] = [];
+const tcCalls: string[] = [];
+const fakeTypecheck = async (files: ReadonlyMap<string, Buffer>) => {
+  tcCalls.push([...files.keys()].filter((p) => p.startsWith('server/src/crm/')).join(','));
+  return tcQueue.shift() ?? { ok: true, errors: [], durationMs: 3 };
+};
+
+describe('agente: herramientas, contexto y comprobación de tipos', () => {
+  it('outline_file resume la estructura de un archivo con sus líneas', () => {
+    const src = ["import x from 'y';", 'export interface A { a: string }', 'export async function load(id: string) {', '  return id;', '}', 'const helper = (n: number) => n * 2;', "app.get('/api/x', async () => ({}));", "it('hace algo', () => {});", ''].join('\n');
+    const items = outline(src);
+    expect(items.map((l) => Number(l.split(':')[0]))).toEqual([2, 3, 6, 7, 8]);
+    expect(items[1]).toContain('export async function load');
+  });
+
+  it('el mapa del código lista cada archivo con sus exportaciones (y las pruebas)', () => {
+    const map = codebaseMap(tree);
+    expect(map).toContain('server/src/crm/notes.ts: noteTitle');
+    expect(map.split('\n').find((l) => l.startsWith('server/src/app.ts:'))).toContain('buildApp');
+    expect(map).toContain('Pruebas (server/test/): notes.test.ts');
+    expect(codeAgentSystem(tree)).toContain('[MAPA DEL CÓDIGO');
+    expect(codeAgentSystem(tree)).toContain('check_code');
+  });
+
+  it('lee los errores de tsc (rutas de Windows, duplicados y líneas que no son errores)', () => {
+    const out = [
+      String.raw`server\src\a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.`,
+      "server/src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "web/src/B.tsx(10,1): error TS2304: Cannot find name 'useQuery'.",
+      'Found 2 errors.',
+    ].join('\r\n');
+    const errors = parseTscOutput(out);
+    expect(errors).toEqual([
+      { path: 'server/src/a.ts', line: 3, col: 7, code: 'TS2322', message: "Type 'string' is not assignable to type 'number'." },
+      { path: 'web/src/B.tsx', line: 10, col: 1, code: 'TS2304', message: "Cannot find name 'useQuery'." },
+    ]);
+    expect(formatTsErrors(errors)).toContain('web/src/B.tsx:10:1 TS2304');
+  });
+
+  it('el agente de código razona con esfuerzo xhigh donde el modelo lo admite (y high en el resto)', () => {
+    expect(anthropicEffort('claude-opus-5-5', 'xhigh')).toBe('xhigh');
+    expect(anthropicEffort('claude-sonnet-5-5', 'max')).toBe('max');
+    expect(anthropicEffort('claude-opus-4-6', 'xhigh')).toBe('high');
+    expect(anthropicEffort('claude-opus-4-6', 'medium')).toBe('medium');
+  });
+
+  it('comprobación de tipos real con tsc nativo sobre un proyecto mínimo (sin ejecutar el código)', async () => {
+    const files = new Map<string, Buffer>([
+      ['tsconfig.json', Buffer.from(JSON.stringify({ compilerOptions: { strict: true, noEmit: true, types: [], target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler' }, include: ['server/**/*.ts'] }))],
+      ['server/src/ok.ts', Buffer.from(['export const ok: number = 1;', ''].join('\n'))],
+      ['server/src/mal.ts', Buffer.from(["import { ok } from './ok';", 'export const n: string = ok;', ''].join('\n'))],
+    ]);
+    const r = await typecheckTree(files, REPO);
+    expect(r.skipped).toBeUndefined();
+    expect(r.ok).toBe(false);
+    expect(r.errors.map((e) => `${e.path}:${e.line} ${e.code}`)).toEqual(['server/src/mal.ts:2 TS2322']);
+    files.set('server/src/mal.ts', Buffer.from(["import { ok } from './ok';", 'export const n: number = ok;', ''].join('\n')));
+    expect((await typecheckTree(files, REPO)).ok).toBe(true);
+  }, 60_000);
+});
+
 describe('análisis de los logs del CI', () => {
   it('extrae errores de TypeScript, pruebas fallidas y su detalle', () => {
     const a = analyzeCiLogs([
@@ -535,7 +601,7 @@ describe('pipeline, despliegue con canario y rutas', () => {
 
   beforeAll(async () => {
     rw = fakeRailway();
-    configureCodeEngine({ sourceRoot: dir, pollIntervalMs: 0, requeueDelayMs: 0, handOffGraceMs: 0, verifyAttempts: 2, verifyIntervalMs: 0, sleep: async () => {} });
+    configureCodeEngine({ sourceRoot: dir, pollIntervalMs: 0, requeueDelayMs: 0, handOffGraceMs: 0, verifyAttempts: 2, verifyIntervalMs: 0, sleep: async () => {}, typecheck: fakeTypecheck });
     env = await setup({
       fetchImpl: rw.fetchImpl,
       env: { AI_MAX_REQUESTS_PER_HOUR: '5000' },
@@ -736,6 +802,43 @@ describe('pipeline, despliegue con canario y rutas', () => {
     // Al desplegar se vuelven a aplicar las reglas al parche guardado: el lockfile generado las cumple
     const recheck = checkChanges(tree, c.files.map((f: any) => ({ path: f.path, action: f.action, before: f.before, after: f.after })));
     expect(recheck.violations).toEqual([]);
+    await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
+  });
+
+  it('si tsc encuentra errores de tipos, el agente los corrige ANTES del CI (sin gastar ninguna ejecución del CI)', async () => {
+    tcQueue.push({ ok: false, errors: [{ path: 'server/src/crm/hello.ts', line: 2, col: 3, code: 'TS2322', message: "Type 'string' is not assignable to type 'number'." }], durationMs: 4 });
+    const fix: ScriptStep[] = [
+      { toolCalls: [{ name: 'edit_file', input: { path: 'server/src/crm/hello.ts', old_string: 'Hola', new_string: 'Hola de nuevo' } }] },
+      { toolCalls: [{ name: 'finish', input: { title: 'Saludo en el CRM', summary: 'Corrige el tipo.' } }] },
+    ];
+    const before = rw.uploads.filter((u) => u.serviceId === CI).length;
+    const { id, script } = await createAndPlan('Añade una función que salude por el nombre', aiScript([HELLO_ROUND, fix]));
+    const c = await detail(id);
+    expect(c.status, c.error).toBe('ready_for_review');
+    expect(script.firstMessages).toHaveLength(2);
+    expect(script.firstMessages[1]).toContain('El código no compila');
+    expect(script.firstMessages[1]).toContain('server/src/crm/hello.ts:2:3 TS2322');
+    // Un solo CI (el del código ya corregido)
+    expect(rw.uploads.filter((u) => u.serviceId === CI).length - before).toBe(1);
+    expect(c.ci.attempts).toHaveLength(1);
+    expect(c.progress.some((p: any) => p.step === 'guards' && /error\(es\) de tipos/.test(p.detail ?? ''))).toBe(true);
+    expect(c.progress.some((p: any) => p.step === 'guards' && /tipos correctos/.test(p.detail ?? ''))).toBe(true);
+    await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
+  });
+
+  it('check_code: el agente comprueba reglas y tipos en mitad de su trabajo y ve los errores con archivo y línea', async () => {
+    tcQueue.push({ ok: false, errors: [{ path: 'server/src/crm/hello.ts', line: 1, col: 17, code: 'TS2304', message: "Cannot find name 'nombre'." }], durationMs: 2 });
+    const round: ScriptStep[] = [HELLO_ROUND[0], { toolCalls: [{ name: 'check_code', input: {} }] }, { toolCalls: [{ name: 'read_files', input: { paths: ['server/src/crm/hello.ts', 'server/src/crm/notes.ts'] } }, { name: 'outline_file', input: { path: 'server/src/crm/notes.ts' } }] }, HELLO_ROUND[1]];
+    const calls0 = tcCalls.length;
+    const { id, script } = await createAndPlan('Añade una función que salude por el nombre', aiScript([round]));
+    const c = await detail(id);
+    expect(c.status, c.error).toBe('ready_for_review');
+    const results = script.toolResults.join('\n---\n');
+    expect(results).toContain("TIPOS (tsc): 1 error(es):\nserver/src/crm/hello.ts:1:17 TS2304: Cannot find name 'nombre'.");
+    expect(results).toContain('=== server/src/crm/hello.ts (líneas 1-');
+    expect(results).toContain('export function noteTitle');
+    // La comprobación ve el estado actual del espacio de trabajo (con el archivo nuevo) y la puerta antes del CI otra vez
+    expect(tcCalls.slice(calls0).map((c) => c.split(',').sort().join(','))).toEqual(['server/src/crm/hello.ts,server/src/crm/notes.ts', 'server/src/crm/hello.ts,server/src/crm/notes.ts']);
     await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
   });
 

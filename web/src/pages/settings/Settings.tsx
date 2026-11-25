@@ -41,7 +41,8 @@ export default function Settings() {
     <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
       <PageHeader title="Ajustes" description="Configuración de la organización, el equipo, la IA y la seguridad." />
       <Tabs tabs={visible.map((t) => ({ key: t.key, label: t.label }))} value={current.key} onChange={(k) => navigate(`/settings/${k}`)} />
-      <div className="animate-fade-in">
+      {/* key por pestaña: la animación de entrada se repite en cada cambio (antes solo en la primera). */}
+      <div key={current.key} className="animate-fade-in">
         {current.key === 'general' && <GeneralTab />}
         {current.key === 'account' && <AccountTab />}
         {current.key === 'team' && <TeamTab />}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { CHART_SEQUENCE, HEX } from '../lib/colors';
 import { formatValue } from '../lib/format';
 import type { SeriesPoint } from '../lib/types';
@@ -33,8 +33,9 @@ export function BarChart({ points, format = 'number', currency, height = 180 }: 
           <div key={p.key + i} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end" onMouseEnter={() => setHover(i)}>
             {/* Los valores cero se dibujan como una marca neutra (no con el color de la serie). */}
             <div
-              className={cx('w-full max-w-12 rounded-t-md transition-all duration-500', p.value === 0 && 'bg-zinc-200 dark:bg-zinc-700')}
-              style={{ height: `${Math.max(2, (p.value / max) * 100)}%`, background: p.value === 0 ? undefined : colorOf(p, i), opacity: hover === null || hover === i ? 1 : 0.45 }}
+              className={cx('w-full max-w-12 rounded-t-md', p.value === 0 && 'bg-zinc-200 dark:bg-zinc-700')}
+              // La altura cambia despacio (datos nuevos); la atenuación al pasar el ratón, rápida (antes ambas tardaban 500 ms).
+              style={{ height: `${Math.max(2, (p.value / max) * 100)}%`, background: p.value === 0 ? undefined : colorOf(p, i), opacity: hover === null || hover === i ? 1 : 0.45, transition: 'height 500ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 150ms ease' }}
               title={`${p.label}: ${formatValue(p.value, format, currency)}`}
             />
           </div>
@@ -53,6 +54,9 @@ export function BarChart({ points, format = 'number', currency, height = 180 }: 
 
 export function LineChart({ points, format = 'number', currency, height = 170 }: { points: SeriesPoint[]; format?: Fmt; currency?: string; height?: number }) {
   const [hover, setHover] = useState<number | null>(null);
+  // Un id por gráfico: con varios en la misma página compartían «evolve-area», y si el primero estaba oculto el
+  // degradado de los demás no se pintaba.
+  const gradientId = `area-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">Sin datos todavía</div>;
   const W = 600;
   const H = 200;
@@ -67,12 +71,12 @@ export function LineChart({ points, format = 'number', currency, height = 170 }:
       <Tooltip point={hover !== null ? points[hover] : null} format={format} currency={currency} />
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none" onMouseLeave={() => setHover(null)}>
         <defs>
-          <linearGradient id="evolve-area" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" style={{ stopColor: BRAND, stopOpacity: 0.28 }} />
             <stop offset="1" style={{ stopColor: BRAND, stopOpacity: 0 }} />
           </linearGradient>
         </defs>
-        <path d={area} fill="url(#evolve-area)" />
+        <path d={area} fill={`url(#${gradientId})`} />
         <path d={line} fill="none" style={{ stroke: BRAND }} strokeWidth="2.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
         {points.map((p, i) => (
           <g key={p.key + i}>
@@ -107,7 +111,7 @@ export function DonutChart({ points, format = 'number', currency }: { points: Se
           {points.map((p, i) => {
             const len = (p.value / total) * C;
             const el = (
-              <circle key={p.key + i} cx="60" cy="60" r={R} fill="none" style={{ stroke: colorOf(p, i) }} strokeWidth={hover === i ? 19 : 16} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} onMouseEnter={() => setHover(i)} className="transition-all">
+              <circle key={p.key + i} cx="60" cy="60" r={R} fill="none" style={{ stroke: colorOf(p, i) }} strokeWidth={hover === i ? 19 : 16} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} onMouseEnter={() => setHover(i)} className="transition-[stroke-width,stroke-dasharray,stroke-dashoffset] duration-300">
                 <title>{`${p.label}: ${formatValue(p.value, format, currency)}`}</title>
               </circle>
             );
@@ -139,7 +143,7 @@ export function FunnelChart({ points, format = 'number', currency }: { points: S
         <div key={p.key + i} className="flex items-center gap-3 text-sm">
           <span className="w-28 shrink-0 truncate text-zinc-600 dark:text-zinc-400">{p.label}</span>
           <div className="h-6 flex-1 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">
-            <div className="h-full rounded-md transition-all duration-700" style={{ width: `${Math.max(1.5, (p.value / max) * 100)}%`, background: colorOf(p, i) }} />
+            <div className="h-full rounded-md transition-[width] duration-700" style={{ width: `${Math.max(1.5, (p.value / max) * 100)}%`, background: colorOf(p, i) }} />
           </div>
           <span className="w-16 shrink-0 text-right font-medium tabular-nums">{formatValue(p.value, format, currency, true)}</span>
         </div>

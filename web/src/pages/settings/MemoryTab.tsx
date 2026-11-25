@@ -167,7 +167,7 @@ function MemoryRow({ item, canEdit, onArchive }: { item: MemoryItem; canEdit: bo
               >
                 <Pencil className="size-4" />
               </IconButton>
-              <IconButton label="Archivar" onClick={() => onArchive(item)} className="hover:text-red-600">
+              <IconButton label="Archivar" onClick={() => onArchive(item)} danger>
                 <Archive className="size-4" />
               </IconButton>
             </div>

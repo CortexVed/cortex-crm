@@ -234,7 +234,8 @@ export default function Releases() {
                     const isCurrent = r.to_version === current;
                     return (
                       <li key={r.id} className="relative pb-5 pl-12 last:pb-0">
-                        {i < items.length - 1 && <span aria-hidden className="absolute -bottom-3 left-[17px] top-12 w-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800" />}
+                        {/* En rem, centrada bajo el nodo (size-9 → centro a 1.125rem): con píxeles fijos se descentraba al cambiar la densidad. */}
+                        {i < items.length - 1 && <span aria-hidden className="absolute -bottom-3 left-4.5 top-12 w-0.5 -translate-x-1/2 rounded-full bg-zinc-200 dark:bg-zinc-800" />}
                         <TimelineNode release={r} />
                         <ReleaseCard
                           release={r}

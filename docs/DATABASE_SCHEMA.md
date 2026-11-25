@@ -337,7 +337,7 @@ Todas tienen `workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CAS
 
 **`ai_conversations`** — índice `(workspace_id, user_id, updated_at DESC)`: `user_id` (cascade), `title`.
 
-**`ai_messages`** — índice `(conversation_id, created_at)`: `conversation_id` (cascade), `role` (`user`/`assistant`), `content`, `context` jsonb (contexto de pantalla o acciones propuestas), `tool_calls` jsonb, `provider`, `model`.
+**`ai_messages`** — índice `(conversation_id, created_at)`: `conversation_id` (cascade), `role` (`user`/`assistant`), `content`, `context` jsonb (contexto de pantalla o acciones propuestas; cada acción puede llevar `state` `done`/`dismissed` y `ref` con el registro o la petición resultante, ver `POST /api/assistant/messages/:id/actions/:index`), `tool_calls` jsonb, `provider`, `model`.
 
 **`ai_memory`** — índice `(workspace_id, created_at DESC)`.
 | Columna | Notas |

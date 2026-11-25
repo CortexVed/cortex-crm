@@ -31,7 +31,8 @@ export type ChatMessage =
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[]; native?: unknown }
   | { role: 'tool'; results: ToolResult[] };
 
-export type Effort = 'low' | 'medium' | 'high';
+/** Esfuerzo de razonamiento. xhigh y max solo los admiten los modelos más recientes (los adaptadores los rebajan a high). */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface ChatRequest {
   model: string;

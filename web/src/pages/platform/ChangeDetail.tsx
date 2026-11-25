@@ -41,10 +41,11 @@ function Timeline({ change }: { change: Detail }) {
       </ol>
       <div>
         <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Historial</div>
-        <ol className="relative space-y-3 border-l border-zinc-200 pl-4 dark:border-zinc-800">
+        {/* Línea y nodos en rem (siguen la densidad): el icono de 1rem queda centrado sobre la línea de 1px. */}
+        <ol className="relative space-y-3 before:absolute before:inset-y-1 before:left-2 before:w-px before:-translate-x-1/2 before:bg-zinc-200 dark:before:bg-zinc-800">
           {entries.slice(0, 40).map((p, i) => (
-            <li key={`${p.at}-${i}`} className="relative">
-              <span className="absolute -left-[22px] top-0.5 rounded-full bg-white dark:bg-zinc-900">
+            <li key={`${p.at}-${i}`} className="relative pl-6">
+              <span className="absolute left-0 top-0.5 rounded-full bg-white dark:bg-zinc-900">
                 {p.status === 'running' && !live(p) ? <CircleDot className="size-4 text-zinc-400" /> : <StepIcon status={p.status} />}
               </span>
               <div className="text-xs font-medium">{labels.get(p.step) ?? p.step}</div>
@@ -58,7 +59,7 @@ function Timeline({ change }: { change: Detail }) {
   );
 }
 
-function CiCard({ attempts }: { attempts: CiAttempt[] }) {
+function CiCard({ attempts, active }: { attempts: CiAttempt[]; active: boolean }) {
   const [open, setOpen] = useState<number | null>(attempts.length ? attempts[attempts.length - 1].n : null);
   if (!attempts.length) return null;
   return (
@@ -70,7 +71,7 @@ function CiCard({ attempts }: { attempts: CiAttempt[] }) {
           return (
             <li key={a.n} className="rounded-lg ring-1 ring-zinc-200 dark:ring-zinc-800">
               <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm" onClick={() => setOpen(isOpen ? null : a.n)}>
-                {a.status === 'passed' ? <CheckCircle2 className="size-4 text-emerald-500" /> : a.status === 'failed' ? <XCircle className="size-4 text-red-500" /> : a.status === 'running' ? <Loader2 className="size-4 animate-spin text-brand-500" /> : <MinusCircle className="size-4 text-zinc-400" />}
+                {a.status === 'passed' ? <CheckCircle2 className="size-4 text-emerald-500" /> : a.status === 'failed' ? <XCircle className="size-4 text-red-500" /> : a.status === 'running' ? (active ? <Loader2 className="size-4 animate-spin text-brand-500" /> : <CircleDot className="size-4 text-zinc-400" aria-label="Interrumpido" />) : <MinusCircle className="size-4 text-zinc-400" />}
                 <span className="font-medium">Intento {a.n}</span>
                 <span className="text-xs text-zinc-500">
                   {a.railwayStatus ?? 'en cola'} · {a.files} archivos · {formatBytes(a.bytes)}
@@ -312,7 +313,7 @@ export function ChangeDetail({ id }: { id: string }) {
           )}
 
           <DiffViewer files={c.files} />
-          <CiCard attempts={c.ci.attempts} />
+          <CiCard attempts={c.ci.attempts} active={running} />
           <ReviewCard change={c} />
 
           {c.policy.canRefine && (

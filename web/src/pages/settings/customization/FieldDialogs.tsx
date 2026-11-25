@@ -234,7 +234,9 @@ export function AddFieldModal({ open, onClose, mod, modules, defaultCurrency }: 
 
         {type === 'currency' && (
           <Field label="Moneda (ISO 4217)" required error={errors.currency ?? undefined}>
-            <Input value={currency} maxLength={3} list="evolve-currencies" className="w-32 font-mono uppercase" invalid={!!errors.currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
+            <div className="w-32">
+              <Input value={currency} maxLength={3} list="evolve-currencies" className="font-mono uppercase" invalid={!!errors.currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
+            </div>
             <datalist id="evolve-currencies">
               {CURRENCIES.map((c) => (
                 <option key={c} value={c} />
@@ -485,10 +487,10 @@ export function OptionsModal({ mod, field, automations = [], onClose }: { mod: M
                     {o.value}
                   </span>
                   <div className="flex shrink-0 items-center">
-                    <IconButton label="Subir" disabled={i === 0} onClick={() => move(i, -1)} className="disabled:opacity-30">
+                    <IconButton label="Subir" disabled={i === 0} onClick={() => move(i, -1)}>
                       <ArrowUp className="size-4" />
                     </IconButton>
-                    <IconButton label="Bajar" disabled={i === existing.length - 1} onClick={() => move(i, 1)} className="disabled:opacity-30">
+                    <IconButton label="Bajar" disabled={i === existing.length - 1} onClick={() => move(i, 1)}>
                       <ArrowDown className="size-4" />
                     </IconButton>
                     {o.removed ? (
@@ -496,7 +498,7 @@ export function OptionsModal({ mod, field, automations = [], onClose }: { mod: M
                         <Undo2 className="size-4" />
                       </IconButton>
                     ) : (
-                      <IconButton label="Eliminar opción" onClick={() => set(i, { removed: true })} className="hover:text-red-600">
+                      <IconButton label="Eliminar opción" onClick={() => set(i, { removed: true })} danger>
                         <Trash2 className="size-4" />
                       </IconButton>
                     )}

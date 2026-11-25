@@ -11,7 +11,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { requireUserSession, requireWorkspace } from '../auth/plugin';
 import { loadWorkspace } from '../crm/context';
 import { blueprintForRole } from '../crm/visibility';
-import { PIPELINE_STEPS } from './pipeline';
+import { closeOpenSteps, PIPELINE_STEPS } from './pipeline';
 import { deployRequest, enqueuePipeline, restoreVersion, rollbackRelease } from './releases';
 import { assessTransition } from './risk';
 
@@ -232,11 +232,13 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
     const a = requireWorkspace(req, 'builder');
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     return deps.db.tenant(a.workspaceId, async (q) => {
-      const r = (await q.query(`SELECT status, requested_by FROM evolution_requests WHERE id = $1 AND workspace_id = $2 FOR UPDATE`, [id, a.workspaceId])).rows[0];
+      const r = (await q.query(`SELECT status, requested_by, progress FROM evolution_requests WHERE id = $1 AND workspace_id = $2 FOR UPDATE`, [id, a.workspaceId])).rows[0];
       if (!r) throw notFound('Petición no encontrada');
       if (r.requested_by !== a.userId && !hasRole(a.role, 'admin')) throw forbidden();
       if (['applied', 'rolled_back', 'deploying'].includes(r.status)) throw conflict('Ya no se puede cancelar');
-      await q.query(`UPDATE evolution_requests SET status = 'cancelled', updated_at = now() WHERE id = $1`, [id]);
+      // Los pasos que estaban trabajando quedan cerrados como cancelados (no siguen «en curso» en el progreso).
+      const closing = closeOpenSteps(r.progress, 'skipped', 'Cancelado', deps.now().toISOString());
+      await q.query(`UPDATE evolution_requests SET status = 'cancelled', progress = progress || $2::jsonb, updated_at = now() WHERE id = $1`, [id, JSON.stringify(closing)]);
       return { ok: true };
     });
   });

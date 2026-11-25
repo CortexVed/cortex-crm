@@ -5,11 +5,11 @@ import { BarChart3, Bell, Check, ChevronDown, ChevronsUpDown, Code2, ExternalLin
 import { useSession } from '../lib/session';
 import { useBlueprint, useHotkeys, useTheme } from '../lib/hooks';
 import { ModuleIcon } from '../lib/icons';
-import { get, post } from '../lib/api';
+import { errorMessage, get, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import { applyAppearance, cacheAppearance, cachedAppearance, resetAppearance, setCustomCss, sidebarClass } from '../lib/theme';
 import { ROLE_LABELS, hasRole } from '../../../shared/constants';
-import { Avatar, Button, cx, IconButton, Input, Kbd, Modal, PageLoader, Spinner } from './ui';
+import { Avatar, Button, cx, ErrorState, IconButton, Input, Kbd, Modal, PageLoader, Spinner, useEscapeLayer } from './ui';
 import { CommandPalette } from './CommandPalette';
 import { AiPanel } from './AiPanel';
 import { useToast } from './toast';
@@ -43,12 +43,24 @@ function WorkspaceSwitcher() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const navigate = useNavigate();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  useEscapeLayer(open, () => setOpen(false));
   const switchTo = async (id: string) => {
-    const next = await post('/auth/switch-workspace', { workspaceId: id });
-    setMe(next);
-    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
-    setOpen(false);
-    navigate('/');
+    try {
+      const next = await post('/auth/switch-workspace', { workspaceId: id });
+      setMe(next);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+      setOpen(false);
+      navigate('/');
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
   };
   const create = useMutation({
     mutationFn: () => post('/auth/workspaces', { name }),
@@ -64,8 +76,8 @@ function WorkspaceSwitcher() {
   });
   if (!me?.workspace) return null;
   return (
-    <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70">
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70">
         <span className="flex size-7 items-center justify-center rounded-md bg-zinc-900 text-xs font-bold text-white dark:bg-white dark:text-zinc-900">{me.workspace.name.slice(0, 1).toUpperCase()}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{me.workspace.name}</span>
@@ -74,7 +86,7 @@ function WorkspaceSwitcher() {
         <ChevronsUpDown className="size-3.5 text-zinc-400" />
       </button>
       {open && (
-        <div className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl bg-white p-1 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
+        <div className="absolute inset-x-0 top-full z-30 mt-1 origin-top rounded-xl bg-white p-1 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
           {me.workspaces.map((w) => (
             <button key={w.id} onClick={() => switchTo(w.id)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800">
               <span className="min-w-0 flex-1 truncate text-left">{w.name}</span>
@@ -244,16 +256,30 @@ function Notifications() {
   const qc = useQueryClient();
   const ref = useRef<HTMLDivElement>(null);
   const q = useQuery({ queryKey: ['notifications'], queryFn: () => get<{ items: any[]; unread: number }>('/notifications'), refetchInterval: 60_000 });
+  const toast = useToast();
   useEffect(() => {
     const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+  useEscapeLayer(open, () => setOpen(false));
   const read = async (n: any) => {
-    if (!n.read_at) await post(`/notifications/${n.id}/read`);
+    try {
+      if (!n.read_at) await post(`/notifications/${n.id}/read`);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
     qc.invalidateQueries({ queryKey: ['notifications'] });
     setOpen(false);
     if (n.link) navigate(n.link);
+  };
+  const readAll = async () => {
+    try {
+      await post('/notifications/read-all');
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+    qc.invalidateQueries({ queryKey: ['notifications'] });
   };
   return (
     <div className="relative" ref={ref}>
@@ -262,11 +288,11 @@ function Notifications() {
         {!!q.data?.unread && <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">{q.data.unread > 9 ? '9+' : q.data.unread}</span>}
       </IconButton>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-xl bg-white shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
+        <div className="fixed inset-x-2 top-14 z-30 origin-top rounded-xl bg-white shadow-xl ring-1 ring-zinc-200 animate-pop sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[360px] sm:origin-top-right dark:bg-zinc-900 dark:ring-zinc-800">
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
             <span className="text-sm font-semibold">Notificaciones</span>
             {!!q.data?.unread && (
-              <button className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400" onClick={async () => { await post('/notifications/read-all'); qc.invalidateQueries({ queryKey: ['notifications'] }); }}>
+              <button className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400" onClick={readAll}>
                 Marcar todo como leído
               </button>
             )}
@@ -274,6 +300,8 @@ function Notifications() {
           <div className="max-h-96 overflow-y-auto scrollbar-thin">
             {q.isLoading ? (
               <div className="flex justify-center p-6"><Spinner /></div>
+            ) : q.error && !q.data ? (
+              <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-6" />
             ) : !q.data?.items.length ? (
               <p className="px-4 py-8 text-center text-sm text-zinc-500">No tienes notificaciones</p>
             ) : (
@@ -305,6 +333,7 @@ function UserMenu() {
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+  useEscapeLayer(open, () => setOpen(false));
   if (!me) return null;
   return (
     <div className="relative" ref={ref}>
@@ -312,7 +341,7 @@ function UserMenu() {
         <Avatar name={me.user.name} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-60 rounded-xl bg-white p-1 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
+        <div className="absolute right-0 top-full z-30 mt-2 w-60 origin-top-right rounded-xl bg-white p-1 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
           <div className="px-3 py-2">
             <div className="truncate text-sm font-medium">{me.user.name}</div>
             <div className="truncate text-xs text-zinc-500">{me.user.email}</div>
@@ -354,7 +383,8 @@ export function AppLayout() {
   // navegador para esta organización (solo tokens; nunca el CSS personalizado).
   const workspaceId = me?.workspace?.id;
   const blueprint = useBlueprint(!!workspaceId);
-  const cached = useMemo(() => cachedAppearance(workspaceId), [workspaceId]);
+  // Mientras se carga la sesión, la última apariencia de este navegador (la misma que aplica main.tsx al arrancar).
+  const cached = useMemo(() => cachedAppearance(workspaceId, loading), [workspaceId, loading]);
   const appearance = blueprint.data ? blueprint.data.blueprint.appearance : cached;
   const [theme, setTheme] = useTheme(appearance?.defaultTheme);
   // useLayoutEffect: los tokens se aplican antes de pintar (sin destello de la paleta por defecto).
@@ -394,6 +424,13 @@ export function AppLayout() {
   }, []);
   const [mobileNav, setMobileNav] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
+  // Una vez abierto, el panel se queda montado (oculto al cerrarlo): la conversación y una respuesta en curso no se
+  // pierden al cerrarlo ni al navegar en pantallas estrechas (donde se cierra solo en cada navegación).
+  const [aiMounted, setAiMounted] = useState(aiOpen);
+  useEffect(() => {
+    if (aiOpen) setAiMounted(true);
+  }, [aiOpen]);
+  useEscapeLayer(mobileNav, () => setMobileNav(false));
   // En pantallas estrechas el panel es una capa: se cierra al navegar y al pasar de ancho a estrecho.
   useEffect(() => {
     if (!isWide()) setAiOpenState(false);
@@ -436,14 +473,17 @@ export function AppLayout() {
         <Sidebar />
       </aside>
       {mobileNav && (
-        <div className="fixed inset-0 z-40 bg-zinc-950/40 lg:hidden" onClick={() => setMobileNav(false)}>
-          <aside className={cx('h-full w-72 shadow-2xl animate-slide-in', sidebarClass(appearance?.sidebar, true))} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-40 bg-zinc-950/40 animate-fade-in lg:hidden" onClick={() => setMobileNav(false)}>
+          {/* El menú está a la izquierda: entra desde la izquierda. */}
+          <aside className={cx('h-full w-72 shadow-2xl animate-slide-in-left', sidebarClass(appearance?.sidebar, true))} onClick={(e) => e.stopPropagation()}>
             <Sidebar onNavigate={() => setMobileNav(false)} />
           </aside>
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200/70 bg-white/80 px-3 backdrop-blur sm:px-5 dark:border-zinc-800 dark:bg-zinc-950/80">
+        {/* relative z-30: backdrop-blur crea un contexto de apilamiento propio; sin un z-index, los desplegables de la
+            cabecera (notificaciones, usuario) quedaban debajo del panel de IA o de elementos fijos del contenido. */}
+        <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200/70 bg-white/80 px-3 backdrop-blur sm:px-5 dark:border-zinc-800 dark:bg-zinc-950/80">
           <IconButton label="Menú" className="lg:hidden" onClick={() => setMobileNav(true)}>
             <Menu className="size-5" />
           </IconButton>
@@ -473,7 +513,7 @@ export function AppLayout() {
           <main className="min-w-0 flex-1 overflow-y-auto scrollbar-thin">
             <Outlet />
           </main>
-          {aiOpen && <AiPanel onClose={() => setAiOpen(false)} />}
+          {aiMounted && <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} />}
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onAskAi={() => setAiOpen(true)} />

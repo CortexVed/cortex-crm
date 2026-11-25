@@ -57,7 +57,8 @@ function ChangesTab({ blockedReason }: { blockedReason: string | null }) {
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   const active = list.data?.items.find((c) => ACTIVE.has(c.status));
-  const canSubmit = !blockedReason && !active && prompt.trim().length >= 10;
+  // Sin `!submit.isPending`, Ctrl+Enter (o un doble envío del formulario) preparaba dos cambios a la vez.
+  const canSubmit = !blockedReason && !active && prompt.trim().length >= 10 && !submit.isPending;
 
   return (
     <div className="grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_320px]">

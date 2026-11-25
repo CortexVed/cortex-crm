@@ -201,7 +201,7 @@ export function ColorDot({ value, onChange }: { value: string; onChange: (v: Col
         <span className={cx('size-4 rounded-full', DOT[value as Color] ?? DOT.slate)} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 grid w-[13.5rem] grid-cols-6 gap-1 rounded-xl bg-white p-2 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
+        <div className="absolute left-0 top-full z-20 mt-1 grid w-[13.5rem] origin-top-left grid-cols-6 gap-1 rounded-xl bg-white p-2 shadow-xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800">
           {COLORS.map((c) => (
             <button
               key={c}
@@ -275,15 +275,18 @@ export function OptionsEditor({ options, onChange, existing = [], max = 100 }: {
               }}
               className="min-w-0 flex-1"
             />
-            <Input aria-label="Valor interno" placeholder="valor" value={o.value} invalid={!!errors[i] && !!o.label.trim()} onChange={(e) => set(i, { value: e.target.value.toLowerCase(), touched: true })} className="w-32 shrink-0 font-mono text-[12.5px] sm:w-40" />
+            {/* El ancho va en un envoltorio: la clase base w-full del Input ganaba a w-32 y en móvil desbordaba la fila. */}
+            <div className="w-28 shrink-0 sm:w-40">
+              <Input aria-label="Valor interno" placeholder="valor" value={o.value} invalid={!!errors[i] && !!o.label.trim()} onChange={(e) => set(i, { value: e.target.value.toLowerCase(), touched: true })} className="font-mono text-[12.5px]" />
+            </div>
             <div className="flex shrink-0 items-center">
-              <IconButton label="Subir" disabled={i === 0} onClick={() => move(i, -1)} className="hidden disabled:opacity-30 sm:inline-flex">
+              <IconButton label="Subir" disabled={i === 0} onClick={() => move(i, -1)} className="max-sm:hidden">
                 <ArrowUp className="size-4" />
               </IconButton>
-              <IconButton label="Bajar" disabled={i === options.length - 1} onClick={() => move(i, 1)} className="hidden disabled:opacity-30 sm:inline-flex">
+              <IconButton label="Bajar" disabled={i === options.length - 1} onClick={() => move(i, 1)} className="max-sm:hidden">
                 <ArrowDown className="size-4" />
               </IconButton>
-              <IconButton label="Quitar opción" onClick={() => onChange(options.filter((_, j) => j !== i))} className="hover:text-red-600">
+              <IconButton label="Quitar opción" onClick={() => onChange(options.filter((_, j) => j !== i))} danger>
                 <Trash2 className="size-4" />
               </IconButton>
             </div>

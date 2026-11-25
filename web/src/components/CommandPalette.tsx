@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { BarChart3, CornerDownLeft, History, LayoutDashboard, Plus, Search, Settings, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
 import { get } from '../lib/api';
 import { useBlueprint, useDebounced } from '../lib/hooks';
 import { ModuleIcon } from '../lib/icons';
 import { useSession } from '../lib/session';
-import { cx, Spinner } from './ui';
+import { cx, Spinner, useEscapeLayer } from './ui';
 
 interface Item {
   id: string;
@@ -21,11 +22,14 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { data } = useBlueprint();
   const { can } = useSession();
   const debounced = useDebounced(q.trim(), 200);
-  const search = useQuery({ queryKey: ['search', debounced], queryFn: () => get<{ groups: any[] }>(`/search?q=${encodeURIComponent(debounced)}`), enabled: open && debounced.length >= 2 });
+  // keepPreviousData: los resultados no desaparecen (ni la lista salta) mientras llega la búsqueda nueva.
+  const search = useQuery({ queryKey: ['search', debounced], queryFn: () => get<{ groups: any[] }>(`/search?q=${encodeURIComponent(debounced)}`), enabled: open && debounced.length >= 2, placeholderData: keepPreviousData });
+  useEscapeLayer(open, onClose);
 
   useEffect(() => {
     if (open) {
@@ -58,23 +62,57 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
     const filtered = [...nav, ...create].filter((i) => !term || i.label.toLowerCase().includes(term));
     const ai: Item[] = term
       ? [
-          { id: 'ai-ask', group: 'Inteligencia artificial', label: `Preguntar a EVOLVE AI: «${q.trim()}»`, icon: <Sparkles className="size-4 text-fuchsia-500" />, run: () => { sessionStorage.setItem('evolve-ai-prefill', q.trim()); onAskAi(); onClose(); } },
-          ...(can('builder') ? [{ id: 'ai-evolve', group: 'Inteligencia artificial', label: `Pedir este cambio al CRM: «${q.trim()}»`, icon: <Wand2 className="size-4 text-brand-500" />, run: () => { sessionStorage.setItem('evolve-prefill', q.trim()); navigate('/evolve'); onClose(); } }] : []),
+          {
+            id: 'ai-ask',
+            group: 'Inteligencia artificial',
+            label: `Preguntar a EVOLVE AI: «${q.trim()}»`,
+            icon: <Sparkles className="size-4 text-fuchsia-500" />,
+            run: () => {
+              sessionStorage.setItem('evolve-ai-prefill', q.trim());
+              onAskAi();
+              // El panel puede estar ya abierto: el evento hace que lea la pregunta ahora (y con el contexto actual).
+              window.dispatchEvent(new CustomEvent('evolve:open-ai'));
+              onClose();
+            },
+          },
+          ...(can('builder')
+            ? [
+                {
+                  id: 'ai-evolve',
+                  group: 'Inteligencia artificial',
+                  label: `Pedir este cambio al CRM: «${q.trim()}»`,
+                  icon: <Wand2 className="size-4 text-brand-500" />,
+                  run: () => {
+                    sessionStorage.setItem('evolve-prefill', q.trim());
+                    navigate('/evolve');
+                    // Si ya estaba en /evolve, la página no se vuelve a montar: el evento le pasa el texto.
+                    window.dispatchEvent(new CustomEvent('evolve:prefill'));
+                    onClose();
+                  },
+                },
+              ]
+            : []),
         ]
       : [];
-    const records: Item[] = (search.data?.groups ?? []).flatMap((g) =>
+    // Sin texto (p. ej. al reabrir), nada de los resultados de la búsqueda anterior.
+    const records: Item[] = (term.length >= 2 ? (search.data?.groups ?? []) : []).flatMap((g) =>
       g.items.map((r: any) => ({ id: `rec-${r.id}`, group: g.label, label: r.title, hint: r.subtitle ?? undefined, icon: <ModuleIcon name={g.icon} className="size-4" />, run: go(`/m/${g.module}/${r.id}`) })),
     );
     return [...records, ...filtered, ...ai];
   }, [data, q, search.data, can, navigate, onClose, onAskAi]);
 
   useEffect(() => setActive(0), [q, search.data]);
+  // Con las flechas, el elemento activo siempre a la vista.
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
   if (!open) return null;
 
   const groups = items.reduce<Record<string, Item[]>>((acc, it) => ((acc[it.group] ??= []).push(it), acc), {});
   let idx = -1;
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-zinc-950/40 p-4 pt-[12vh] backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+  return createPortal(
+    // En un portal y por encima de los modales (z-60): con ⌘K dentro de un modal, la paleta no queda debajo.
+    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-zinc-950/40 p-4 pt-[12vh] backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800" role="dialog" aria-label="Paleta de comandos">
         <div className="flex items-center gap-2 border-b border-zinc-100 px-4 dark:border-zinc-800">
           <Search className="size-4 text-zinc-400" />
@@ -83,8 +121,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') onClose();
-              else if (e.key === 'ArrowDown') {
+              if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setActive((a) => Math.min(a + 1, items.length - 1));
               } else if (e.key === 'ArrowUp') {
@@ -100,7 +137,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
           />
           {search.isFetching && <Spinner className="size-4" />}
         </div>
-        <div className="max-h-[50vh] overflow-y-auto p-2 scrollbar-thin">
+        <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-2 scrollbar-thin">
           {!items.length && <p className="px-3 py-8 text-center text-sm text-zinc-500">Sin resultados</p>}
           {Object.entries(groups).map(([group, list]) => (
             <div key={group} className="mb-1">
@@ -109,7 +146,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
                 idx++;
                 const i = idx;
                 return (
-                  <button key={it.id} onMouseEnter={() => setActive(i)} onClick={it.run} className={cx('flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm', active === i ? 'bg-zinc-100 dark:bg-zinc-800' : '')}>
+                  <button key={it.id} data-idx={i} onMouseEnter={() => setActive(i)} onClick={it.run} className={cx('flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm', active === i ? 'bg-zinc-100 dark:bg-zinc-800' : '')}>
                     <span className="text-zinc-500">{it.icon}</span>
                     <span className="min-w-0 flex-1 truncate">{it.label}</span>
                     {it.hint && <span className="max-w-40 truncate text-xs text-zinc-400">{it.hint}</span>}
@@ -121,6 +158,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

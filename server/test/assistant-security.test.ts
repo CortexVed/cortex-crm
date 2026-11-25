@@ -56,6 +56,38 @@ describe('asistente contextual EVOLVE AI', () => {
     expect((await c.req('GET', '/api/records/tasks')).body.total).toBe(before);
   });
 
+  it('el estado de una propuesta se guarda (el historial no la vuelve a ofrecer) y solo lo cambia su autor', async () => {
+    let step = 0;
+    env.setMock(() => {
+      step++;
+      if (step === 1) return { toolCalls: [{ id: 'c3', name: 'propose_record_change', input: { action: 'create', module: 'tasks', values: { title: 'Enviar propuesta' }, summary: 'Crear tarea' } }] };
+      return { text: 'Preparada; confírmala para crearla.' };
+    });
+    const r = await c.req('POST', '/api/assistant/chat', { message: 'Crea una tarea para enviar la propuesta' });
+    const msgId = r.body.message.id as string;
+    const task = await c.req('POST', '/api/records/tasks', { values: { title: 'Enviar propuesta' } });
+    const taskId = task.body.record.id as string;
+
+    // Otra persona de la misma organización no puede marcar los mensajes ajenos.
+    await c.req('POST', '/api/workspace/invites', { email: 'colega@example.com', role: 'member' });
+    const other = new Client(env.app);
+    const acc = await other.req('POST', '/api/auth/invite/accept', { token: env.inviteToken('colega@example.com'), name: 'Colega', password: 'Contraseña-Segura-123' });
+    other.csrf = acc.body.csrfToken;
+    expect((await other.req('POST', `/api/assistant/messages/${msgId}/actions/0`, { state: 'dismissed' })).status).toBe(404);
+
+    const done = await c.req('POST', `/api/assistant/messages/${msgId}/actions/0`, { state: 'done', ref: taskId });
+    expect(done.status).toBe(200);
+    expect(done.body).toEqual({ state: 'done', ref: taskId });
+    // Resuelta no cambia de estado (no se puede volver a ofrecer una propuesta ya aplicada).
+    expect((await c.req('POST', `/api/assistant/messages/${msgId}/actions/0`, { state: 'dismissed' })).body).toEqual({ state: 'done', ref: taskId });
+    expect((await c.req('POST', `/api/assistant/messages/${msgId}/actions/3`, { state: 'done' })).status).toBe(404);
+    expect((await c.req('POST', `/api/assistant/messages/${msgId}/actions/0`, { state: 'aplicada' })).status).toBe(400);
+
+    const conv = await c.req('GET', `/api/assistant/conversations/${r.body.conversationId}`);
+    const saved = conv.body.messages.find((m: any) => m.id === msgId);
+    expect(saved.context.actions[0]).toMatchObject({ type: 'record_change', state: 'done', ref: taskId, payload: { module: 'tasks' } });
+  });
+
   it('sin proveedores configurados en producción no inventa respuestas', async () => {
     const prod = await setup({ env: { LLM_ENABLE_MOCK: 'false' } });
     const u = new Client(prod.app);

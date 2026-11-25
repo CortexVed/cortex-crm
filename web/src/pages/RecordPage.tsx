@@ -57,7 +57,7 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
     <Card title="Actividad" padded={false}>
       {can('member') && (
         <form className="border-b border-zinc-100 p-3 dark:border-zinc-800" onSubmit={(e) => { e.preventDefault(); if (note.trim()) add.mutate(); }}>
-          <Textarea rows={2} placeholder="Escribe una nota…" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim()) add.mutate(); }} />
+          <Textarea rows={2} placeholder="Escribe una nota…" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim() && !add.isPending) { e.preventDefault(); add.mutate(); } }} />
           <div className="mt-2 flex justify-end">
             <Button size="sm" variant="primary" type="submit" loading={add.isPending} disabled={!note.trim()} icon={<StickyNote className="size-3.5" />}>Añadir nota</Button>
           </div>
@@ -72,8 +72,8 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
       ) : (
         <ol className="max-h-[560px] space-y-0 overflow-y-auto p-3 scrollbar-thin">
           {q.data!.items.map((it) => (
-            <li key={`${it.kind}-${it.id}`} className="relative flex gap-3 pb-4 pl-1 last:pb-1">
-              <span className="absolute left-[15px] top-8 h-[calc(100%-24px)] w-px bg-zinc-200 dark:bg-zinc-800" />
+            <li key={`${it.kind}-${it.id}`} className="group relative flex gap-3 pb-4 pl-1 last:pb-1">
+              <span aria-hidden className="absolute bottom-0 left-4.5 top-8 w-px -translate-x-1/2 bg-zinc-200 group-last:hidden dark:bg-zinc-800" />
               <span className={cx('z-10 flex size-7 shrink-0 items-center justify-center rounded-full ring-4 ring-white dark:ring-zinc-900', it.kind === 'note' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : it.kind === 'message' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : it.kind === 'automation' ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800')}>
                 {it.kind === 'note' ? <StickyNote className="size-3.5" /> : it.kind === 'message' ? <MessageCircle className="size-3.5" /> : it.kind === 'automation' ? <Zap className="size-3.5" /> : it.actorType === 'ai' ? <Bot className="size-3.5" /> : <Pencil className="size-3.5" />}
               </span>
@@ -140,11 +140,11 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
   const [busy, setBusy] = useState(false);
   const q = useQuery({ queryKey: ['files', recordId], queryFn: () => get<any[]>(`/records/${mod.key}/${recordId}/files`) });
   const remove = useMutation({ mutationFn: (id: string) => del(`/files/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['files', recordId] }), onError: (e) => toast(errorMessage(e), 'error') });
-  const upload = async (files: FileList | null) => {
-    if (!files?.length) return;
+  const upload = async (files: File[]) => {
+    if (!files.length) return;
     setBusy(true);
     try {
-      for (const f of Array.from(files)) await uploadFile(f, { recordId });
+      for (const f of files) await uploadFile(f, { recordId });
       qc.invalidateQueries({ queryKey: ['files', recordId] });
       qc.invalidateQueries({ queryKey: ['timeline', mod.key, recordId] });
       toast('Documentos subidos');
@@ -161,7 +161,16 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
         canEdit && (
           <label className={cx('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-zinc-600 ring-1 ring-zinc-200 hover:bg-zinc-50 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800', busy && 'pointer-events-none opacity-60')}>
             <Upload className="size-3.5" /> {busy ? 'Subiendo…' : 'Subir'}
-            <input type="file" multiple className="sr-only" onChange={(e) => upload(e.target.files)} />
+            <input
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = ''; // para poder volver a subir el mismo archivo
+                void upload(files);
+              }}
+            />
           </label>
         )
       }
@@ -169,6 +178,8 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
     >
       {q.isLoading ? (
         <div className="p-4 text-sm text-zinc-400">Cargando…</div>
+      ) : q.error ? (
+        <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data?.length ? (
         <p className="px-4 py-5 text-center text-sm text-zinc-500">Sin documentos</p>
       ) : (
@@ -224,7 +235,16 @@ function Messaging({ mod, recordId }: { mod: Module; recordId: string }) {
   );
 }
 
-export default function RecordPage() {
+/**
+ * Una instancia por registro: /m/:module/:id reutilizaría el mismo componente al pasar de una ficha a otra y el modo
+ * edición, los valores y los errores de la anterior pasarían a la nueva (y «Guardar» la sobrescribiría).
+ */
+export default function RecordPageRoute() {
+  const { module = '', id = '' } = useParams();
+  return <RecordPage key={`${module}/${id}`} />;
+}
+
+function RecordPage() {
   const { module = '', id = '' } = useParams();
   const navigate = useNavigate();
   const bp = useBlueprint();
@@ -264,6 +284,7 @@ export default function RecordPage() {
   });
 
   if (bp.isLoading || q.isLoading) return <PageLoader />;
+  if (bp.error) return <ErrorState error={bp.error} onRetry={() => bp.refetch()} className="py-24" />;
   if (!mod) return <NotFound />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-24" />;
   const { record, related, refs } = q.data!;
@@ -298,7 +319,7 @@ export default function RecordPage() {
           <Button variant="ghost" size="sm" icon={<Sparkles className="size-3.5 text-fuchsia-500" />} onClick={() => askAi(`Resume esta ficha y sugiere los próximos pasos.`)}>Preguntar a EVOLVE AI</Button>
           {canEdit && hasClassifiable && <ClassifyButton mod={mod} recordId={record.id} data={record.data} />}
           {canEdit && !editing && <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => { setValues(editable); setErrors({}); setEditing(true); }}>Editar</Button>}
-          {can(mod.permissions.delete) && <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>Eliminar</Button>}
+          {can(mod.permissions.delete) && <Button size="sm" variant="dangerGhost" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>Eliminar</Button>}
         </div>
       </div>
 
@@ -311,7 +332,8 @@ export default function RecordPage() {
             return (
               <button
                 key={o.value}
-                disabled={!canEdit || save.isPending}
+                disabled={!canEdit || save.isPending || editing}
+                title={editing ? 'Guarda o cancela la edición para cambiar la etapa' : undefined}
                 onClick={() => !active && save.mutate({ [headline.key]: o.value })}
                 className={cx('flex-1 shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:cursor-default', active ? 'bg-brand-600 text-white shadow-sm' : idx < activeIdx ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800')}
               >
@@ -369,7 +391,7 @@ export default function RecordPage() {
                       <li key={it.id}>
                         <Link to={`/m/${rel.module}/${it.id}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
                           <span className="min-w-0 flex-1 truncate font-medium">{recordTitle(relMod, it.data)}</span>
-                          {cols.map((f) => <span key={f.key} className="hidden max-w-40 truncate text-xs sm:block"><FieldValue field={f} value={it.data[f.key]} refs={refs} compact /></span>)}
+                          {cols.map((f) => <span key={f.key} className="hidden max-w-40 truncate text-xs sm:block"><FieldValue field={f} value={it.data[f.key]} refs={refs} compact plain /></span>)}
                         </Link>
                       </li>
                     ))}

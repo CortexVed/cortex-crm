@@ -14,6 +14,7 @@ import { ConfigMissingError, railwayForJob, reportWorkerRuntime } from './settin
 import { loadSourceTree, treeHash, type SourceTree, type SourceVersion } from './source';
 import { ChangeLease, ChangeStopped, enqueueCodeJob, PLAN_STATUSES, progressEntry, type CiAttempt, type SourceChange } from './store';
 import { createTarGz } from './tar';
+import { formatTsErrors, type TypecheckResult } from './typecheck';
 import { VirtualWorkspace } from './workspace';
 
 /**
@@ -26,7 +27,9 @@ import { VirtualWorkspace } from './workspace';
 export const MAX_HEAL_ATTEMPTS = 3;
 /** Rondas extra del agente para corregir infracciones de las reglas antes de subir nada al CI. */
 const MAX_GUARD_ROUNDS = 2;
-const MAX_AGENT_RUNS = 10;
+/** Rondas extra del agente para corregir errores de tipos (tsc en el worker) antes de subir nada al CI. */
+const MAX_TYPE_ROUNDS = 4;
+const MAX_AGENT_RUNS = 14;
 const MAX_TRANSIENT = 5;
 
 export const CODE_STEPS = [
@@ -136,7 +139,31 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
   const ws = new VirtualWorkspace(tree, change.patch.files);
   const feedback = change.conversation.filter((c) => c.role === 'feedback').map((c) => c.content);
   let problems = change.problems;
-  for (let guardRound = 0; ; guardRound++) {
+  let guardFails = 0;
+  let typeRounds = 0;
+  /**
+   * Comprobación rápida para el agente (herramienta check_code): reglas del motor, dependencias y tipos con tsc,
+   * sobre el estado actual del espacio de trabajo y sin ejecutar nada.
+   */
+  const check = async (): Promise<string> => {
+    ws.dropGenerated();
+    const current = ws.changes();
+    if (!current.length) return 'Todavía no hay cambios que comprobar.';
+    const parts: string[] = [];
+    const g = checkChanges(tree, current);
+    if (!g.ok) parts.push(`REGLAS DEL MOTOR (${g.violations.length} infracción(es): así no puede subir al CI):\n${g.violations.slice(0, 30).map(formatViolation).join('\n')}`);
+    if (g.ok && g.dependencies.length) {
+      const lockProblems = await generateLockfile(ws, tree, run.signal);
+      if (lockProblems.length) parts.push(`DEPENDENCIAS:\n${lockProblems.join('\n')}`);
+    }
+    const tc = await runTypecheck(ws, run.signal);
+    ws.dropGenerated();
+    if (tc?.skipped) parts.push(`TIPOS: no se han podido comprobar aquí (${tc.skipped.slice(0, 200)}); los comprobará el CI.`);
+    else if (tc && !tc.ok) parts.push(`TIPOS (tsc): ${tc.errors.length} error(es):\n${formatTsErrors(tc.errors)}`);
+    if (!parts.length) return `Sin problemas: reglas del motor y tipos correctos${tc ? ` (tsc, ${Math.max(1, Math.round(tc.durationMs / 1000))} s)` : ''}.`;
+    return parts.join('\n\n');
+  };
+  for (;;) {
     change = lease.change;
     if (run.deadline - Date.now() < 10 * 60_000) {
       // Poco margen para una ronda completa del agente: la hace la siguiente ejecución.
@@ -167,6 +194,7 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
       round: agentRuns,
       workspace: ws,
       signal: run.signal,
+      check,
     }).finally(() => setDraft(null));
     // Los archivos que genera el motor (package-lock.json) se recalculan después de cada ronda del agente.
     ws.dropGenerated();
@@ -196,24 +224,52 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
     }
     const base = { title: result.title, summary: result.summary, llm, patch: { files: changes, testsAdded: result.testsAdded }, stats: guards.stats, flags: guards.flags, guards: { ok: guards.ok, violations: guards.violations, at: now } };
     if (guards.ok) {
+      // Tipos con tsc en el worker antes del CI: los errores vuelven al agente en segundos, sin gastar un CI.
+      const tc = await runTypecheck(ws, run.signal);
+      if (tc && !tc.ok && !tc.skipped && tc.errors.length) {
+        typeRounds++;
+        const seconds = Math.max(1, Math.round(tc.durationMs / 1000));
+        if (typeRounds > MAX_TYPE_ROUNDS) {
+          await lease.save({ ...base, status: 'failed', error: `El código no compila tras ${MAX_TYPE_ROUNDS} rondas de corrección (${tc.errors.length} error(es) de tipos). Refina la petición o divídela en cambios más pequeños.` }, [
+            progressEntry('develop', 'done', `${changes.length} archivo(s)`),
+            progressEntry('guards', 'failed', `${tc.errors.length} error(es) de tipos (tsc): no se sube al CI`),
+          ]);
+          return;
+        }
+        problems = [`El código no compila: tsc encuentra ${tc.errors.length} error(es) de tipos. Corrígelos (lee cada archivo antes de editarlo) y comprueba con check_code:`, formatTsErrors(tc.errors)];
+        await lease.save(base, [progressEntry('develop', 'done', `${changes.length} archivo(s)`), progressEntry('guards', 'failed', `${tc.errors.length} error(es) de tipos (tsc, ${seconds} s): se pide al agente que los corrija`)]);
+        continue;
+      }
+      const typeNote = !tc ? '' : tc.skipped ? ` · tipos sin comprobar en el worker (${tc.skipped.slice(0, 100)}): los comprueba el CI` : ` · tipos correctos (tsc, ${Math.max(1, Math.round(tc.durationMs / 1000))} s)`;
       await lease.save({ ...base, problems: [] }, [
         progressEntry('develop', 'done', `${changes.length} archivo(s): +${guards.stats.linesAdded} −${guards.stats.linesRemoved} líneas (${calls})`),
-        progressEntry('guards', 'done', `Sin infracciones · ${guards.flags.length} aviso(s) para quien aprueba${lockNote}`),
+        progressEntry('guards', 'done', `Sin infracciones · ${guards.flags.length} aviso(s) para quien aprueba${lockNote}${typeNote}`),
       ]);
       break;
     }
     const list = guards.violations.map(formatViolation);
-    if (guardRound >= MAX_GUARD_ROUNDS) {
+    if (guardFails >= MAX_GUARD_ROUNDS) {
       await lease.save({ ...base, status: 'failed', error: `El cambio incumple las reglas del motor de código: ${list.slice(0, 5).join(' · ')}${list.length > 5 ? ` (y ${list.length - 5} más)` : ''}` }, [
         progressEntry('develop', 'done', `${changes.length} archivo(s)`),
-        progressEntry('guards', 'failed', `${list.length} infracción(es) tras ${guardRound + 1} ronda(s): no se sube al CI`),
+        progressEntry('guards', 'failed', `${list.length} infracción(es) tras ${guardFails + 1} ronda(s): no se sube al CI`),
       ]);
       return;
     }
+    guardFails++;
     problems = ['El cambio incumple estas reglas del motor de código. Corrígelo; si la petición no se puede hacer sin romperlas, deshaz esos cambios y explícalo en finish:', ...list];
     await lease.save(base, [progressEntry('develop', 'done', `${changes.length} archivo(s)`), progressEntry('guards', 'failed', `${list.length} infracción(es): se pide al agente que las corrija`)]);
   }
   await startCi(deps, lease, run, tree, ws);
+}
+
+/** Tipos del estado actual (base + cambio + lockfile generado, si lo hay); null si no hay comprobación configurada. */
+async function runTypecheck(ws: VirtualWorkspace, signal: AbortSignal): Promise<TypecheckResult | null> {
+  const typecheck = engineOptions().typecheck;
+  if (!typecheck) return null;
+  const pkg = ws.read('package.json');
+  const lock = ws.read('package-lock.json');
+  if (!pkg || !lock) return null;
+  return typecheck(ws.tree(), pkg, lock, signal);
 }
 
 /**

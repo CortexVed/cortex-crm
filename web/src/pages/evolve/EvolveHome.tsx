@@ -6,7 +6,7 @@ import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { relativeTime } from '../../lib/format';
 import type { EvolutionRequestSummary } from '../../lib/types';
-import { Alert, Badge, Button, Card, cx, EmptyState, ErrorState, Skeleton, Textarea } from '../../components/ui';
+import { Alert, Badge, Button, Card, cx, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useToast } from '../../components/toast';
 import { EXAMPLES, RiskBadge, RUNNING, StatusBadge } from './shared';
 
@@ -76,12 +76,18 @@ export default function EvolveHome() {
   const toast = useToast();
   const { can } = useSession();
   const [prompt, setPrompt] = useState('');
+  // Texto pedido desde la paleta de comandos: al montar y, si ya estaba abierta la página, con el evento.
   useEffect(() => {
-    const pre = sessionStorage.getItem('evolve-prefill');
-    if (pre) {
-      setPrompt(pre);
-      sessionStorage.removeItem('evolve-prefill');
-    }
+    const consume = () => {
+      const pre = sessionStorage.getItem('evolve-prefill');
+      if (pre) {
+        setPrompt(pre);
+        sessionStorage.removeItem('evolve-prefill');
+      }
+    };
+    consume();
+    window.addEventListener('evolve:prefill', consume);
+    return () => window.removeEventListener('evolve:prefill', consume);
   }, []);
   const status = useQuery({ queryKey: ['ai-status'], queryFn: () => get<{ configured: boolean }>('/ai/status') });
   const list = useQuery({
@@ -107,21 +113,29 @@ export default function EvolveHome() {
           <h1 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">¿Cómo quieres que evolucione tu CRM?</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-400">Descríbelo con tus palabras. La IA lo interpreta, analiza tu configuración, planifica los cambios, los desarrolla y prueba en un entorno aislado y te los presenta. Nada llega a producción sin tu aprobación, y todo se puede revertir.</p>
           {status.data && !status.data.configured && (
-            <Alert tone="warning" className="mt-4 bg-amber-500/10 text-amber-100 ring-amber-500/30">
+            <Alert tone="warning" onDark className="mt-4">
               No hay ningún proveedor de IA configurado. {can('admin') ? <Link to="/settings/ai" className="font-semibold underline">Configurar ahora</Link> : 'Pide a un administrador que configure uno.'}
               {can('admin') && <> También puedes hacer cambios sin IA desde <Link to="/settings/customization" className="font-semibold underline">Personalización</Link>.</>}
             </Alert>
           )}
           {can('builder') ? (
-            <form className="mt-5" onSubmit={(e) => { e.preventDefault(); if (prompt.trim().length >= 8) submit.mutate(); }}>
+            <form className="mt-5" onSubmit={(e) => { e.preventDefault(); if (prompt.trim().length >= 8 && !submit.isPending) submit.mutate(); }}>
               <div className="rounded-2xl bg-white/[0.06] p-2 ring-1 ring-white/15 focus-within:ring-fuchsia-400/60">
-                <Textarea
+                {/* Textarea propio (no el de ui.tsx): sus clases base (fondo blanco, anillo) no se pueden anular con className. */}
+                <textarea
                   rows={3}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && prompt.trim().length >= 8) submit.mutate(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      // Las mismas condiciones que el botón: sin doble envío ni saltarse un botón desactivado.
+                      if (prompt.trim().length >= 8 && !submit.isPending && status.data?.configured !== false) submit.mutate();
+                    }
+                  }}
+                  aria-label="Describe el cambio"
                   placeholder="Ej.: Quiero un módulo para gestionar contratos con fechas de vencimiento, documentos adjuntos y avisos automáticos 30 días antes…"
-                  className="border-0 bg-transparent text-white shadow-none ring-0 placeholder:text-zinc-500 focus:ring-0 dark:bg-transparent"
+                  className="block min-h-20 w-full resize-y rounded-lg bg-transparent px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
                 />
                 <div className="flex items-center justify-between gap-2 px-1 pb-1">
                   <span className="text-[11px] text-zinc-500">⌘/Ctrl + Enter para enviar</span>

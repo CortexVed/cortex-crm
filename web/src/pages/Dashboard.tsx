@@ -127,9 +127,12 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dashboards.length > 1 && (
-            <Select value={dashboard?.key} onChange={(e) => setParams({ panel: e.target.value })} className="w-48">
-              {dashboards.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-            </Select>
+            // El ancho va en un envoltorio: la clase base w-full del Select no se puede anular con className.
+            <div className="w-48">
+              <Select aria-label="Panel" value={dashboard?.key} onChange={(e) => setParams({ panel: e.target.value })}>
+                {dashboards.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+              </Select>
+            </div>
           )}
           {can('admin') && dashboard && (
             <>

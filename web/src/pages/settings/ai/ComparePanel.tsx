@@ -112,7 +112,7 @@ export function ComparePanel({ providers, onGoToProviders }: { providers: Provid
                     <div className="min-w-0 flex-1">
                       <ModelPicker provider={prov} value={t.model || null} invalid={!t.model} onChange={(m) => setTarget(i, { ...t, model: m ?? '' })} ariaLabel={`Modelo ${String.fromCharCode(65 + i)}`} />
                     </div>
-                    <IconButton label="Quitar modelo" disabled={targets.length <= MIN_TARGETS} onClick={() => setTargets(targets.filter((_, j) => j !== i))} className="self-end hover:text-red-600 disabled:opacity-30 sm:self-auto">
+                    <IconButton label="Quitar modelo" disabled={targets.length <= MIN_TARGETS} onClick={() => setTargets(targets.filter((_, j) => j !== i))} danger className="self-end sm:self-auto">
                       <Trash2 className="size-4" />
                     </IconButton>
                   </li>

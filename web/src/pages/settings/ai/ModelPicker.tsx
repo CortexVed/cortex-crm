@@ -227,7 +227,8 @@ export function ModelPicker({
           <div
             ref={panelRef}
             style={{ position: 'fixed', left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight }}
-            className="z-[55] flex flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800"
+            // Crece desde el botón: hacia abajo si se abre debajo y hacia arriba si se abre encima.
+            className={cx('z-[55] flex flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800', pos.bottom !== undefined ? 'origin-bottom' : 'origin-top')}
           >
             <div className="flex items-center gap-2 border-b border-zinc-100 px-3 dark:border-zinc-800">
               <Search className="size-4 shrink-0 text-zinc-400" />

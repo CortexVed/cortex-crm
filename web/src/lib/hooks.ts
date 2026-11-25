@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from './api';
 import type { Blueprint, Member } from './types';
@@ -24,6 +24,19 @@ export function useDebounced<T>(value: T, ms = 250): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return v;
+}
+
+/** Si se cumple una media query; se actualiza al cambiar (girar la pantalla, redimensionar la ventana…). */
+export function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    },
+    [query],
+  );
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false);
 }
 
 const isTyping = (e: KeyboardEvent) => {
@@ -94,10 +107,19 @@ function readExplicitTheme(): Theme | null {
 export function useTheme(orgDefault?: Theme): [Theme, (t: Theme) => void] {
   const [explicit, setExplicit] = useState<Theme | null>(readExplicitTheme);
   const theme: Theme = explicit ?? orgDefault ?? 'system';
-  useEffect(() => {
+  // useLayoutEffect: antes de pintar (con useEffect se veía un fotograma con el tema anterior).
+  useLayoutEffect(() => {
     const apply = () => {
+      const root = document.documentElement;
       const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      document.documentElement.classList.toggle('dark', dark);
+      if (root.classList.contains('dark') !== dark) {
+        // Sin transiciones durante el cambio: si no, lo que tiene transition se funde y el resto salta.
+        root.classList.add('theme-switching');
+        root.classList.toggle('dark', dark);
+        requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')));
+      }
+      // Los controles nativos (fecha, select, barras de scroll) siguen el tema de la aplicación, no el del sistema.
+      root.style.colorScheme = dark ? 'dark' : 'light';
     };
     apply();
     const mq = window.matchMedia('(prefers-color-scheme: dark)');

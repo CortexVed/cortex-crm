@@ -30,6 +30,13 @@ export interface AgentResult extends AgentSummary {
 const READ_LINES = 250;
 const MAX_LIST = 300;
 const MAX_MATCHES = 80;
+/** read_files: archivos por llamada, líneas por archivo y tamaño total de la respuesta. */
+const MULTI_FILES = 10;
+const MULTI_LINES = 400;
+const MULTI_CHARS = 90_000;
+const MAX_OUTLINE = 300;
+/** check_code por ronda (cada uno puede compilar el proyecto entero). */
+export const MAX_CHECKS_PER_ROUND = 10;
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 
@@ -39,6 +46,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
     name: 'read_file',
     description: `Lee un archivo de texto con números de línea. Sin rango, las primeras ${READ_LINES} líneas; usa start_line y end_line para leer otros tramos.`,
     inputSchema: obj({ path: { type: 'string' }, start_line: { type: 'integer', minimum: 1 }, end_line: { type: 'integer', minimum: 1 } }, ['path']),
+  },
+  {
+    name: 'read_files',
+    description: `Lee varios archivos de una vez (hasta ${MULTI_FILES}), con números de línea: las primeras ${MULTI_LINES} líneas de cada uno. Úsalo para explorar en menos pasos.`,
+    inputSchema: obj({ paths: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: MULTI_FILES } }, ['paths']),
+  },
+  {
+    name: 'outline_file',
+    description: 'Estructura de un archivo sin leerlo entero: funciones, clases, tipos, constantes exportadas, rutas HTTP, pruebas y títulos, con su número de línea.',
+    inputSchema: obj({ path: { type: 'string' } }, ['path']),
+  },
+  {
+    name: 'check_code',
+    description: `Comprueba el estado actual del cambio: las reglas del motor y los tipos (tsc, las dos configuraciones del proyecto) en segundos, sin ejecutar nada. Devuelve los errores con archivo y línea. Úsalo antes de finish y corrige hasta que no haya errores (como mucho ${MAX_CHECKS_PER_ROUND} veces por ronda).`,
+    inputSchema: obj({}),
   },
   {
     name: 'search_code',
@@ -60,6 +82,31 @@ export const AGENT_TOOLS: ToolSpec[] = [
 ];
 
 const ReadInput = z.object({ path: z.string(), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional() });
+const ReadManyInput = z.object({ paths: z.array(z.string()).min(1).max(MULTI_FILES) });
+const OutlineInput = z.object({ path: z.string() });
+
+/** Líneas que dan la estructura de un archivo (declaraciones, rutas, pruebas y títulos de Markdown). */
+const OUTLINE_PATTERNS = [
+  /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\*?\s+[\w$]+/,
+  /^\s*export\s+(?:const|let|var)\s+[\w$]+/,
+  /^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+[\w$]+/,
+  /^\s*(?:export\s+)?(?:declare\s+)?(?:interface|type|enum)\s+[\w$]+/,
+  /^\s*(?:app|r|router|fastify)\s*\.\s*(?:get|post|put|patch|delete|route)\s*\(\s*['"`]/,
+  /^\s*(?:describe|it|test)\s*\(\s*['"`]/,
+  /^#{1,4}\s/,
+  /^\s*(?:const|let)\s+[\w$]+\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::[^=]+)?=>/,
+];
+
+export function outline(text: string, max = MAX_OUTLINE): string[] {
+  const out: string[] = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length && out.length < max; i++) {
+    const line = lines[i];
+    if (line.length > 2000) continue;
+    if (OUTLINE_PATTERNS.some((re) => re.test(line))) out.push(`${String(i + 1).padStart(5)}: ${line.trim().slice(0, 180)}`);
+  }
+  return out;
+}
 const ListInput = z.object({ prefix: z.string().max(240).optional() });
 const SearchInput = z.object({ pattern: z.string().min(1).max(200), path_prefix: z.string().max(240).optional(), case_insensitive: z.boolean().optional() });
 const WriteInput = z.object({ path: z.string(), content: z.string() });
@@ -99,10 +146,13 @@ export async function runCodeAgent(
     round: number;
     workspace: VirtualWorkspace;
     signal?: AbortSignal;
+    /** Comprobación rápida del estado actual (reglas + tipos); la proporciona el pipeline. */
+    check?: () => Promise<string>;
   },
 ): Promise<AgentResult> {
   const ws = input.workspace;
   const calls = { reads: 0, writes: 0, edits: 0, deletes: 0, errors: 0 };
+  let checks = 0;
   // (aserción para que TypeScript no fije el tipo a null: se asigna dentro de la herramienta finish)
   let finished = null as AgentSummary | null;
 
@@ -125,6 +175,51 @@ export async function runCodeAgent(
           const end = Math.min(end_line ?? start + READ_LINES - 1, start + 600);
           const body = numbered(text, start, end).slice(0, 28_000);
           return { content: `${path} (líneas ${start}-${Math.min(end, total)} de ${total})\n${body}${end < total ? `\n… quedan ${total - end} líneas (usa start_line=${end + 1})` : ''}` };
+        }
+        case 'read_files': {
+          const { paths } = ReadManyInput.parse(call.input ?? {});
+          const parts: string[] = [];
+          let size = 0;
+          for (const path of [...new Set(paths)]) {
+            calls.reads++;
+            let text: string | null;
+            try {
+              text = ws.read(path);
+            } catch (e) {
+              parts.push(`=== ${path}\nError: ${(e as Error).message}`);
+              continue;
+            }
+            if (text === null) {
+              parts.push(`=== ${path}\n(no existe)`);
+              continue;
+            }
+            const total = text.split('\n').length;
+            const end = Math.min(total, MULTI_LINES);
+            const body = numbered(text, 1, end);
+            const block = `=== ${path} (líneas 1-${end} de ${total})\n${body}${end < total ? `\n… quedan ${total - end} líneas (read_file con start_line=${end + 1})` : ''}`;
+            if (size + block.length > MULTI_CHARS) {
+              parts.push(`=== ${path}\n(no cabe en esta respuesta: léelo con read_file)`);
+              continue;
+            }
+            size += block.length;
+            parts.push(block);
+          }
+          return { content: parts.join('\n\n') };
+        }
+        case 'outline_file': {
+          const { path } = OutlineInput.parse(call.input ?? {});
+          calls.reads++;
+          const text = ws.read(path);
+          if (text === null) return { content: `${path} no existe`, isError: true };
+          const items = outline(text);
+          const total = text.split('\n').length;
+          return { content: items.length ? `${path} (${total} líneas)\n${items.join('\n')}${items.length >= MAX_OUTLINE ? '\n… (hay más: lee por tramos con read_file)' : ''}` : `${path} (${total} líneas): sin declaraciones reconocibles; léelo con read_file.` };
+        }
+        case 'check_code': {
+          if (!input.check) return { content: 'La comprobación rápida no está disponible en este momento: el CI comprobará el cambio.' };
+          if (checks >= MAX_CHECKS_PER_ROUND) return { content: `Ya has usado las ${MAX_CHECKS_PER_ROUND} comprobaciones de esta ronda: revisa los últimos errores y termina con finish.`, isError: true };
+          checks++;
+          return { content: await input.check() };
         }
         case 'search_code': {
           const { pattern, path_prefix, case_insensitive } = SearchInput.parse(call.input ?? {});

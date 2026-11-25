@@ -183,6 +183,41 @@ describe('EVOLVE AI ENGINE: correcciones', () => {
     expect(r.progress.map((p: any) => p.step)).not.toContain('develop');
   });
 
+  it('al fallar o cancelar una petición, ningún paso se queda «en curso»', async () => {
+    const lastOf = (progress: any[]) => {
+      const m = new Map<string, any>();
+      for (const p of progress) m.set(p.step, p);
+      return m;
+    };
+    const stillRunning = (progress: any[]) => [...lastOf(progress).values()].filter((p) => p.status === 'running');
+
+    // Falla el proveedor mientras planifica: el paso «plan» se cierra como fallido.
+    env.setMock(() => {
+      throw new Error('Proveedor caído');
+    });
+    const failed = await owner.req('POST', '/api/evolve/requests', { prompt: 'Añade un campo de referencia a las empresas' });
+    await env.drain();
+    const f = (await owner.req('GET', `/api/evolve/requests/${failed.body.id}`)).body;
+    expect(f.status).toBe('failed');
+    expect(lastOf(f.progress).get('plan')).toMatchObject({ status: 'failed', detail: 'Interrumpido por un error' });
+    expect(stillRunning(f.progress)).toEqual([]);
+
+    // Se cancela con un paso trabajando: queda cerrado como cancelado y el trabajo pendiente no añade pasos nuevos.
+    const created = await owner.req('POST', '/api/evolve/requests', { prompt: 'Añade un campo de referencia a los contactos' });
+    const now = new Date().toISOString();
+    await env.db.query(`UPDATE evolution_requests SET status = 'planning', progress = $2::jsonb WHERE id = $1`, [
+      created.body.id,
+      JSON.stringify([{ step: 'interpret', status: 'done', at: now }, { step: 'plan', status: 'running', at: now }]),
+    ]);
+    expect((await owner.req('POST', `/api/evolve/requests/${created.body.id}/cancel`)).status).toBe(200);
+    await env.drain();
+    const c = (await owner.req('GET', `/api/evolve/requests/${created.body.id}`)).body;
+    expect(c.status).toBe('cancelled');
+    expect(lastOf(c.progress).get('plan')).toMatchObject({ status: 'skipped', detail: 'Cancelado' });
+    expect(stillRunning(c.progress)).toEqual([]);
+    expect(c.progress).toHaveLength(3);
+  });
+
   it('lo que necesita la plataforma queda registrado: nada se publica en repositorios externos', async () => {
     env.setMock(() => ({ text: JSON.stringify({ title: 'Integración ERP', summary: 'Requiere un conector nuevo', operations: [], tests: [], questions: [], requiresPlatformChange: true, platformRequest: 'Conector OAuth con el ERP' }) }));
     const req = await owner.req('POST', '/api/evolve/requests', { prompt: 'Conecta el CRM con nuestro ERP propietario' });

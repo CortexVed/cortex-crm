@@ -11,6 +11,12 @@ export function supportsEffort(model: string): boolean {
   );
 }
 
+/** xhigh y max: familia 5 (Opus, Sonnet, Haiku), Fable y Mythos; en el resto se rebajan a high. */
+export function anthropicEffort(model: string, effort: string): string {
+  if (effort !== 'xhigh' && effort !== 'max') return effort;
+  return /^claude-(fable|mythos)-/.test(model) || /^claude-(opus|sonnet|haiku)-5/.test(model) ? effort : 'high';
+}
+
 /** Modelos con fallback de rechazos en el servidor (server-side refusal fallback). */
 export function supportsServerFallback(model: string): boolean {
   return /^claude-(opus-5(-5)?|fable-5-[12]|sonnet-5-5)$/.test(model);
@@ -74,7 +80,7 @@ export const anthropicAdapter: ProviderAdapter = {
     if (req.tools?.length) {
       params.tools = req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema, eager_input_streaming: true }));
     }
-    if (req.effort && supportsEffort(req.model)) params.output_config = { effort: req.effort };
+    if (req.effort && supportsEffort(req.model)) params.output_config = { effort: anthropicEffort(req.model, req.effort) };
     if (supportsServerFallback(req.model)) {
       params.betas = ['server-side-fallback-2026-07-01'];
       params.fallbacks = 'default';

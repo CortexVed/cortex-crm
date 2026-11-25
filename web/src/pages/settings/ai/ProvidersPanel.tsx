@@ -193,7 +193,7 @@ function ProviderCard({ p }: { p: ProviderState }) {
               <Button size="sm" onClick={() => setEditingKey(true)}>
                 Reemplazar
               </Button>
-              <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-500/10" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmRevoke(true)}>
+              <Button size="sm" variant="dangerGhost" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmRevoke(true)}>
                 Revocar
               </Button>
             </>

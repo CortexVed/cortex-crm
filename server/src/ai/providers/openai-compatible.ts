@@ -73,7 +73,7 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
         body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
         body.tool_choice = 'auto';
       }
-      if (def.id === 'openai' && req.effort && /^(o\d|gpt-5)/i.test(req.model)) body.reasoning_effort = req.effort;
+      if (def.id === 'openai' && req.effort && /^(o\d|gpt-5)/i.test(req.model)) body.reasoning_effort = req.effort === 'xhigh' || req.effort === 'max' ? 'high' : req.effort;
       if (def.id === 'openrouter') body.usage = { include: true };
 
       let res: Response;

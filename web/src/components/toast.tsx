@@ -23,12 +23,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={push}>
       {children}
       {createPortal(
-        <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+        // Abajo en el centro del espacio libre. Con el panel de EVOLVE AI abierto (que publica --ai-offset-right y
+        // --ai-offset-bottom), los avisos se apartan: antes tapaban su campo de pregunta y se quedaban sus clics.
+        <div
+          className="pointer-events-none fixed left-0 z-[60] mx-auto flex flex-col gap-2"
+          style={{
+            right: 'var(--ai-offset-right, 0px)',
+            bottom: 'calc(1rem + var(--ai-offset-bottom, 0px))',
+            width: 'min(380px, calc(100vw - var(--ai-offset-right, 0px) - 2rem))',
+          }}
+          aria-live="polite"
+        >
           {toasts.map((t) => (
-            <div key={t.id} className={cx('pointer-events-auto flex items-start gap-2.5 rounded-xl bg-white px-3.5 py-3 text-sm shadow-lg ring-1 animate-pop dark:bg-zinc-900', t.tone === 'error' ? 'ring-red-200 dark:ring-red-500/30' : 'ring-zinc-200 dark:ring-zinc-800')}>
+            <div key={t.id} className={cx('pointer-events-auto flex items-start gap-2.5 rounded-xl bg-white px-3.5 py-3 text-sm shadow-lg ring-1 origin-bottom animate-pop dark:bg-zinc-900', t.tone === 'error' ? 'ring-red-200 dark:ring-red-500/30' : 'ring-zinc-200 dark:ring-zinc-800')}>
               {t.tone === 'success' ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" /> : t.tone === 'error' ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-500" /> : <Info className="mt-0.5 size-4 shrink-0 text-sky-500" />}
               <span className="flex-1">{t.message}</span>
-              <button aria-label="Cerrar" className="text-zinc-400 hover:text-zinc-700" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
+              <button aria-label="Cerrar" className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
                 <X className="size-4" />
               </button>
             </div>

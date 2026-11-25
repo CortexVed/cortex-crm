@@ -105,15 +105,26 @@ async function developScripts(
   return pending.length;
 }
 
+/**
+ * Entradas que cierran los pasos que siguen «en curso» (su última entrada es `running`). Al fallar o cancelar una
+ * petición se añaden al progreso para que ningún paso se quede trabajando para siempre.
+ */
+export function closeOpenSteps(progress: unknown, status: 'failed' | 'skipped', detail: string, at: string): ProgressEntry[] {
+  const last = new Map<string, string>();
+  for (const p of Array.isArray(progress) ? progress : []) if (p && typeof p.step === 'string') last.set(p.step, String(p.status));
+  return [...last].filter(([, s]) => s === 'running').map(([step]) => ({ step: step as StepKey, status, detail, at }));
+}
+
 async function progress(deps: AppDeps, ws: string, id: string, entry: Omit<ProgressEntry, 'at'>, status?: string) {
   const e: ProgressEntry = { ...entry, at: deps.now().toISOString() };
-  // El estado solo avanza mientras la petición sigue activa: una petición cancelada nunca se "revive".
+  // El estado solo avanza mientras la petición sigue activa: una petición cancelada nunca se "revive" (ni recibe
+  // pasos nuevos después de que la cancelación cerrara los abiertos).
   const r = await deps.db.tenant(ws, (q) =>
     q.query<{ status: string }>(
       `UPDATE evolution_requests SET progress = progress || $1::jsonb,
          status = CASE WHEN status IN ('queued','planning','testing') THEN COALESCE($2, status) ELSE status END,
          updated_at = now()
-       WHERE id = $3 AND workspace_id = $4 RETURNING status`,
+       WHERE id = $3 AND workspace_id = $4 AND status <> 'cancelled' RETURNING status`,
       [JSON.stringify([e]), status ?? null, id, ws],
     ),
   );
@@ -425,9 +436,15 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
   } catch (e) {
     if (e instanceof PipelineStopped) return;
     const msg = e instanceof ProviderError ? e.message : `Error interno del motor: ${(e as Error).message}`;
-    await deps.db.tenant(ws, (q) =>
-      q.query(`UPDATE evolution_requests SET status = 'failed', error = $1, llm = $2, updated_at = now() WHERE id = $3 AND workspace_id = $4 AND status IN ('queued','planning','testing')`, [msg.slice(0, 2000), JSON.stringify(llmLog), requestId, ws]),
-    );
+    await deps.db.tenant(ws, async (q) => {
+      const cur = (await q.query<{ progress: unknown }>(`SELECT progress FROM evolution_requests WHERE id = $1 AND workspace_id = $2 FOR UPDATE`, [requestId, ws])).rows[0];
+      // El paso que estaba trabajando se marca como fallido (antes se quedaba «en curso» para siempre).
+      const closing = closeOpenSteps(cur?.progress, 'failed', 'Interrumpido por un error', deps.now().toISOString());
+      await q.query(
+        `UPDATE evolution_requests SET status = 'failed', error = $1, llm = $2, progress = progress || $5::jsonb, updated_at = now() WHERE id = $3 AND workspace_id = $4 AND status IN ('queued','planning','testing')`,
+        [msg.slice(0, 2000), JSON.stringify(llmLog), requestId, ws, JSON.stringify(closing)],
+      );
+    });
     if (!(e instanceof ProviderError)) throw e;
   }
 }

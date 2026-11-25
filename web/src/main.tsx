@@ -10,6 +10,7 @@ import { ToastProvider } from './components/toast';
 import { PageLoader } from './components/ui';
 import { AppLayout } from './components/Layout';
 import { AuthLayout } from './pages/auth/AuthLayout';
+import { applyAppearance, cachedAppearance } from './lib/theme';
 
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
@@ -36,6 +37,13 @@ window.addEventListener('unhandledrejection', (e) => {
   if (e.reason instanceof ApiError) return;
   reportClientError(String(e.reason?.message ?? e.reason), e.reason?.stack);
 });
+
+// Antes del primer pintado, la última apariencia de este navegador (tokens, nunca el CSS personalizado): así el
+// cargador y la primera pantalla no salen con la paleta por defecto para cambiar de color al llegar la sesión.
+// Las pantallas de acceso y los formularios públicos mantienen el aspecto de Cortex CRM.
+if (!/^\/(login|register|forgot-password|reset-password|verify-email|invite|f)(\/|$)/.test(window.location.pathname)) {
+  applyAppearance(cachedAppearance(undefined, true));
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

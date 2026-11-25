@@ -207,13 +207,13 @@ function TaskRouteRow({
                       <ModelPicker provider={prov} value={e.model || null} invalid={!e.model} onChange={(m) => set(i, { ...e, model: m ?? '' })} ariaLabel={`Modelo de la entrada ${i + 1}`} />
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5 self-end sm:self-auto">
-                      <IconButton label="Subir prioridad" disabled={i === 0} onClick={() => move(i, -1)} className="disabled:opacity-30">
+                      <IconButton label="Subir prioridad" disabled={i === 0} onClick={() => move(i, -1)}>
                         <ArrowUp className="size-4" />
                       </IconButton>
-                      <IconButton label="Bajar prioridad" disabled={i === entries.length - 1} onClick={() => move(i, 1)} className="disabled:opacity-30">
+                      <IconButton label="Bajar prioridad" disabled={i === entries.length - 1} onClick={() => move(i, 1)}>
                         <ArrowDown className="size-4" />
                       </IconButton>
-                      <IconButton label="Quitar de la ruta" onClick={() => onChange(entries.filter((_, j) => j !== i))} className="hover:text-red-600">
+                      <IconButton label="Quitar de la ruta" onClick={() => onChange(entries.filter((_, j) => j !== i))} danger>
                         <Trash2 className="size-4" />
                       </IconButton>
                     </div>
@@ -464,7 +464,7 @@ function PricingCard({ data, providers }: { data: AiSettingsResponse; providers:
                       <Input aria-label="Precio de salida" inputMode="decimal" value={r.output} invalid={parsePrice(r.output) === null} onChange={(e) => update(i, { output: e.target.value })} className="h-8 tabular-nums" />
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <IconButton label="Quitar precio" onClick={() => setDraft(rows.filter((_, j) => j !== i))} className="hover:text-red-600">
+                      <IconButton label="Quitar precio" onClick={() => setDraft(rows.filter((_, j) => j !== i))} danger>
                         <Trash2 className="size-4" />
                       </IconButton>
                     </td>

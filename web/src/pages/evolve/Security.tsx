@@ -374,7 +374,7 @@ function ScoreGauge({ score }: { score: number }) {
     <div className="relative size-36 shrink-0" role="img" aria-label={`Puntuación de seguridad: ${s} de 100 (${tone.label})`}>
       <svg viewBox="0 0 120 120" className="size-full -rotate-90" aria-hidden>
         <circle cx="60" cy="60" r={R} fill="none" strokeWidth="10" className="stroke-zinc-100 dark:stroke-zinc-800" />
-        {s > 0 && <circle cx="60" cy="60" r={R} fill="none" strokeWidth="10" strokeLinecap="round" stroke={tone.stroke} strokeDasharray={`${(s / 100) * C} ${C}`} className="transition-all duration-700" />}
+        {s > 0 && <circle cx="60" cy="60" r={R} fill="none" strokeWidth="10" strokeLinecap="round" stroke={tone.stroke} strokeDasharray={`${(s / 100) * C} ${C}`} className="transition-[stroke-dasharray] duration-700" />}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={cx('text-4xl font-semibold tracking-tight tabular-nums', tone.text)}>{s}</span>

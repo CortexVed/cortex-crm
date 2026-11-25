@@ -48,6 +48,34 @@ export async function assistantRoutes(app: FastifyInstance, deps: AppDeps) {
     return { ok: true };
   });
 
+  // Estado de una acción propuesta (aplicada o descartada). Solo es memoria de la interfaz: aplicar la acción va
+  // siempre por las rutas normales con sus permisos. Sirve para que el historial no vuelva a ofrecer «Confirmar»
+  // (y duplicar un registro) en una propuesta ya resuelta. Una acción resuelta no cambia de estado.
+  app.post('/assistant/messages/:id/actions/:index', async (req) => {
+    const a = requireWorkspace(req);
+    requireUserSession(req); // datos personales: nunca accesibles con una API key
+    const { id, index } = z.object({ id: z.string().uuid(), index: z.coerce.number().int().min(0).max(99) }).parse(req.params);
+    const body = z.object({ state: z.enum(['done', 'dismissed']), ref: z.string().uuid().optional() }).parse(req.body);
+    return deps.db.tenant(a.workspaceId, async (q) => {
+      const m = (
+        await q.query(
+          `SELECT m.context FROM ai_messages m JOIN ai_conversations c ON c.id = m.conversation_id
+           WHERE m.id = $1 AND m.workspace_id = $2 AND c.user_id = $3 AND m.role = 'assistant' FOR UPDATE OF m`,
+          [id, a.workspaceId, a.userId],
+        )
+      ).rows[0];
+      if (!m) throw notFound('Mensaje no encontrado');
+      const context = m.context && typeof m.context === 'object' ? m.context : {};
+      const actions: Record<string, unknown>[] = Array.isArray(context.actions) ? context.actions : [];
+      const action = actions[index];
+      if (!action || typeof action !== 'object') throw notFound('Acción no encontrada');
+      if (action.state === 'done' || action.state === 'dismissed') return { state: action.state, ref: action.ref ?? null };
+      actions[index] = { ...action, state: body.state, ...(body.state === 'done' && body.ref ? { ref: body.ref } : {}) };
+      await q.query(`UPDATE ai_messages SET context = $2 WHERE id = $1`, [id, JSON.stringify({ ...context, actions })]);
+      return { state: body.state, ref: body.state === 'done' ? (body.ref ?? null) : null };
+    });
+  });
+
   app.post('/assistant/chat', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
     const a = requireWorkspace(req);
     requireUserSession(req);

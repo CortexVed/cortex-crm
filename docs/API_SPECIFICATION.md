@@ -235,6 +235,7 @@ ProviderState = {
 | GET | `/conversations/:id` | viewer | S | | `{id, title, messages: [{id, role, content, context, tool_calls, provider, model, created_at}]}` |
 | DELETE | `/conversations/:id` | viewer | S | | → `{ok}` |
 | POST | `/chat` | viewer | S | 20 | Ver abajo |
+| POST | `/messages/:id/actions/:index` | viewer | S | | `{state: 'done' \| 'dismissed', ref?: uuid}` → `{state, ref}`. Guarda que una propuesta del asistente ya se aplicó (con el registro o la petición resultante en `ref`) o se descartó, para que el historial no vuelva a ofrecer «Confirmar». Solo el autor de la conversación (`404` para cualquier otra persona); una acción resuelta no cambia de estado. No aplica nada: aplicar va siempre por las rutas normales con sus permisos |
 
 ```ts
 // POST /api/assistant/chat
@@ -250,7 +251,7 @@ ProviderState = {
 }
 ```
 
-`payload` de `record_change`: `{action: create|update, module, moduleLabel, id?, values}` (la interfaz lo confirma con `POST/PATCH /api/records/...`); de `evolution`: `{prompt}` (se confirma con `POST /api/evolve/requests`); de `memory`: `{scope, kind, content}` (se confirma con `POST /api/ai/memory`). Errores típicos: `409 ai_not_configured`, `429 ai_limit_exceeded`, `502 ai_unavailable`.
+`payload` de `record_change`: `{action: create|update, module, moduleLabel, id?, values}` (la interfaz lo confirma con `POST/PATCH /api/records/...` y después lo marca con `POST /messages/:id/actions/:index`; al recargar la conversación, cada acción trae `state` y `ref` si ya se resolvió); de `evolution`: `{prompt}` (se confirma con `POST /api/evolve/requests`); de `memory`: `{scope, kind, content}` (se confirma con `POST /api/ai/memory`). Errores típicos: `409 ai_not_configured`, `429 ai_limit_exceeded`, `502 ai_unavailable`.
 
 ## 10. EVOLVE AI ENGINE (`/api/evolve`)
 
@@ -264,7 +265,7 @@ ProviderState = {
 | POST | `/requests/:id/refine` | builder | S | 10 | `{feedback (3–3000)}` → `{ok}`; vuelve a planificar |
 | POST | `/requests/:id/approve` | admin (`owner` si riesgo alto) | S | | `{comment?, confirmation?}`; riesgo alto (todo script nuevo o modificado) exige `confirmation: "APLICAR"` → `{ok}`. `409` si las pruebas del sandbox fallaron |
 | POST | `/requests/:id/reject` | admin | S | | `{comment?}` → `{ok}` |
-| POST | `/requests/:id/cancel` | builder (autor o admin) | S/K | | → `{ok}` |
+| POST | `/requests/:id/cancel` | builder (autor o admin) | S/K | | → `{ok}`. Los pasos que seguían «en curso» quedan cerrados en `progress` (`skipped`, «Cancelado»); al fallar el pipeline se cierran como `failed` («Interrumpido por un error») |
 | POST | `/requests/:id/deploy` | admin (`owner` si riesgo alto) | S | | Publica → `{releaseId, version, tests, verification: {ok, checks: [{name, passed, message?}]}}`. `409` si el blueprint cambió desde que se probó (la petición pasa a `failed`) o si la aprobación tiene más de 7 días (vuelve a `ready_for_review`) |
 | GET | `/releases` | viewer | S/K | | `{currentVersion, items: [{id, kind, status, from_version, to_version, title, summary, artifacts, tests, validation, verification, data_changes_count, created_at, rolled_back_at, request_id, approved_by_name, applied_by_name, rolled_back_by_name}]}` |
 | POST | `/releases/:id/rollback` | admin (`owner` si el cambio era de riesgo alto) | S | | `{confirmation: "REVERTIR", reason?}` → `{version, revertedRecords, skippedRecords}` (solo la última versión) |

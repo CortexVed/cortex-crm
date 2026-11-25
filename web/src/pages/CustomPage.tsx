@@ -8,8 +8,8 @@ import { useSession } from '../lib/session';
 import { ModuleIcon } from '../lib/icons';
 import type { Blueprint, Module, Page, PageBlock, RecordList, WidgetData } from '../lib/types';
 import type { BlockWidth } from '../../../shared/appearance';
-import { Alert, Button, Card, cx, EmptyState, ErrorState, PageHeader, PageLoader, Skeleton } from '../components/ui';
-import { FieldInput } from '../components/fields';
+import { Alert, Button, Card, cx, EmptyState, ErrorState, Field, PageHeader, PageLoader, Skeleton } from '../components/ui';
+import { COMPOSITE_FIELD_TYPES, FieldInput } from '../components/fields';
 import { Markdown } from '../components/Markdown';
 import { RecordTable, type TableSort } from '../components/RecordTable';
 import { WidgetBody } from '../components/WidgetBody';
@@ -121,14 +121,9 @@ function FormBlock({ formKey, blueprint }: { formKey: string; blueprint: Bluepri
           }}
         >
           {fields.map((f) => (
-            <label key={f.key} className="block">
-              <span className="mb-1.5 block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-                {f.label}
-                {f.required && <span className="ml-0.5 text-red-500">*</span>}
-              </span>
+            <Field key={f.key} as={COMPOSITE_FIELD_TYPES.has(f.type) ? 'div' : 'label'} label={f.label} required={f.required} error={errors[f.key]}>
               <FieldInput field={f} value={values[f.key]} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} invalid={!!errors[f.key]} />
-              {errors[f.key] && <span className="mt-1 block text-xs text-red-600 dark:text-red-400">{errors[f.key]}</span>}
-            </label>
+            </Field>
           ))}
           <div className="flex justify-end">
             <Button type="submit" variant="primary" loading={submit.isPending}>
