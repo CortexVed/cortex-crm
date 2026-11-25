@@ -1,6 +1,6 @@
 # Cortex CRM
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/TK1L4n)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/aNOp9e)
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
@@ -121,7 +121,7 @@ El rol del proceso se elige con `PROCESS_ROLE` (`web`, `worker` o `all`; en prod
 
 ## Despliegue en Railway
 
-**Con la plantilla (recomendado, [despliegue en un clic](https://railway.com/new/template/TK1L4n)):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público) y `Worker`, genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
+**Con la plantilla (recomendado, [despliegue en un clic](https://railway.com/new/template/aNOp9e)):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público), `Worker` y `CI` (solo para el motor de código fuente), sin pedir ningún valor; genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
 
 1. Abre el dominio público de `Cortex` y regístrate (se crea tu organización).
 2. En *Ajustes › Mi cuenta*, pega el `PLATFORM_ADMIN_SETUP_TOKEN` (Railway › `Cortex` › *Variables*) para administrar la plataforma.
