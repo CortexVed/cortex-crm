@@ -332,7 +332,7 @@ Cambios del código fuente de la instalación (afectan a todas las organizacione
 | PUT | `/platform/code/settings` | 10 | `{token}`: token de **proyecto** de Railway. Se valida contra el proyecto y el entorno en los que corre la instalación y se guarda cifrado → estado |
 | DELETE | `/platform/code/settings/token` | 10 | Borra el token |
 | POST | `/platform/code/settings/check` | 6 | Pide al worker que vuelva a publicar su configuración de Railway |
-| POST | `/platform/code/requests` | 6 | `{prompt}` → `{id}`. Usa la IA de la organización activa (hay que ser su administrador); `409` si esa organización permite menos de 150 peticiones de IA por hora, si falta configuración o si ya hay un cambio en curso |
+| POST | `/platform/code/requests` | 6 | `{prompt}` → `{id}`. Usa la IA de la organización activa (hay que ser su administrador); `409` si esa organización permite menos de 300 peticiones de IA por hora, si falta configuración o si ya hay un cambio en curso |
 | GET | `/platform/code/requests` | | `{items, running: {version}}`: historial de cambios y versión en ejecución |
 | GET | `/platform/code/requests/:id` | | Detalle: archivos (antes y después), CI (intentos, errores, final del log), revisión, avisos, progreso, despliegue y `policy` |
 | POST | `/platform/code/requests/:id/refine` | 10 | `{feedback}`: vuelve a desarrollar con indicaciones |

@@ -10,6 +10,29 @@ export function maskUrl(url: string): string {
   }
 }
 
+/**
+ * Módulos a los que hace referencia cualquier objeto de configuración, recorriéndolo entero: propiedades
+ * `module` (texto), `modules` (lista), `form` (el módulo del formulario) y destinos `{type: module|new_record, key}`.
+ * Sirve para los tipos de bloque o de acción que la plataforma añada en el futuro (p. ej. con el motor de código):
+ * aunque este archivo no los conozca, nunca se muestran a un rol que no puede leer los módulos que usan.
+ */
+export function referencedModules(bp: Blueprint, value: unknown, depth = 0): string[] {
+  if (depth > 8 || value === null || typeof value !== 'object') return [];
+  if (Array.isArray(value)) return value.flatMap((v) => referencedModules(bp, v, depth + 1));
+  const out: string[] = [];
+  const o = value as Record<string, unknown>;
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'module' && typeof v === 'string') out.push(v);
+    else if (k === 'modules' && Array.isArray(v)) out.push(...v.filter((x): x is string => typeof x === 'string'));
+    else if (k === 'form' && typeof v === 'string') {
+      const form = bp.forms.find((f) => f.key === v);
+      if (form) out.push(form.module);
+    } else if (v && typeof v === 'object') out.push(...referencedModules(bp, v, depth + 1));
+  }
+  if ((o.type === 'module' || o.type === 'new_record') && typeof o.key === 'string') out.push(o.key);
+  return [...new Set(out)];
+}
+
 /** Módulos de los que un bloque de página muestra datos (o a los que lleva). */
 export function blockModules(bp: Blueprint, b: PageBlock): string[] {
   switch (b.type) {
@@ -23,8 +46,13 @@ export function blockModules(bp: Blueprint, b: PageBlock): string[] {
     }
     case 'buttons':
       return b.items.flatMap((it) => (it.to.type === 'module' || it.to.type === 'new_record' ? [it.to.key] : []));
-    default:
+    case 'heading':
+    case 'text':
+    case 'divider':
       return [];
+    default:
+      // Tipo de bloque que esta versión no conoce: todo lo que referencie.
+      return referencedModules(bp, b);
   }
 }
 
@@ -50,8 +78,13 @@ function pagesForRole(bp: Blueprint, role: Role, readable: Set<string>, forms: S
           const items = b.items.filter((it) => (it.to.type === 'page' ? pageKeys.has(it.to.key) : it.to.type === 'dashboard' ? dashboardKeys.has(it.to.key) : readable.has(it.to.key)));
           return items.length ? [{ ...b, items }] : [];
         }
-        default:
+        case 'heading':
+        case 'text':
+        case 'divider':
           return [b];
+        default:
+          // Tipo de bloque nuevo (p. ej. añadido con el motor de código): solo si el rol puede leer todo lo que usa.
+          return blockModules(bp, b).every((m) => readable.has(m)) ? [b] : [];
       }
     }),
   }));
@@ -89,7 +122,8 @@ export function blueprintForRole(bp: Blueprint, role: Role): Blueprint {
   // undefined si la organización no tiene menú propio (JSON lo omite y el cliente muestra el de siempre).
   const navigation = navigationForRole(bp.navigation, readable, pages, new Set(dashboards.map((d) => d.key)));
   if (!hasRole(role, 'builder')) return { ...bp, modules, dashboards, forms, pages, navigation, automations: [], integrations: [], scripts: [] };
-  const automations = bp.automations.filter((a) => readable.has(a.trigger.module) && a.actions.every((x) => x.type !== 'create_record' || readable.has(x.module)));
+  // Acciones: también las de tipos que esta versión no conoce, por los módulos que referencian.
+  const automations = bp.automations.filter((a) => readable.has(a.trigger.module) && a.actions.every((x) => referencedModules(bp, x).every((m) => readable.has(m))));
   const visibleScripts = new Set(automations.flatMap((a) => a.actions.flatMap((x) => (x.type === 'run_script' ? [x.script] : []))));
   const usedAnywhere = new Set(bp.automations.flatMap((a) => a.actions.flatMap((x) => (x.type === 'run_script' ? [x.script] : []))));
   return {

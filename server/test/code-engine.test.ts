@@ -7,6 +7,7 @@ import { Client, setup, type MockHandler } from './helpers';
 import { loadConfig, type AppConfig } from '../src/config';
 import { analyzeCiLogs, TREE_HASH_EXCLUDE } from '../src/code-engine/ci';
 import { checkChanges } from '../src/code-engine/guards';
+import { LockfileError, verifyLockfile } from '../src/code-engine/lockfile';
 import { configureCodeEngine, resetCodeEngine } from '../src/code-engine/options';
 import { normalizePath, PathError, protectedReason } from '../src/code-engine/paths';
 import { RailwayClient, RailwayError } from '../src/code-engine/railway';
@@ -164,19 +165,61 @@ describe('reglas deterministas (guards)', () => {
     expect(rules([{ path: 'server/src/index.ts', action: 'delete', before: text(tree, 'server/src/index.ts'), after: null }], tree)).toContain('kernel');
   });
 
-  it('package.json: solo version y description; dependencias y scripts protegidos', () => {
+  it('package.json: dependencias nuevas permitidas (solo del registro de npm); scripts y el resto protegidos', () => {
     const pkg = JSON.parse(text(tree, 'package.json'));
     const asText = (o: unknown) => `${JSON.stringify(o, null, 2)}\n`;
-    expect(rules([modify(tree, 'package.json', asText({ ...pkg, dependencies: { ...pkg.dependencies, 'left-pad': '1.3.0' } }))], tree)).toContain('dependencies');
-    expect(rules([modify(tree, 'package.json', asText({ ...pkg, devDependencies: { ...pkg.devDependencies, vitest: '0.0.1' } }))], tree)).toContain('dependencies');
+    // Añadir, actualizar o quitar dependencias: permitido, con aviso para quien aprueba
+    const added = checkChanges(tree, [modify(tree, 'package.json', asText({ ...pkg, dependencies: { ...pkg.dependencies, 'left-pad': '1.3.0', '@scope/lib': '^2.1.0' } }))]);
+    expect(added.violations).toEqual([]);
+    expect(added.dependencies.map((d) => `${d.name}@${d.to}`)).toEqual(['@scope/lib@^2.1.0', 'left-pad@1.3.0']);
+    expect(added.flags.find((f) => f.key === 'dependencies')?.message).toMatch(/añade left-pad@1\.3\.0/);
+    expect(rules([modify(tree, 'package.json', asText({ ...pkg, devDependencies: { ...pkg.devDependencies, vitest: '~5.1.2' } }))], tree)).toEqual([]);
+    // Nada que no venga del registro de npm, ni nombres raros
+    for (const version of ['git+https://github.com/x/y.git', 'https://evil.example/x.tgz', 'file:../x', 'link:../x', 'npm:left-pad@1.3.0', 'github:x/y', 'latest', '*', '>=1.0.0']) {
+      expect(rules([modify(tree, 'package.json', asText({ ...pkg, dependencies: { ...pkg.dependencies, 'left-pad': version } }))], tree), version).toContain('dependencies');
+    }
+    expect(rules([modify(tree, 'package.json', asText({ ...pkg, dependencies: { ...pkg.dependencies, '../../x': '1.0.0' } }))], tree)).toContain('dependencies');
+    // Los scripts (los ejecuta el CI) y el resto siguen protegidos
     expect(rules([modify(tree, 'package.json', asText({ ...pkg, scripts: { ...pkg.scripts, typecheck: 'echo ok' } }))], tree)).toContain('dependencies');
+    expect(rules([modify(tree, 'package.json', asText({ ...pkg, overrides: { 'left-pad': '1.3.0' } }))], tree)).toContain('dependencies');
     expect(rules([modify(tree, 'package.json', asText({ ...pkg, version: '0.2.0' }))], tree)).toEqual([]);
   });
 
-  it('limita el tamaño del cambio', () => {
-    expect(rules([add('docs/grande.md', 'x'.repeat(600 * 1024))], tree)).toContain('limits');
-    const many = Array.from({ length: 301 }, (_, i) => add(`docs/n${i}.md`, 'x'));
-    expect(rules(many, tree)).toContain('limits');
+  it('package-lock.json: el agente no lo escribe; el que genera el motor se verifica contra package.json y el registro', () => {
+    const pkg = JSON.parse(text(tree, 'package.json'));
+    const pkgText = `${JSON.stringify({ ...pkg, dependencies: { ...pkg.dependencies, 'left-pad': '1.3.0' } }, null, 2)}\n`;
+    const lock = (deps: Record<string, string>, entry: Record<string, unknown>) =>
+      `${JSON.stringify({ name: 'cortex-crm', lockfileVersion: 3, requires: true, packages: { '': { name: 'cortex-crm', dependencies: deps, devDependencies: pkg.devDependencies }, 'node_modules/left-pad': entry } }, null, 2)}\n`;
+    const good = { version: '1.3.0', resolved: 'https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz', integrity: 'sha512-AAAA' };
+    const newDeps = { ...pkg.dependencies, 'left-pad': '1.3.0' };
+    // El agente no puede escribirlo; solo el motor (setGenerated) y solo ese archivo
+    const ws = new VirtualWorkspace(tree);
+    expect(() => ws.write('package-lock.json', '{}')).toThrow(/genera el motor/);
+    expect(() => ws.setGenerated('server/src/crm/notes.ts', 'x')).toThrow(PathError);
+    // Generado y fiel a package.json: válido
+    expect(rules([modify(tree, 'package.json', pkgText), modify(tree, 'package-lock.json', lock(newDeps, good))], tree)).toEqual([]);
+    // Sin cambio de dependencias: protegido
+    expect(rules([modify(tree, 'package-lock.json', lock(newDeps, good))], tree)).toContain('protected');
+    // Paquete servido desde otra URL, sin hash o con una raíz que no coincide: rechazado
+    for (const bad of [lock(newDeps, { ...good, resolved: 'https://evil.example/left-pad.tgz' }), lock(newDeps, { ...good, integrity: undefined }), lock(newDeps, { ...good, link: true }), lock(pkg.dependencies, good)]) {
+      expect(rules([modify(tree, 'package.json', pkgText), modify(tree, 'package-lock.json', bad)], tree)).toContain('dependencies');
+    }
+    // El package-lock.json real del repositorio pasa la verificación con su package.json
+    expect(verifyLockfile(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'), fs.readFileSync(path.join(REPO, 'package-lock.json'), 'utf8'))).toEqual([]);
+  });
+
+  it('JavaScript permitido en la web con las mismas reglas que TypeScript; en server/src el código es TypeScript', () => {
+    expect(rules([add('web/public/widget.js', 'export const x = 1;\n')], tree)).toEqual([]);
+    expect(rules([add('web/public/mal.js', 'export const f = (s) => eval(s);\n')], tree)).toContain('eval');
+    expect(rules([add('web/src/icon.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n')], tree)).toEqual([]);
+    expect(rules([add('server/src/crm/x.js', 'export const x = 1;\n')], tree)).toContain('path');
+  });
+
+  it('limita el tamaño del cambio (límites de abuso, no de alcance)', () => {
+    expect(rules([add('docs/grande.md', 'x'.repeat(900 * 1024))], tree)).toEqual([]);
+    expect(rules([add('docs/enorme.md', 'x'.repeat(1100 * 1024))], tree)).toContain('limits');
+    expect(rules(Array.from({ length: 400 }, (_, i) => add(`docs/n${i}.md`, 'x')), tree)).toEqual([]);
+    expect(rules(Array.from({ length: 1001 }, (_, i) => add(`docs/n${i}.md`, 'x')), tree)).toContain('limits');
   });
 });
 
@@ -654,6 +697,45 @@ describe('pipeline, despliegue con canario y rutas', () => {
     expect(script.firstMessages[1]).toContain('[PROBLEMAS DEL INTENTO ANTERIOR');
     expect(script.firstMessages[1]).toContain("server/src/crm/hello.ts:2:3 TS2322");
     expect(c.files.find((f: any) => f.path === 'server/src/crm/hello.ts').after).toContain('Hola de nuevo');
+    await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
+  });
+
+  it('dependencias nuevas: el motor genera package-lock.json con npm, lo verifica y lo sube al CI; si npm falla, el agente recibe el error', async () => {
+    const calls: { pkg: string; baseLock: string }[] = [];
+    configureCodeEngine({
+      resolveLockfile: async (pkg, baseLock) => {
+        calls.push({ pkg, baseLock });
+        const p = JSON.parse(pkg);
+        if (p.dependencies['left-pad-typo']) throw new LockfileError('npm no ha podido resolver las dependencias:\nnpm error 404 Not Found - GET https://registry.npmjs.org/left-pad-typo');
+        return `${JSON.stringify({ name: 'cortex-crm', lockfileVersion: 3, requires: true, packages: { '': { name: 'cortex-crm', dependencies: p.dependencies, devDependencies: p.devDependencies }, 'node_modules/left-pad': { version: '1.3.0', resolved: 'https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz', integrity: 'sha512-BBBB' } } }, null, 2)}\n`;
+      },
+    });
+    const typo: ScriptStep[] = [
+      { toolCalls: [{ name: 'edit_file', input: { path: 'package.json', old_string: '"dependencies": {', new_string: '"dependencies": {\n    "left-pad-typo": "1.3.0",' } }] },
+      { toolCalls: [{ name: 'finish', input: { title: 'Relleno de textos', summary: 'Añade una librería.' } }] },
+    ];
+    const fixName: ScriptStep[] = [
+      { toolCalls: [{ name: 'edit_file', input: { path: 'package.json', old_string: '"left-pad-typo": "1.3.0"', new_string: '"left-pad": "1.3.0"' } }] },
+      { toolCalls: [{ name: 'finish', input: { title: 'Relleno de textos', summary: 'Corrige el nombre del paquete.' } }] },
+    ];
+    const before = rw.uploads.filter((u) => u.serviceId === CI).length;
+    const { id, script } = await createAndPlan('Añade la librería left-pad para rellenar textos', aiScript([typo, fixName]));
+    const c = await detail(id);
+    expect(c.status, c.error).toBe('ready_for_review');
+    // npm no encontró el primer paquete: el agente recibe el error y lo corrige en la ronda siguiente
+    expect(script.firstMessages).toHaveLength(2);
+    expect(script.firstMessages[1]).toContain('npm no ha podido resolver');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].baseLock).toBe(text(tree, 'package-lock.json'));
+    // El lockfile generado va en el cambio, con aviso para quien aprueba, y sube al CI
+    expect(c.files.map((f: any) => [f.path, f.action])).toEqual([['package-lock.json', 'modify'], ['package.json', 'modify']]);
+    expect(c.flags.map((f: any) => f.key)).toContain('dependencies');
+    const up = rw.uploads.filter((u) => u.serviceId === CI).slice(before);
+    expect(up).toHaveLength(1);
+    expect(up[0].files.get('package-lock.json')!.toString()).toContain('left-pad-1.3.0.tgz');
+    // Al desplegar se vuelven a aplicar las reglas al parche guardado: el lockfile generado las cumple
+    const recheck = checkChanges(tree, c.files.map((f: any) => ({ path: f.path, action: f.action, before: f.before, after: f.after })));
+    expect(recheck.violations).toEqual([]);
     await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
   });
 

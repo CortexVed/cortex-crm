@@ -1,11 +1,17 @@
+import { GENERATED_PATHS } from './lockfile';
 import { normalizePath, PathError, writeBlockedReason } from './paths';
 import { isBinary, type SourceTree } from './source';
 
-/** Límites de un cambio (los vuelve a comprobar guards.ts sobre el resultado final). */
+/**
+ * Límites de un cambio (los vuelve a comprobar guards.ts sobre el resultado final). Son límites de abuso, no de
+ * alcance: un cambio puede ser una funcionalidad completa (servidor, interfaz, pruebas y documentación).
+ */
 export const LIMITS = {
-  maxFiles: 300,
-  maxPatchBytes: 3 * 1024 * 1024,
-  maxFileBytes: 500 * 1024,
+  maxFiles: 1000,
+  maxPatchBytes: 12 * 1024 * 1024,
+  maxFileBytes: 1024 * 1024,
+  /** package-lock.json (lo genera el motor) puede ser mayor que un archivo normal. */
+  maxGeneratedBytes: 8 * 1024 * 1024,
 } as const;
 
 export interface FileChange {
@@ -106,6 +112,26 @@ export class VirtualWorkspace {
     if (this.base.files.has(p)) this.overlay.set(p, null);
     else this.overlay.delete(p);
     this.revision++;
+  }
+
+  /**
+   * Archivo que calcula el propio motor, nunca el agente: hoy solo package-lock.json, generado con npm a partir del
+   * package.json del cambio (ver lockfile.ts). Se salta las rutas protegidas a propósito; guards.ts lo verifica.
+   */
+  setGenerated(path: string, content: string): void {
+    const p = normalizePath(path);
+    if (!GENERATED_PATHS.has(p)) throw new PathError(`${p} no lo genera el motor`);
+    if (Buffer.byteLength(content, 'utf8') > LIMITS.maxGeneratedBytes) throw new PathError(`${p} supera ${LIMITS.maxGeneratedBytes / 1024 / 1024} MB`);
+    if (this.baseText(p) === content) this.overlay.delete(p);
+    else this.overlay.set(p, content);
+    this.revision++;
+  }
+
+  /** Vuelve a la versión base de los archivos generados (se recalculan después de cada ronda del agente). */
+  dropGenerated(): void {
+    for (const p of GENERATED_PATHS) {
+      if (this.overlay.delete(p)) this.revision++;
+    }
   }
 
   private checkLimits() {

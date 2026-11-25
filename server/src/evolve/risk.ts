@@ -90,6 +90,13 @@ export interface RiskAssessment {
 const RANK: Record<RiskLevel, number> = { low: 1, medium: 2, high: 3 };
 
 /**
+ * Acciones y bloques que este motor de riesgo sabe clasificar. La plataforma puede crecer (el motor de código
+ * fuente puede añadir tipos nuevos, pero no puede tocar este archivo): lo que no esté aquí nunca es riesgo bajo.
+ */
+const KNOWN_ACTIONS: ReadonlySet<string> = new Set(['update_field', 'create_record', 'send_webhook', 'notify', 'run_script']);
+const KNOWN_BLOCKS: ReadonlySet<string> = new Set(['heading', 'text', 'widget', 'records', 'form', 'buttons', 'divider']);
+
+/**
  * Clasificación de riesgo DETERMINISTA (no depende de lo que diga la IA). Determina el rol
  * necesario para aprobar: riesgo alto => solo propietarios y confirmación explícita.
  */
@@ -180,11 +187,16 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
         add('low', `Se elimina la vista "${op.view}"`, i);
         break;
       case 'upsert_automation': {
-        const kinds = new Set(op.automation.actions.map((a) => a.type));
+        const kinds = new Set<string>(op.automation.actions.map((a) => a.type));
+        // Acciones que esta versión del motor de riesgo no conoce (p. ej. añadidas con el motor de código fuente):
+        // no se puede saber qué hacen con los datos, así que nunca cuentan como riesgo bajo.
+        const unknownKinds = [...kinds].filter((k) => !KNOWN_ACTIONS.has(k));
         // Versión normalizada (con valores por defecto) de la automatización en el blueprint resultante.
         const auto = after.automations.find((x) => x.key === op.automation.key) ?? op.automation;
         const flows = restrictedFlows(after, auto);
-        if (kinds.has('send_webhook')) {
+        if (unknownKinds.length) {
+          add('high', `La automatización "${op.automation.name}" usa una acción nueva de la plataforma (${unknownKinds.join(', ')}): revisa qué hace con los datos`, i);
+        } else if (kinds.has('send_webhook')) {
           dataEgress = true;
           add('high', `La automatización "${op.automation.name}" envía datos a un servicio externo`, i);
         } else if (kinds.has('run_script')) {
@@ -249,10 +261,13 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
       case 'update_navigation':
         add('low', op.navigation ? `Menú de navegación (${op.navigation.groups.length} grupo(s))` : 'Vuelve el menú de navegación por defecto', i);
         break;
-      case 'upsert_page':
+      case 'upsert_page': {
         // Cada rol solo ve las páginas de su rol mínimo y los bloques de los módulos que puede leer.
-        add('low', `Página «${op.page.label}»`, i);
+        const unknownBlocks = [...new Set<string>(op.page.blocks.map((b) => b.type))].filter((t) => !KNOWN_BLOCKS.has(t));
+        if (unknownBlocks.length) add('medium', `Página «${op.page.label}» con un tipo de bloque nuevo de la plataforma (${unknownBlocks.join(', ')})`, i);
+        else add('low', `Página «${op.page.label}»`, i);
         break;
+      }
       case 'remove_page':
         add('low', `Se elimina la página "${op.page}"`, i);
         break;
@@ -260,6 +275,11 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
         if (!op.onlyEmpty) destructive = true;
         add(op.onlyEmpty ? 'medium' : 'high', op.onlyEmpty ? `Migración de datos: rellenar "${op.module}.${op.field}" donde esté vacío` : `Migración de datos: SOBRESCRIBIR "${op.module}.${op.field}"`, i);
         break;
+      default: {
+        // Operación que esta versión no conoce (p. ej. añadida con el motor de código fuente): riesgo alto.
+        const kind = String((op as { op?: unknown }).op ?? 'desconocida');
+        add('high', `Operación nueva de la plataforma (${kind}): revisa qué cambia`, i);
+      }
     }
   });
 
@@ -301,10 +321,11 @@ export function assessTransition(current: Blueprint, target: Blueprint): RiskAss
   for (const a of target.automations) {
     if (!a.enabled) continue;
     const cur = current.automations.find((x) => x.key === a.key);
-    const risky = a.actions.some((x) => x.type === 'send_webhook' || x.type === 'run_script');
+    // Los tipos de acción que este archivo no conoce cuentan como arriesgados (no se sabe qué hacen).
+    const risky = a.actions.some((x) => x.type === 'send_webhook' || x.type === 'run_script' || !KNOWN_ACTIONS.has(x.type));
     if (risky && (!cur || !cur.enabled || JSON.stringify(cur.actions) !== JSON.stringify(a.actions))) {
       if (a.actions.some((x) => x.type === 'send_webhook')) dataEgress = true;
-      high(`Se reactiva la automatización "${a.name}" (envía datos fuera o ejecuta código)`);
+      high(`Se reactiva la automatización "${a.name}" (envía datos fuera, ejecuta código o usa una acción nueva de la plataforma)`);
     }
   }
   const level: RiskLevel = items.length ? 'high' : 'low';

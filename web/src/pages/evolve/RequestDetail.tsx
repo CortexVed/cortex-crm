@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, Database, Eye, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, CircleDashed, Code2, Database, Eye, FileCode2, FileJson, Loader2, MessageSquare, MinusCircle, Pencil, Plus, Rocket, ShieldCheck, Sparkles, Trash2, Users, XCircle } from 'lucide-react';
+import { STATUS as CODE_STATUS, type PlatformRequest } from '../platform/codeTypes';
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { useBlueprint } from '../../lib/hooks';
@@ -13,6 +14,55 @@ import { AppearancePreview, PageStructurePreview, previewBlueprint, VISUAL_OPS }
 import { Segmented } from '../settings/ai/shared';
 import { useToast } from '../../components/toast';
 import { RiskBadge, RUNNING, StatusBadge } from './shared';
+
+/**
+ * Parte de la petición que la configuración de EVOLVE no puede construir. Quien administra la plataforma puede
+ * programarla en el momento con el motor de código fuente (el texto de la organización viaja como dato, y el
+ * cambio pasa por el CI, la revisión y la confirmación DESPLEGAR); el resto ve que queda registrada.
+ */
+function PlatformChange({ requestId, text }: { requestId: string; text?: string }) {
+  const { me } = useSession();
+  const navigate = useNavigate();
+  const isPlatformAdmin = !!me?.user.isPlatformAdmin;
+  const inbox = useQuery({ queryKey: ['platform-code', 'inbox'], queryFn: () => get<PlatformRequest[]>('/platform/requests'), enabled: isPlatformAdmin });
+  const create = useMutation({
+    mutationFn: () => post<{ id: string }>(`/platform/requests/${requestId}/source-change`, {}),
+    onSuccess: (res) => navigate(`/platform/code?change=${res.id}`),
+  });
+  const description = text?.trim() || 'Esta parte no se puede resolver solo con la configuración de tu organización.';
+  if (!isPlatformAdmin) {
+    return (
+      <Alert tone="info" title="Necesita programar la plataforma">
+        {description} Queda registrada para la administración de la plataforma, que puede programarlo con el motor de código fuente; el resto del cambio (si lo hay) sigue el proceso normal.
+      </Alert>
+    );
+  }
+  const linked = inbox.data?.find((p) => p.id === requestId);
+  const status = linked?.source_change_status ? (CODE_STATUS[linked.source_change_status] ?? { label: linked.source_change_status, color: 'slate' }) : null;
+  return (
+    <Card
+      title={<span className="flex items-center gap-2"><Code2 className="size-4 text-brand-500" /> Necesita programar la plataforma</span>}
+      description="La configuración de EVOLVE no llega a esto, pero el motor de código fuente puede programarlo en esta instalación: lo desarrolla la IA, se prueba en el CI aislado y solo se despliega si lo apruebas escribiendo DESPLEGAR."
+    >
+      <p className="whitespace-pre-wrap text-sm">{description}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {linked?.source_change_id ? (
+          <>
+            {status && <Badge color={status.color} dot>{status.label}</Badge>}
+            <Link to={`/platform/code?change=${linked.source_change_id}`} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
+              Ver el cambio de código
+            </Link>
+          </>
+        ) : (
+          <Button variant="ai" icon={<Code2 className="size-4" />} loading={create.isPending} disabled={inbox.isLoading} onClick={() => create.mutate()}>
+            Programarlo con el motor de código
+          </Button>
+        )}
+      </div>
+      {create.isError && <Alert tone="danger" className="mt-3">{errorMessage(create.error)}</Alert>}
+    </Card>
+  );
+}
 
 /** Código de los scripts del cambio: se ejecuta solo en el sandbox de esta organización. */
 function ScriptsCode({ operations }: { operations: any[] }) {
@@ -342,11 +392,7 @@ export default function RequestDetail() {
             </Card>
           )}
 
-          {cs?.requiresPlatformChange && (
-            <Alert tone="info" title="Necesita una funcionalidad nueva de la plataforma">
-              {cs.platformRequest ?? 'Esta parte no se puede resolver solo para tu organización.'} Queda registrada para el equipo de Cortex CRM; el resto del cambio (si lo hay) sigue el proceso normal.
-            </Alert>
-          )}
+          {cs?.requiresPlatformChange && <PlatformChange requestId={r.id} text={cs.platformRequest} />}
           {cs?.operations?.length > 0 && <VisualPreview request={r} />}
           {r.impact && cs?.operations?.length > 0 && <Impact impact={r.impact} />}
           <ScriptsCode operations={cs?.operations ?? []} />

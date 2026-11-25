@@ -1,4 +1,5 @@
 import { diffStats } from './diff';
+import { dependencyChanges, dependencyProblems, GENERATED_PATHS, verifyLockfile, type DependencyChange } from './lockfile';
 import { extname, isTestPath, normalizePath, PathError, writeBlockedReason } from './paths';
 import { isBinary, type SourceTree } from './source';
 import { checkMigrationsChange, MIGRATIONS_PATH } from './sql-guard';
@@ -41,6 +42,8 @@ export interface GuardResult {
   flags: Flag[];
   stats: GuardStats;
   migrations: string[];
+  /** Dependencias que añade, cambia o quita package.json (el motor genera entonces package-lock.json). */
+  dependencies: DependencyChange[];
 }
 
 type Scope = 'code' | 'server' | 'test';
@@ -54,7 +57,7 @@ interface PatternRule {
   except?: (path: string) => boolean;
 }
 
-const isCode = (p: string) => ['.ts', '.tsx', '.html'].includes(extname(p));
+const isCode = (p: string) => ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.html'].includes(extname(p));
 
 /**
  * Patrones prohibidos. Se cuentan en la versión base y en la nueva de cada archivo: solo es infracción si el
@@ -184,17 +187,22 @@ function inScope(scope: Scope, path: string): boolean {
   return true;
 }
 
-/** package.json: solo pueden cambiar version y description (dependencias y scripts están protegidos). */
-function checkPackageJson(before: string | null, after: string | null): string | null {
-  if (before === null || after === null) return 'package.json no se puede crear ni borrar';
+/**
+ * package.json: pueden cambiar version, description y las dependencias (`dependencies` y `devDependencies`, solo
+ * con versiones del registro de npm). Los scripts y el resto siguen protegidos: el CI ejecuta esos scripts, y
+ * cambiarlos permitiría saltarse las pruebas.
+ */
+function checkPackageJson(before: string | null, after: string | null): { problems: string[]; deps: DependencyChange[] } {
+  if (before === null || after === null) return { problems: ['package.json no se puede crear ni borrar'], deps: [] };
   let a: Record<string, unknown>;
   let b: Record<string, unknown>;
   try {
     a = JSON.parse(before);
     b = JSON.parse(after);
   } catch {
-    return 'package.json no es JSON válido';
+    return { problems: ['package.json no es JSON válido'], deps: [] };
   }
+  if (!a || typeof a !== 'object' || Array.isArray(a) || !b || typeof b !== 'object' || Array.isArray(b)) return { problems: ['package.json no es válido'], deps: [] };
   const sortDeep = (o: unknown): unknown =>
     Array.isArray(o)
       ? o.map(sortDeep)
@@ -202,13 +210,14 @@ function checkPackageJson(before: string | null, after: string | null): string |
         ? Object.fromEntries(Object.entries(o as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, v]) => [k, sortDeep(v)]))
         : o;
   const canonical = (o: Record<string, unknown>) => {
-    const { version: _v, description: _d, ...rest } = o;
+    const { version: _v, description: _d, dependencies: _deps, devDependencies: _dev, ...rest } = o;
     return JSON.stringify(sortDeep(rest));
   };
-  if (!a || typeof a !== 'object' || !b || typeof b !== 'object' || canonical(a) !== canonical(b)) {
-    return 'package.json: solo se pueden cambiar version y description (dependencias, scripts y el resto están protegidos)';
-  }
-  return null;
+  const problems: string[] = [];
+  if (canonical(a) !== canonical(b)) problems.push('package.json: solo se pueden cambiar version, description, dependencies y devDependencies (scripts y el resto están protegidos)');
+  const deps = dependencyChanges(a, b);
+  problems.push(...dependencyProblems(b, deps));
+  return { problems, deps };
 }
 
 export function formatViolation(v: Violation): string {
@@ -226,6 +235,11 @@ export function checkChanges(base: SourceTree, changes: FileChange[]): GuardResu
 
   if (changes.length > LIMITS.maxFiles) violations.push({ rule: 'limits', message: `El cambio toca ${changes.length} archivos (máximo ${LIMITS.maxFiles})` });
   const seen = new Set<string>();
+  // package.json se analiza antes del bucle: package-lock.json (que va antes por orden alfabético) depende de él.
+  const pkgChange = changes.find((c) => c.path === 'package.json');
+  const pkgBase = base.files.get('package.json')?.toString('utf8') ?? null;
+  const pkgCheck = pkgChange ? checkPackageJson(pkgBase, pkgChange.action === 'delete' ? null : pkgChange.after) : null;
+  const pkgAfter = pkgChange && pkgChange.action !== 'delete' ? pkgChange.after : pkgBase;
 
   for (const c of changes) {
     // Ruta: normalizada, única, en una raíz permitida y fuera del núcleo protegido.
@@ -241,6 +255,20 @@ export function checkChanges(base: SourceTree, changes: FileChange[]): GuardResu
       continue;
     }
     seen.add(path);
+    if (GENERATED_PATHS.has(path)) {
+      // package-lock.json: no lo escribe el agente (su escritura está bloqueada), lo genera el motor con npm cuando
+      // cambian las dependencias. Se verifica igualmente: solo el registro oficial, con hash, y fiel a package.json.
+      const lock = c.action === 'modify' && typeof c.after === 'string' ? c.after : null;
+      if (!lock) violations.push({ rule: 'dependencies', path, message: `${path} solo se puede regenerar (no crear ni borrar)` });
+      else if (!pkgCheck?.deps.length) violations.push({ rule: 'protected', path, message: `Ruta protegida: ${path} solo cambia cuando cambian las dependencias de package.json (lo genera el motor con npm)` });
+      else if (Buffer.byteLength(lock, 'utf8') > LIMITS.maxGeneratedBytes) violations.push({ rule: 'limits', path, message: `${path} supera ${LIMITS.maxGeneratedBytes / 1024 / 1024} MB` });
+      else for (const problem of verifyLockfile(pkgAfter ?? '', lock)) violations.push({ rule: 'dependencies', path, message: problem });
+      if (lock) {
+        stats.bytes += Buffer.byteLength(lock, 'utf8');
+        stats.modified++;
+      }
+      continue;
+    }
     const blocked = writeBlockedReason(path);
     if (blocked) {
       violations.push({ rule: blocked.startsWith('Ruta protegida') ? 'protected' : 'path', path, message: blocked });
@@ -278,8 +306,7 @@ export function checkChanges(base: SourceTree, changes: FileChange[]): GuardResu
 
     // Reglas especiales
     if (path === 'package.json') {
-      const problem = checkPackageJson(before, after);
-      if (problem) violations.push({ rule: 'dependencies', path, message: problem });
+      for (const problem of pkgCheck?.problems ?? []) violations.push({ rule: 'dependencies', path, message: problem });
     }
     if (path === MIGRATIONS_PATH && before !== null && after !== null) {
       const report = checkMigrationsChange(before, after);
@@ -349,6 +376,16 @@ export function checkChanges(base: SourceTree, changes: FileChange[]): GuardResu
   const codeTouched = changes.some((c) => (c.path.startsWith('server/src/') || c.path.startsWith('shared/')) && isCode(c.path));
   if (codeTouched && !changes.some((c) => isTestPath(c.path))) flags.push({ key: 'no_tests', level: 'warning', message: 'Cambia código del servidor sin añadir ni modificar pruebas' });
   if (stats.files > 40 || stats.linesAdded > 3000) flags.push({ key: 'large_change', level: 'warning', message: `Cambio grande (${stats.files} archivos, +${stats.linesAdded} líneas): revísalo con calma` });
+  const dependencies = pkgCheck?.deps ?? [];
+  if (dependencies.length) {
+    const list = dependencies.map((d) => (d.to === null ? `quita ${d.name}` : d.from === null ? `añade ${d.name}@${d.to}` : `${d.name} ${d.from} → ${d.to}`)).join(', ');
+    flags.push({
+      key: 'dependencies',
+      level: 'warning',
+      message: `Dependencias: ${list}. El código de estos paquetes se ejecutará en producción con acceso a los datos: comprueba que son paquetes conocidos y mantenidos (y que el nombre no imita a otro). El motor genera package-lock.json desde el registro oficial de npm.`,
+      paths: ['package.json'],
+    });
+  }
 
-  return { ok: violations.length === 0, violations, flags, stats, migrations };
+  return { ok: violations.length === 0, violations, flags, stats, migrations, dependencies };
 }

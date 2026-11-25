@@ -28,10 +28,13 @@ export const SKIP_FILE = /^(?:\.DS_Store|Thumbs\.db|.*\.log|\.env(?:\..*)?)$/;
 
 /** Raíces en las que el agente puede escribir. */
 export const WRITABLE_ROOTS = ['server/src/', 'server/test/', 'web/', 'shared/', 'docs/'] as const;
-/** Archivos de la raíz que el agente puede escribir (package.json, solo version y description). */
+/** Archivos de la raíz que el agente puede escribir (package.json: version, description y dependencias). */
 export const WRITABLE_ROOT_FILES = new Set(['README.md', 'package.json', '.env.example']);
-/** Tipos de archivo que el agente puede crear o modificar (siempre texto). */
-export const WRITABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.md', '.json', '.html', '.txt']);
+/**
+ * Tipos de archivo que el agente puede crear o modificar (siempre texto). Los de código (.ts, .tsx, .js, .jsx,
+ * .mjs, .cjs, .html) pasan por las mismas reglas de patrones prohibidos.
+ */
+export const WRITABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.md', '.json', '.html', '.txt', '.svg', '.csv', '.xml', '.yml', '.yaml', '.webmanifest']);
 
 export const MAX_PATH_LENGTH = 240;
 
@@ -101,6 +104,7 @@ export const PROTECTED_RULES: readonly { pattern: string; reason: string }[] = [
   { pattern: 'server/src/evolve/routes.ts', reason: 'política de aprobación, roles y rollback de EVOLVE' },
   { pattern: 'shared/appearance.ts', reason: 'saneado del CSS personalizado de las organizaciones' },
   { pattern: 'server/test/appearance.test.ts', reason: 'pruebas de seguridad de la capa visual (CSS y permisos de páginas)' },
+  { pattern: 'server/test/extensibility.test.ts', reason: 'pruebas de seguridad de las capacidades nuevas (riesgo y visibilidad por defecto)' },
   { pattern: 'server/src/code-engine/**', reason: 'el propio motor de código fuente' },
   { pattern: 'web/src/pages/platform/**', reason: 'la pantalla del motor de código fuente' },
   { pattern: 'server/test/tenant-isolation.test.ts', reason: 'pruebas de seguridad (aislamiento entre organizaciones)' },
@@ -115,7 +119,7 @@ export const PROTECTED_RULES: readonly { pattern: string; reason: string }[] = [
   { pattern: 'railway.json', reason: 'configuración de despliegue' },
   { pattern: '.dockerignore', reason: 'contenido de la imagen' },
   { pattern: '.github/**', reason: 'flujos de CI externos' },
-  { pattern: 'package-lock.json', reason: 'dependencias (no se añaden dependencias nuevas)' },
+  { pattern: 'package-lock.json', reason: 'lo genera el motor con npm a partir de package.json (no se edita a mano)' },
   { pattern: 'tsconfig.json', reason: 'comprobación de tipos que ejecuta el CI' },
   { pattern: 'web/tsconfig.json', reason: 'comprobación de tipos que ejecuta el CI' },
   { pattern: 'vitest.config.ts', reason: 'configuración de las pruebas que ejecuta el CI' },
@@ -154,6 +158,9 @@ export function writeBlockedReason(path: string): string | null {
   if (segments.length === 1) {
     return WRITABLE_ROOT_FILES.has(path) ? null : `Solo se puede escribir en ${WRITABLE_ROOTS.join(', ')} y en README.md, package.json o .env.example`;
   }
+  // Los archivos de código no pueden ser JavaScript compilado mezclado con el código fuente del servidor: el build
+  // usa TypeScript; JavaScript se admite en la web (p. ej. web/public) y en documentación.
+  if (path.startsWith('server/src/') && ['.js', '.mjs', '.cjs', '.jsx'].includes(extname(path))) return 'En server/src/ el código es TypeScript (.ts)';
   if (!WRITABLE_ROOTS.some((r) => path.startsWith(r))) return `Solo se puede escribir en ${WRITABLE_ROOTS.join(', ')} y en README.md, package.json o .env.example`;
   if (segments.some((s) => s.startsWith('.'))) return 'No se pueden crear archivos ni carpetas ocultos';
   if (segments.some((s) => SKIP_DIRS.has(s))) return `Carpeta no permitida: ${path}`;

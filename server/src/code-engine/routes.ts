@@ -53,7 +53,7 @@ async function requireConfigured(deps: AppDeps) {
  * Un cambio de código hace muchas llamadas a la IA (hasta `maxAgentSteps` pasos por ronda, varias rondas de
  * auto-corrección y la revisión): con el límite por hora por defecto se quedaría a medias. Se avisa ANTES.
  */
-export const MIN_AI_REQUESTS_PER_HOUR = 150;
+export const MIN_AI_REQUESTS_PER_HOUR = 300;
 
 async function assertAiCapacity(deps: AppDeps, ws: string) {
   const { limits } = await deps.ai.getSettings(ws);

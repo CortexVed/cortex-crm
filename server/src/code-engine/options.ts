@@ -1,3 +1,4 @@
+import { resolveLockfileWithNpm } from './lockfile';
 import { resolveSourceRoot } from './source';
 
 /** Parámetros de funcionamiento del motor de código fuente (plazos, sondeos y ubicación del código). */
@@ -23,8 +24,10 @@ export interface CodeEngineOptions {
   /** Verificación de /api/health tras desplegar (y tras revertir). */
   verifyAttempts: number;
   verifyIntervalMs: number;
-  /** Pasos del bucle del agente por ronda. */
+  /** Pasos del bucle del agente por ronda (una funcionalidad completa necesita leer y escribir bastantes archivos). */
   maxAgentSteps: number;
+  /** Calcula package-lock.json para un package.json con dependencias nuevas (npm; los tests lo sustituyen). */
+  resolveLockfile: (packageJson: string, baseLock: string, signal?: AbortSignal) => Promise<string>;
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -41,7 +44,8 @@ const DEFAULTS: CodeEngineOptions = {
   deployTimeoutMs: 30 * 60_000,
   verifyAttempts: 18,
   verifyIntervalMs: 10_000,
-  maxAgentSteps: 28,
+  maxAgentSteps: 60,
+  resolveLockfile: (packageJson, baseLock, signal) => resolveLockfileWithNpm(packageJson, baseLock, { signal }),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 

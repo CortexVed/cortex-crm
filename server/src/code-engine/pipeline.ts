@@ -5,6 +5,7 @@ import type { Job, JobContext } from '../lib/jobs';
 import { runCodeAgent } from './agent';
 import { analyzeCiLogs, TREE_HASH_EXCLUDE } from './ci';
 import { checkChanges, formatViolation } from './guards';
+import { LockfileError, verifyLockfile } from './lockfile';
 import { engineOptions, sourceRoot } from './options';
 import { PathError } from './paths';
 import { deploymentOutcome, RailwayError } from './railway';
@@ -167,7 +168,9 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
       workspace: ws,
       signal: run.signal,
     }).finally(() => setDraft(null));
-    const changes = ws.changes();
+    // Los archivos que genera el motor (package-lock.json) se recalculan después de cada ronda del agente.
+    ws.dropGenerated();
+    let changes = ws.changes();
     const now = deps.now().toISOString();
     const llm = [...lease.change.llm, { phase: `agent_${agentRuns}`, provider: result.provider, model: result.model, costUsd: result.costUsd, steps: result.steps, at: now }];
     const calls = `${result.calls.writes + result.calls.edits} escritura(s), ${result.calls.deletes} borrado(s), ${result.steps} paso(s)`;
@@ -178,12 +181,24 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
       ]);
       return;
     }
-    const guards = checkChanges(tree, changes);
+    let guards = checkChanges(tree, changes);
+    // Dependencias nuevas o cambiadas: el motor genera package-lock.json con npm y se vuelve a comprobar todo.
+    let lockNote = '';
+    if (guards.ok && guards.dependencies.length) {
+      const lockProblems = await generateLockfile(ws, tree, run.signal);
+      if (lockProblems.length) {
+        guards = { ...guards, ok: false, violations: [...guards.violations, ...lockProblems.map((message) => ({ rule: 'dependencies', path: 'package.json', message }))] };
+      } else {
+        changes = ws.changes();
+        guards = checkChanges(tree, changes);
+        lockNote = ` · package-lock.json generado (${guards.dependencies.length} dependencia(s))`;
+      }
+    }
     const base = { title: result.title, summary: result.summary, llm, patch: { files: changes, testsAdded: result.testsAdded }, stats: guards.stats, flags: guards.flags, guards: { ok: guards.ok, violations: guards.violations, at: now } };
     if (guards.ok) {
       await lease.save({ ...base, problems: [] }, [
         progressEntry('develop', 'done', `${changes.length} archivo(s): +${guards.stats.linesAdded} −${guards.stats.linesRemoved} líneas (${calls})`),
-        progressEntry('guards', 'done', `Sin infracciones · ${guards.flags.length} aviso(s) para quien aprueba`),
+        progressEntry('guards', 'done', `Sin infracciones · ${guards.flags.length} aviso(s) para quien aprueba${lockNote}`),
       ]);
       break;
     }
@@ -201,7 +216,28 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
   await startCi(deps, lease, run, tree, ws);
 }
 
-/** Sube el árbol del cambio al servicio CI (con el railway.json del CI) y deja el cambio en «testing». */
+/**
+ * Genera package-lock.json para el package.json del cambio (npm, sin ejecutar nada de los paquetes) y lo verifica.
+ * Devuelve los problemas para el agente (p. ej. un paquete o una versión que no existen); vacío si se ha generado.
+ */
+async function generateLockfile(ws: VirtualWorkspace, tree: SourceTree, signal: AbortSignal): Promise<string[]> {
+  const pkg = ws.read('package.json');
+  const baseLock = tree.files.get('package-lock.json')?.toString('utf8');
+  if (!pkg || !baseLock) return ['No se puede generar package-lock.json: falta package.json o el package-lock.json del código base'];
+  let lock: string;
+  try {
+    lock = await engineOptions().resolveLockfile(pkg, baseLock, signal);
+  } catch (e) {
+    if (e instanceof LockfileError) return [e.message];
+    throw e;
+  }
+  const problems = verifyLockfile(pkg, lock);
+  if (problems.length) return problems.map((p) => `El package-lock.json que ha generado npm no es válido: ${p}`);
+  ws.setGenerated('package-lock.json', lock);
+  return [];
+}
+
+/** Sube el árbol del cambio al servicio CI (con Dockerfile = Dockerfile.ci) y deja el cambio en «testing». */
 async function startCi(deps: AppDeps, lease: ChangeLease, run: RunContext, tree: SourceTree, ws: VirtualWorkspace) {
   const change = lease.change;
   const { client, targets } = await railwayForJob(deps, lease.signal);
