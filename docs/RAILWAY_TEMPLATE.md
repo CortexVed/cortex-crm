@@ -23,7 +23,7 @@ flowchart LR
 | Servicio | Origen | Red | Configuración |
 |---|---|---|---|
 | `Postgres` | Imagen `ghcr.io/railwayapp-templates/postgres-ssl:18` (la plantilla oficial de Railway) con volumen en `/var/lib/postgresql/data` | Solo red privada (sin TCP proxy) | La de la plantilla oficial: contraseña generada con `${{secret(32, …)}}` |
-| `Cortex` | Repositorio de la plataforma, rama `main` | Dominio público de Railway (`*.up.railway.app`) | `Dockerfile` y health check `/api/health` desde `railway.json` |
+| `Cortex` | Repositorio de la plataforma, rama `main` | Dominio público de Railway (`*.up.railway.app`) | `Dockerfile` (Railway lo detecta en la raíz) y health check `/api/health` en la configuración del servicio (Railway no aplica el `railway.json` del repositorio: `configFile: null`) |
 | `Worker` | El mismo repositorio y rama | Sin dominio público | Igual que `Cortex`, con el comando de arranque `node --enable-source-maps dist/server/index.js --role=worker` |
 | `CI` | El mismo repositorio y rama | Sin dominio público | **Sin variables**. Comando de arranque `node --enable-source-maps dist/server/index.js --role=ci`: un servidor de salud, sin base de datos ni secretos. Solo lo usa el motor de código fuente, que le sube el código a probar (`Dockerfile.ci`) y retira cada prueba al terminar. Railway no admite servicios vacíos en una plantilla («Service CI does not have a source that can be used to generate a template»), por eso nace del repositorio |
 

@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, setup, type MockHandler } from './helpers';
 import { loadConfig, type AppConfig } from '../src/config';
-import { analyzeCiLogs } from '../src/code-engine/ci';
+import { analyzeCiLogs, TREE_HASH_EXCLUDE } from '../src/code-engine/ci';
 import { checkChanges } from '../src/code-engine/guards';
 import { configureCodeEngine, resetCodeEngine } from '../src/code-engine/options';
 import { normalizePath, PathError, protectedReason } from '../src/code-engine/paths';
@@ -578,7 +578,11 @@ describe('pipeline, despliegue con canario y rutas', () => {
     expect(ci).toHaveLength(1);
     expect(rw.uploads.some((u) => u.serviceId !== CI)).toBe(false);
     const files = ci[0].files;
-    expect(JSON.parse(files.get('railway.json')!.toString()).build.dockerfilePath).toBe('Dockerfile.ci');
+    // Railway construye el Dockerfile de la raíz (no aplica el railway.json subido): en el CI, su contenido es el
+    // de Dockerfile.ci; el railway.json es el del código base, que las pruebas del repositorio leen
+    expect(files.get('railway.json')!.equals(tree.files.get('railway.json')!)).toBe(true);
+    expect(files.get('Dockerfile')!.equals(files.get('Dockerfile.ci')!)).toBe(true);
+    expect(files.get('Dockerfile')!.toString()).toContain('npx vitest run');
     expect(files.get('server/src/crm/hello.ts')!.toString()).toContain('Hola');
     expect(JSON.parse(files.get('source-version.json')!.toString())).toMatchObject({ id: c.ci.attempts[0].sourceVersion.id, base: tree.label });
     expect(files.has('.env')).toBe(false);
@@ -601,10 +605,12 @@ describe('pipeline, despliegue con canario y rutas', () => {
     const [workerUp, webUp] = rw.uploads.slice(-2);
     for (const u of [workerUp, webUp]) {
       expect(JSON.parse(u.files.get('railway.json')!.toString()).build.dockerfilePath).toBe('Dockerfile');
+      // Al desplegar, el Dockerfile normal del código base (no el del CI)
+      expect(u.files.get('Dockerfile')!.equals(tree.files.get('Dockerfile')!)).toBe(true);
       expect(u.files.get('server/src/crm/hello.ts')).toBeDefined();
     }
-    // El mismo árbol que pasó el CI (salvo railway.json)
-    const strip = (m: Map<string, Buffer>) => treeHash(new Map([...m].filter(([p]) => p !== 'railway.json')));
+    // El mismo árbol que pasó el CI (salvo railway.json y Dockerfile, protegidos y puestos por el motor)
+    const strip = (m: Map<string, Buffer>) => treeHash(m, TREE_HASH_EXCLUDE);
     expect(strip(workerUp.files)).toBe(strip(rw.uploads.find((u) => u.serviceId === CI)!.files));
     expect(c.deploy.previous).toEqual({ worker: { serviceId: WORKER, deploymentId: 'dep-worker-0' }, web: { serviceId: WEB, deploymentId: 'dep-web-0' } });
     expect(c.deploy.verification.ok).toBe(true);
@@ -667,6 +673,17 @@ describe('pipeline, despliegue con canario y rutas', () => {
     const code = (m: Map<string, Buffer>) => treeHash(new Map([...m].filter(([p]) => p !== 'source-version.json')));
     expect(code(ups[1].files)).toBe(code(ups[0].files));
     await admin.req('POST', `/api/platform/code/requests/${id}/cancel`);
+  });
+
+  it('un CI «superado» cuyo log no muestra las pruebas no se da por bueno (ni se pide al agente que lo arregle)', async () => {
+    rw.plans[CI].push({ statuses: ['BUILDING', 'SUCCESS'], logs: ['[build 7/7] RUN npm run build', 'dist/server/index.js  744.7kb'] });
+    const { id, script } = await createAndPlan('Añade una función que salude por el nombre');
+    const c = await detail(id);
+    expect(c.status).toBe('failed');
+    expect(c.error).toMatch(/sin ejecutar las pruebas/);
+    expect(c.ci.attempts.map((a: any) => a.status)).toEqual(['failed']);
+    expect(c.review?.status).not.toBe('done');
+    expect(script.firstMessages).toHaveLength(1);
   });
 
   it('si el despliegue del CI se sustituye una y otra vez, se para y explica cómo resolverlo', async () => {

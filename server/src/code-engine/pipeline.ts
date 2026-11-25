@@ -3,7 +3,7 @@ import { ProviderError } from '../ai/types';
 import { newId } from '../lib/crypto';
 import type { Job, JobContext } from '../lib/jobs';
 import { runCodeAgent } from './agent';
-import { analyzeCiLogs, CI_RAILWAY_JSON, TREE_HASH_EXCLUDE } from './ci';
+import { analyzeCiLogs, TREE_HASH_EXCLUDE } from './ci';
 import { checkChanges, formatViolation } from './guards';
 import { engineOptions, sourceRoot } from './options';
 import { PathError } from './paths';
@@ -49,6 +49,21 @@ export const mtimeOf = (change: Pick<SourceChange, 'created_at'>) => Math.floor(
 /** Árbol completo de una versión: base + cambios + railway.json (del CI o el normal) + source-version.json. */
 export function buildVersionTree(ws: VirtualWorkspace, version: SourceVersion, railwayJson: string): Map<string, Buffer> {
   return ws.tree({ 'railway.json': railwayJson, 'source-version.json': `${JSON.stringify(version, null, 2)}\n` });
+}
+
+/**
+ * Árbol que se sube al CI: base + cambios + source-version.json, con el contenido de Dockerfile.ci en `Dockerfile`.
+ * En una prueba en vivo, Railway no aplicó el railway.json subido (configFile: null) y construyó el Dockerfile de la
+ * raíz, que detecta siempre: así el CI construye Dockerfile.ci (pruebas incluidas, y sin ejecutar el código generado
+ * en tiempo de ejecución) sin depender de ninguna configuración del servicio. El railway.json es el normal: las
+ * pruebas del propio repositorio lo leen y tienen que ver el mismo que en el código base.
+ */
+export function buildCiTree(ws: VirtualWorkspace, version: SourceVersion): Map<string, Buffer> {
+  const files = ws.tree({ 'source-version.json': `${JSON.stringify(version, null, 2)}\n` });
+  const ci = files.get('Dockerfile.ci');
+  if (!ci) throw new Error('El código base no tiene Dockerfile.ci');
+  files.set('Dockerfile', ci);
+  return files;
 }
 
 interface RunContext {
@@ -192,7 +207,7 @@ async function startCi(deps: AppDeps, lease: ChangeLease, run: RunContext, tree:
   const { client, targets } = await railwayForJob(deps, lease.signal);
   const n = change.ci.attempts.length + 1;
   const sourceVersion: SourceVersion = { id: newId(), base: tree.version?.id ?? tree.label, createdAt: deps.now().toISOString() };
-  const files = buildVersionTree(ws, sourceVersion, CI_RAILWAY_JSON);
+  const files = buildCiTree(ws, sourceVersion);
   const hash = treeHash(files, TREE_HASH_EXCLUDE);
   const archive = createTarGz(files, { mtime: mtimeOf(change) });
   const up = await client.upload(targets.ci, archive, `Cortex CI #${n} · ${change.title ?? 'cambio de código'}`);
@@ -287,6 +302,24 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
     );
     const tree = loadSourceTree(sourceRoot());
     await startCi(deps, lease, run, tree, new VirtualWorkspace(tree, lease.change.patch.files));
+    return;
+  }
+
+  if (outcome === 'success' && !analysis.testSummary.length) {
+    // Defensa adicional: un CI superado tiene que demostrar en su log que se ejecutaron las pruebas (Vitest imprime
+    // «Test Files … passed»). Si no aparece, el servicio no ha construido Dockerfile.ci (o el log no se pudo leer):
+    // no se da por bueno ni se pide al agente que lo arregle, porque no es un fallo del código.
+    const unproven: CiAttempt = { ...attempt, status: 'failed', railwayStatus: status, finishedAt, excerpt: analysis.excerpt, removed, note: 'El log del CI no muestra la ejecución de las pruebas' };
+    await lease.save(
+      {
+        status: 'failed',
+        ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, unproven) },
+        error: logs.length
+          ? 'El CI ha terminado sin ejecutar las pruebas (el log no muestra el resumen de Vitest): el servicio CI no está construyendo Dockerfile.ci. Revisa su configuración en Railway (Settings › Build) y refina el cambio para volver a probarlo.'
+          : 'No se ha podido leer el log del CI para confirmar que se ejecutaron las pruebas. Refina el cambio para volver a probarlo.',
+      },
+      [progressEntry('ci', 'failed', `Intento ${attempt.n}: el log no muestra la ejecución de las pruebas`, deps.now())],
+    );
     return;
   }
 

@@ -4,7 +4,7 @@
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (266 tests en 18 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (267 tests en 18 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
@@ -36,7 +36,7 @@
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (266 tests en 18 archivos)
+server/test/  Tests Vitest (267 tests en 18 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -85,7 +85,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 266 tests en 18 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 267 tests en 18 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 
@@ -101,7 +101,7 @@ npm run typecheck    # TypeScript del servidor y del cliente
 | `assistant-security.test.ts` | 6 | Contexto de pantalla como datos (fuera del prompt de sistema) y herramientas, escrituras solo propuestas, sin proveedor no inventa, SSRF, cifrado con AAD, redacción de secretos |
 | `security-regressions.test.ts` | 18 | Regresiones de la revisión de seguridad: solo el propietario nombra/invita administradores; API keys limitadas al rol actual de su creador y revocadas al salir; enlaces de recuperación acotados; invitaciones y verificación de email según la entrega del correo; administrador de plataforma solo por email verificado en producción; `APP_URL` obligatoria; IP del cliente no falseable; bloqueo de login no esquivable en paralelo; aprobaciones sobre versiones antiguas; permisos de lectura en informes y referencias; fórmulas que filtran datos = riesgo alto; rollback de riesgo alto solo propietario; memoria con confirmación; SSRF ampliado; logs sin tokens |
 | `ai-features.test.ts` | 15 | Funciones de IA sobre los datos y correcciones: preguntas en lenguaje natural (tarea `sql_generation`, ejecución con datos reales, ronda de corrección y `422`, módulos restringidos invisibles para la IA, «Registro restringido» al agrupar por relaciones, sin API key); clasificación (tarea `customer_classification`, solo sugerencias válidas, nada se guarda, un lector no puede); análisis de documentos (tarea `document_analysis`, el archivo viaja como adjunto, formatos no admitidos); planificación con la tarea `automations`; una petición cancelada no se revive; lo que necesita la plataforma queda registrado (`kind: platform`) y las rutas del antiguo motor de código ya no existen (`404`); secreto de firma de webhooks (solo administradores, auditado); API keys sin acceso a datos personales; detección de cuentas bloqueadas; versiones filtradas por permisos |
-| `code-engine.test.ts` | 34 | Motor de código fuente: reglas deterministas (núcleo protegido, patrones prohibidos, anclas, migraciones aditivas, dependencias, rutas, tamaño), espacio de trabajo virtual y tar ustar, formato de las peticiones a Railway, rol `ci`; pipeline con IA y Railway simulados (CI superado, CI fallido → auto-corrección, reglas antes del CI), `DESPLEGAR`, worker antes que web, rollback automático y con `REVERTIR`, solo administración de la plataforma con sesión, token cifrado que nunca se devuelve, bandeja de peticiones de plataforma |
+| `code-engine.test.ts` | 35 | Motor de código fuente: reglas deterministas (núcleo protegido, patrones prohibidos, anclas, migraciones aditivas, dependencias, rutas, tamaño), espacio de trabajo virtual y tar ustar, formato de las peticiones a Railway, rol `ci`; pipeline con IA y Railway simulados (CI superado, CI fallido → auto-corrección, reglas antes del CI), `DESPLEGAR`, worker antes que web, rollback automático y con `REVERTIR`, solo administración de la plataforma con sesión, token cifrado que nunca se devuelve, bandeja de peticiones de plataforma |
 | `appearance.test.ts` | 24 | Capa visual: blueprints anteriores siguen siendo válidos; operaciones de apariencia (parche), menú y páginas; referencias rotas detectadas; CSS personalizado malicioso rechazado en el servidor, el sandbox y la aprobación; riesgo bajo (medio con CSS) e impacto legible; visibilidad por rol de páginas, bloques y menú; `GET /api/pages/:key/data` nunca da datos de módulos restringidos; publicación y rollback; planificación de peticiones visuales |
 | `expansion.test.ts` | 7 | Sin límite práctico de módulos (el único tope global es el tamaño, 25 MB); contexto del planificador escalable (blueprint completo o índice + detalle de los módulos relevantes); plan por partes unido en un único cambio y auto-corrección solo de la parte que falla; caché de blueprints acotada por tamaño |
 | `scripts-sandbox.test.ts` | 19 | Sandbox de scripts fuera del hilo principal: plazo duro y sustitución del hilo, recursiones y memoria cortadas sin romper el motor |

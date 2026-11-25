@@ -1,21 +1,16 @@
 /**
- * CI aislado en Railway: el árbol del cambio se sube al servicio CI con este railway.json, que construye
- * Dockerfile.ci (npm ci, typecheck, vitest, build). La imagen solo arranca un servidor de salud fijo, escrito en Dockerfile.ci, que no carga el código probado, así
- * que «despliegue SUCCESS» = CI superado y «FAILED» = algo falló; los logs del build dicen qué.
+ * CI aislado en Railway: el árbol del cambio se sube al servicio CI con el contenido de Dockerfile.ci en
+ * `Dockerfile` (ver buildCiTree en pipeline.ts), que ejecuta npm ci, typecheck, vitest y build. La imagen solo
+ * arranca un servidor de salud fijo, escrito en Dockerfile.ci, que no carga el código probado, así que «despliegue
+ * SUCCESS» = CI superado (si el log muestra las pruebas) y «FAILED» = algo falló; los logs del build dicen qué.
  */
 
-export const CI_RAILWAY_JSON = `${JSON.stringify(
-  {
-    $schema: 'https://railway.com/railway.schema.json',
-    build: { builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile.ci' },
-    deploy: { healthcheckPath: '/api/health', healthcheckTimeout: 120, restartPolicyType: 'NEVER' },
-  },
-  null,
-  2,
-)}\n`;
-
-/** Rutas que no cuentan para la huella del árbol (el railway.json cambia entre el CI y el despliegue). */
-export const TREE_HASH_EXCLUDE: ReadonlySet<string> = new Set(['railway.json']);
+/**
+ * Rutas que no cuentan para la huella del árbol: el Dockerfile cambia entre el CI y el despliegue (en el CI es
+ * Dockerfile.ci) y el railway.json lo pone el motor. Las dos están protegidas: el agente no puede tocarlas y el
+ * árbol que se despliega las toma del código base.
+ */
+export const TREE_HASH_EXCLUDE: ReadonlySet<string> = new Set(['railway.json', 'Dockerfile']);
 
 export interface CiAnalysis {
   tsErrors: string[];
