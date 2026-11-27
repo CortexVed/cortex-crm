@@ -9,6 +9,7 @@ import { createOpenAiCompatibleAdapter } from './providers/openai-compatible';
 import { MOCK_PROVIDER, PROVIDERS, type ProviderDefinition } from './providers/registry';
 import { computeCost, resolvePrice, type Price } from './pricing';
 import { extractJson } from './json';
+import { t, tk, tp } from '../i18n';
 import {
   ProviderError,
   type ChatMessage,
@@ -141,7 +142,7 @@ export class AiManager {
 
   definition(id: string): ProviderDefinition {
     const d = this.definitions[id];
-    if (!d) throw badRequest(`Proveedor desconocido "${id}"`);
+    if (!d) throw badRequest(t('Proveedor desconocido "{id}"', { id }));
     return d;
   }
 
@@ -174,7 +175,7 @@ export class AiManager {
 
   async saveSettings(ws: string, input: z.infer<typeof AiSettingsInputSchema>, actorId: string) {
     const current = await this.getSettings(ws);
-    for (const targets of Object.values(input.routing ?? {})) for (const t of targets ?? []) this.definition(t.provider);
+    for (const targets of Object.values(input.routing ?? {})) for (const target of targets ?? []) this.definition(target.provider);
     if (input.defaultProvider) this.definition(input.defaultProvider);
     const next = {
       defaultProvider: input.defaultProvider !== undefined ? input.defaultProvider : current.defaultProvider,
@@ -213,9 +214,10 @@ export class AiManager {
       const isMock = def.id === 'mock';
       return {
         id: def.id,
-        label: def.label,
+        // Los nombres de producto no se traducen (solo el del proveedor simulado); las descripciones, sí.
+        label: tk(def.label),
         tier: def.tier,
-        description: def.description,
+        description: tk(def.description),
         docsUrl: def.docsUrl,
         keyHint: def.keyHint,
         configured: wsKey || platform || isMock,
@@ -304,10 +306,10 @@ export class AiManager {
     const states = await this.getProviderStates(ws);
     const usable = states.filter((s) => s.configured && s.enabled && (s.id !== 'mock' || this.deps.config.llmEnableMock));
     const out: RouteTarget[] = [];
-    const push = (t: RouteTarget | null | undefined) => {
-      if (t && t.model && usable.some((s) => s.id === t.provider) && !out.some((o) => o.provider === t.provider && o.model === t.model)) out.push(t);
+    const push = (target: RouteTarget | null | undefined) => {
+      if (target && target.model && usable.some((s) => s.id === target.provider) && !out.some((o) => o.provider === target.provider && o.model === target.model)) out.push(target);
     };
-    for (const t of settings.routing[task] ?? []) push(t);
+    for (const target of settings.routing[task] ?? []) push(target);
     if (settings.defaultProvider) push({ provider: settings.defaultProvider, model: settings.defaultModel ?? usable.find((s) => s.id === settings.defaultProvider)?.defaultModel ?? '' });
     for (const s of usable) if (s.defaultModel) push({ provider: s.id, model: s.defaultModel });
     return out;
@@ -315,7 +317,7 @@ export class AiManager {
 
   private async checkLimits(ws: string, task: AiTask, settings: AiSettings) {
     if (settings.limits.disabledTasks.includes(task)) {
-      throw new ProviderError('limit_exceeded', 'Esta tarea de IA está desactivada por el administrador', false);
+      throw new ProviderError('limit_exceeded', t('Esta tarea de IA está desactivada por el administrador'), false);
     }
     const r = await this.deps.db.tenant(ws, (q) =>
       q.query<{ hour: number; month: string | number | null }>(
@@ -328,10 +330,10 @@ export class AiManager {
     const hour = r.rows[0]?.hour ?? 0;
     const month = Number(r.rows[0]?.month ?? 0);
     if (hour >= settings.limits.maxRequestsPerHour) {
-      throw new ProviderError('limit_exceeded', `Límite de ${settings.limits.maxRequestsPerHour} peticiones de IA por hora alcanzado`, false);
+      throw new ProviderError('limit_exceeded', t('Límite de {max} peticiones de IA por hora alcanzado', { max: settings.limits.maxRequestsPerHour }), false);
     }
     if (settings.limits.monthlyBudgetUsd !== null && month >= settings.limits.monthlyBudgetUsd) {
-      throw new ProviderError('limit_exceeded', `Presupuesto mensual de IA agotado (${settings.limits.monthlyBudgetUsd} USD)`, false);
+      throw new ProviderError('limit_exceeded', t('Presupuesto mensual de IA agotado ({amount} USD)', { amount: settings.limits.monthlyBudgetUsd }), false);
     }
     return { hour };
   }
@@ -353,7 +355,7 @@ export class AiManager {
     const { hour } = await this.checkLimits(ws, req.task, settings);
     const candidates = req.target ? [req.target] : await this.plan(ws, req.task);
     if (!candidates.length) {
-      throw new ProviderError('not_configured', 'No hay ningún proveedor de IA configurado. Añade una API key en Ajustes › Proveedores de IA.', false);
+      throw new ProviderError('not_configured', t('No hay ningún proveedor de IA configurado. Añade una API key en Ajustes › Proveedores de IA.'), false);
     }
     const rows = await this.providerRows(ws);
     const attempts: AttemptLog[] = [];
@@ -362,16 +364,16 @@ export class AiManager {
       if (!def) continue;
       const cred = await this.credentials(ws, def.id);
       if (!cred) {
-        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: 'Sin credenciales', code: 'not_configured' });
+        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: t('Sin credenciales'), code: 'not_configured' });
         continue;
       }
       if (req.tools?.length && !def.supportsTools) {
-        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: 'No soporta herramientas', code: 'invalid_request' });
+        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: t('No soporta herramientas'), code: 'invalid_request' });
         continue;
       }
       // Con claves de la PLATAFORMA manda un techo que la organización no puede ampliar.
       if (cred.source === 'platform' && hour >= Math.min(settings.limits.maxRequestsPerHour, this.deps.config.aiMaxRequestsPerHour)) {
-        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: 'Límite de uso de las claves de la plataforma alcanzado', code: 'limit_exceeded' });
+        attempts.push({ provider: def.id, model: target.model, ok: false, latencyMs: 0, error: t('Límite de uso de las claves de la plataforma alcanzado'), code: 'limit_exceeded' });
         continue;
       }
       const t0 = Date.now();
@@ -408,7 +410,7 @@ export class AiManager {
       }
     }
     const summary = attempts.map((a) => `${a.provider}/${a.model}: ${a.error}`).join(' · ');
-    const err = new ProviderError('unavailable', `Ningún proveedor de IA pudo completar la tarea. ${summary}`, false);
+    const err = new ProviderError('unavailable', t('Ningún proveedor de IA pudo completar la tarea. {summary}', { summary }), false);
     (err as any).attempts = attempts;
     throw err;
   }
@@ -435,7 +437,7 @@ export class AiManager {
       messages.push({ role: 'assistant', content: last.text.slice(0, 20_000) });
       messages.push({ role: 'user', content: `Tu respuesta no cumple el esquema requerido:\n${problem}\n\nDevuelve de nuevo el objeto JSON COMPLETO corregido, sin texto adicional.` });
     }
-    throw new ProviderError('bad_response', `El modelo no generó un JSON válido tras ${repairs + 1} intentos`, false);
+    throw new ProviderError('bad_response', tp(repairs + 1, 'El modelo no generó un JSON válido tras {count} intento', 'El modelo no generó un JSON válido tras {count} intentos'), false);
   }
 
   /** Bucle de herramientas independiente del proveedor (el mismo para Claude, OpenAI, DeepSeek u OpenRouter). */
@@ -489,12 +491,12 @@ export class AiManager {
 
   async compare(ws: string, input: { system?: string; prompt: string; targets: RouteTarget[]; userId: string }) {
     return Promise.all(
-      input.targets.map(async (t) => {
+      input.targets.map(async (target) => {
         try {
-          const r = await this.run(ws, { task: 'chat', system: input.system, messages: [{ role: 'user', content: input.prompt }], target: t, userId: input.userId, ref: 'compare', maxTokens: 4000 });
-          return { ...t, ok: true, text: r.text, latencyMs: r.latencyMs, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, costUsd: r.costUsd, servedModel: r.model };
+          const r = await this.run(ws, { task: 'chat', system: input.system, messages: [{ role: 'user', content: input.prompt }], target, userId: input.userId, ref: 'compare', maxTokens: 4000 });
+          return { ...target, ok: true, text: r.text, latencyMs: r.latencyMs, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, costUsd: r.costUsd, servedModel: r.model };
         } catch (e) {
-          return { ...t, ok: false, error: (e as Error).message };
+          return { ...target, ok: false, error: (e as Error).message };
         }
       }),
     );

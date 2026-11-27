@@ -582,6 +582,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS source_changes_single_release_uq ON source_cha
     sql: () => `ALTER TABLE files ADD COLUMN IF NOT EXISTS storage text NOT NULL DEFAULT 'db';
 ALTER TABLE files ADD COLUMN IF NOT EXISTS object_key text;`,
   },
+  // Idiomas: users.locale es el idioma de la interfaz que eligió cada persona (NULL = el de su organización,
+  // que sale de settings.locale, «Idioma y región»); jobs.locale, el idioma de quien encoló el trabajo, para que
+  // los textos que genera (planes de EVOLVE, avisos) salgan en ese idioma. Aditiva: no cambia nada existente.
+  {
+    id: '007_locales',
+    sql: () => `ALTER TABLE users ADD COLUMN IF NOT EXISTS locale text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locale text;`,
+  },
 ];
 
 export async function runMigrations(db: Db, log: (msg: string) => void = () => {}) {

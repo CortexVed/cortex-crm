@@ -1,5 +1,7 @@
 /** Tipos de las respuestas de /api/platform/code/* y etiquetas de la interfaz del motor de código fuente. */
 
+import { msg } from '../../lib/i18n';
+
 export interface Flag {
   key: string;
   level: 'info' | 'warning';
@@ -170,18 +172,19 @@ export interface PlatformRequest {
   source_change_status: string | null;
 }
 
+/** Etiquetas marcadas con msg(): se muestran con tk(STATUS[s].label). */
 export const STATUS: Record<string, { label: string; color: string }> = {
-  queued: { label: 'En cola', color: 'slate' },
-  planning: { label: 'Desarrollando', color: 'violet' },
-  testing: { label: 'En el CI', color: 'sky' },
-  needs_input: { label: 'Necesita información', color: 'amber' },
-  ready_for_review: { label: 'Pendiente de aprobación', color: 'fuchsia' },
-  deploying: { label: 'Desplegando', color: 'sky' },
-  deployed: { label: 'Desplegado', color: 'emerald' },
-  failed: { label: 'Fallido', color: 'red' },
-  rolling_back: { label: 'Revirtiendo', color: 'orange' },
-  rolled_back: { label: 'Revertido', color: 'orange' },
-  cancelled: { label: 'Cancelado', color: 'slate' },
+  queued: { label: msg('En cola'), color: 'slate' },
+  planning: { label: msg('Desarrollando'), color: 'violet' },
+  testing: { label: msg('En el CI'), color: 'sky' },
+  needs_input: { label: msg('Necesita información'), color: 'amber' },
+  ready_for_review: { label: msg('Pendiente de aprobación'), color: 'fuchsia' },
+  deploying: { label: msg('Desplegando'), color: 'sky' },
+  deployed: { label: msg('Desplegado'), color: 'emerald' },
+  failed: { label: msg('Fallido'), color: 'red' },
+  rolling_back: { label: msg('Revirtiendo'), color: 'orange' },
+  rolled_back: { label: msg('Revertido'), color: 'orange' },
+  cancelled: { label: msg('Cancelado'), color: 'slate' },
 };
 
 export const ACTIVE = new Set(['queued', 'planning', 'testing', 'deploying', 'rolling_back']);

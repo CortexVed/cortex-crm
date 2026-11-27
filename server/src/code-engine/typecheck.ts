@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { t } from '../i18n';
 
 /**
  * COMPROBACIÓN DE TIPOS ANTES DEL CI. Escribe el árbol del cambio en una carpeta temporal y ejecuta `tsc --noEmit`
@@ -113,7 +114,8 @@ export async function ensureToolchain(packageJson: string, lockfile: string, opt
     const r = await run('npm', ['ci', '--ignore-scripts', '--include=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: dir, env: minimalEnv(dir), timeoutMs: opts.timeoutMs ?? 6 * 60_000, signal: opts.signal });
     if (r.code !== 0 || !existsSync(path.join(dir, 'node_modules', 'typescript', 'package.json'))) {
       await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-      throw new Error(`No se han podido instalar las herramientas de comprobación${r.timedOut ? ' (plazo agotado)' : ''}: ${r.output.trim().slice(-600)}`);
+      const output = r.output.trim().slice(-600);
+      throw new Error(r.timedOut ? t('No se han podido instalar las herramientas de comprobación (plazo agotado): {output}', { output }) : t('No se han podido instalar las herramientas de comprobación: {output}', { output }));
     }
     await writeFile(path.join(dir, '.ok'), new Date().toISOString());
     return dir;
@@ -154,13 +156,13 @@ export async function typecheckTree(files: ReadonlyMap<string, Buffer>, toolchai
     for (const project of PROJECTS) {
       if (!files.has(project)) continue;
       const left = (opts.timeoutMs ?? 180_000) - (Date.now() - started);
-      if (left <= 0) return { ok: false, errors, durationMs: Date.now() - started, skipped: 'plazo agotado' };
+      if (left <= 0) return { ok: false, errors, durationMs: Date.now() - started, skipped: t('plazo agotado') };
       const r = await run(process.execPath, [tsc, '-p', project, '--noEmit', '--pretty', 'false'], { cwd: dir, env: minimalEnv(dir), timeoutMs: left, signal: opts.signal });
-      if (r.timedOut) return { ok: false, errors, durationMs: Date.now() - started, skipped: 'plazo agotado' };
+      if (r.timedOut) return { ok: false, errors, durationMs: Date.now() - started, skipped: t('plazo agotado') };
       const found = parseTscOutput(r.output);
       errors.push(...found);
       // Código distinto de 0 sin errores reconocibles: problema de la herramienta, no del código.
-      if (r.code !== 0 && !found.length) return { ok: false, errors, durationMs: Date.now() - started, skipped: `tsc terminó con código ${r.code}: ${r.output.trim().slice(-300)}` };
+      if (r.code !== 0 && !found.length) return { ok: false, errors, durationMs: Date.now() - started, skipped: t('tsc terminó con código {code}: {output}', { code: String(r.code), output: r.output.trim().slice(-300) }) };
     }
     return { ok: errors.length === 0, errors, durationMs: Date.now() - started };
   } finally {

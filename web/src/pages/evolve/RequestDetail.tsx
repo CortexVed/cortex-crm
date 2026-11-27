@@ -9,6 +9,8 @@ import { useBlueprint } from '../../lib/hooks';
 import type { Blueprint, Operation } from '../../lib/types';
 import { sanitizeCustomCss } from '../../../../shared/appearance';
 import { formatDate, relativeTime } from '../../lib/format';
+import { t, tk, tp, tx } from '../../lib/i18n';
+import { CONFIRM_WORDS } from '../../../../shared/constants';
 import { Alert, Badge, Button, Card, ConfirmDialog, cx, ErrorState, PageLoader, Skeleton, Textarea } from '../../components/ui';
 import { AppearancePreview, PageStructurePreview, previewBlueprint, VISUAL_OPS } from '../../components/AppearancePreview';
 import { Segmented } from '../settings/ai/shared';
@@ -29,11 +31,11 @@ function PlatformChange({ requestId, text }: { requestId: string; text?: string 
     mutationFn: () => post<{ id: string }>(`/platform/requests/${requestId}/source-change`, {}),
     onSuccess: (res) => navigate(`/platform/code?change=${res.id}`),
   });
-  const description = text?.trim() || 'Esta parte no se puede resolver solo con la configuración de tu organización.';
+  const description = text?.trim() || t('Esta parte no se puede resolver solo con la configuración de tu organización.');
   if (!isPlatformAdmin) {
     return (
-      <Alert tone="info" title="Necesita programar la plataforma">
-        {description} Queda registrada para la administración de la plataforma, que puede programarlo con el motor de código fuente; el resto del cambio (si lo hay) sigue el proceso normal.
+      <Alert tone="info" title={t('Necesita programar la plataforma')}>
+        {description} {t('Queda registrada para la administración de la plataforma, que puede programarlo con el motor de código fuente; el resto del cambio (si lo hay) sigue el proceso normal.')}
       </Alert>
     );
   }
@@ -41,21 +43,21 @@ function PlatformChange({ requestId, text }: { requestId: string; text?: string 
   const status = linked?.source_change_status ? (CODE_STATUS[linked.source_change_status] ?? { label: linked.source_change_status, color: 'slate' }) : null;
   return (
     <Card
-      title={<span className="flex items-center gap-2"><Code2 className="size-4 text-brand-500" /> Necesita programar la plataforma</span>}
-      description="La configuración de EVOLVE no llega a esto, pero el motor de código fuente puede programarlo en esta instalación: lo desarrolla la IA, se prueba en el CI aislado y solo se despliega si lo apruebas escribiendo DESPLEGAR."
+      title={<span className="flex items-center gap-2"><Code2 className="size-4 text-brand-500" /> {t('Necesita programar la plataforma')}</span>}
+      description={t('La configuración de EVOLVE no llega a esto, pero el motor de código fuente puede programarlo en esta instalación: lo desarrolla la IA, se prueba en el CI aislado y solo se despliega si lo apruebas escribiendo {word}.', { word: tk(CONFIRM_WORDS.deploy) })}
     >
       <p className="whitespace-pre-wrap text-sm">{description}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {linked?.source_change_id ? (
           <>
-            {status && <Badge color={status.color} dot>{status.label}</Badge>}
+            {status && <Badge color={status.color} dot>{tk(status.label)}</Badge>}
             <Link to={`/platform/code?change=${linked.source_change_id}`} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
-              Ver el cambio de código
+              {t('Ver el cambio de código')}
             </Link>
           </>
         ) : (
           <Button variant="ai" icon={<Code2 className="size-4" />} loading={create.isPending} disabled={inbox.isLoading} onClick={() => create.mutate()}>
-            Programarlo con el motor de código
+            {t('Programarlo con el motor de código')}
           </Button>
         )}
       </div>
@@ -71,8 +73,8 @@ function ScriptsCode({ operations }: { operations: any[] }) {
   if (!scripts.length) return null;
   return (
     <Card
-      title={<span className="flex items-center gap-2"><FileCode2 className="size-4 text-violet-500" /> Código de los scripts</span>}
-      description="Lógica a medida solo para tu organización. Se ejecuta en un sandbox aislado dentro de Cortex CRM (sin red ni archivos, con límite de tiempo y memoria) y se versiona con tu configuración: no se publica en ningún repositorio."
+      title={<span className="flex items-center gap-2"><FileCode2 className="size-4 text-violet-500" /> {t('Código de los scripts')}</span>}
+      description={t('Lógica a medida solo para tu organización. Se ejecuta en un sandbox aislado dentro de Cortex CRM (sin red ni archivos, con límite de tiempo y memoria) y se versiona con tu configuración: no se publica en ningún repositorio.')}
     >
       <ul className="space-y-2">
         {scripts.map((s: any) => (
@@ -81,12 +83,12 @@ function ScriptsCode({ operations }: { operations: any[] }) {
               <ChevronDown className={cx('size-4 text-zinc-400 transition', open === s.key && 'rotate-180')} />
               <span className="font-medium">{s.name}</span>
               <code className="text-xs text-zinc-500">{s.key}</code>
-              <span className="ml-auto text-xs text-zinc-400">{s.code ? `${s.code.split('\n').length} líneas` : 'sin código'} · máx. {s.timeoutMs ?? 1000} ms</span>
+              <span className="ml-auto text-xs text-zinc-400">{s.code ? tp(s.code.split('\n').length, '{count} línea', '{count} líneas') : t('sin código')} · {t('máx. {ms} ms', { ms: s.timeoutMs ?? 1000 })}</span>
             </button>
             {open === s.key && (
               <div className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
                 {s.description && <p className="mb-2 text-xs text-zinc-500">{s.description}</p>}
-                <pre className="max-h-96 overflow-auto rounded-lg bg-zinc-950 p-3 text-[12px] leading-relaxed text-zinc-100">{s.code || '// El código se escribe al desarrollar el cambio'}</pre>
+                <pre className="max-h-96 overflow-auto rounded-lg bg-zinc-950 p-3 text-[12px] leading-relaxed text-zinc-100">{s.code || t('// El código se escribe al desarrollar el cambio')}</pre>
               </div>
             )}
           </li>
@@ -125,26 +127,26 @@ function VisualPreview({ request }: { request: any }) {
   const shown = mode === 'after' ? after : before;
   return (
     <Card
-      title={<span className="flex items-center gap-2"><Eye className="size-4 text-brand-500" /> Vista previa</span>}
-      description="Maqueta con los cambios visuales propuestos y datos de ejemplo. Nada cambia hasta que se apruebe y se publique."
-      actions={look && before ? <Segmented size="sm" value={mode} onChange={setMode} options={[{ key: 'after', label: 'Después' }, { key: 'before', label: 'Antes' }]} /> : undefined}
+      title={<span className="flex items-center gap-2"><Eye className="size-4 text-brand-500" /> {t('Vista previa')}</span>}
+      description={t('Maqueta con los cambios visuales propuestos y datos de ejemplo. Nada cambia hasta que se apruebe y se publique.')}
+      actions={look && before ? <Segmented size="sm" value={mode} onChange={setMode} options={[{ key: 'after', label: t('Después') }, { key: 'before', label: t('Antes') }]} /> : undefined}
     >
       {!before || !after || !shown ? (
         <Skeleton className="h-72" />
       ) : (
         <div className="space-y-4">
           {look && <AppearancePreview appearance={shown.appearance} blueprint={shown} navigation={shown.navigation ?? null} />}
-          {css === null && <p className="text-sm text-zinc-500">Se quita el CSS personalizado.</p>}
+          {css === null && <p className="text-sm text-zinc-500">{t('Se quita el CSS personalizado.')}</p>}
           {cssCheck && (
             <div className="rounded-lg ring-1 ring-zinc-200 dark:ring-zinc-800">
               <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
                 <FileCode2 className="size-4 text-amber-500" />
-                <span className="font-medium">CSS personalizado</span>
-                <Badge color={cssCheck.ok ? 'emerald' : 'red'} dot>{cssCheck.ok ? 'CSS plano, sin recursos externos' : 'No válido'}</Badge>
-                <span className="ml-auto text-xs text-zinc-400">{css!.length} caracteres · no se aplica en la maqueta</span>
+                <span className="font-medium">{t('CSS personalizado')}</span>
+                <Badge color={cssCheck.ok ? 'emerald' : 'red'} dot>{cssCheck.ok ? t('CSS plano, sin recursos externos') : t('No válido')}</Badge>
+                <span className="ml-auto text-xs text-zinc-400">{tp(css!.length, '{count} carácter', '{count} caracteres')} · {t('no se aplica en la maqueta')}</span>
               </div>
               <div className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                <p className="mb-2 text-xs text-zinc-500">Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.</p>
+                <p className="mb-2 text-xs text-zinc-500">{t('Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.')}</p>
                 {!cssCheck.ok && <ul className="mb-2 list-disc pl-5 text-xs text-red-600 dark:text-red-400">{cssCheck.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
                 <pre className="max-h-72 overflow-auto rounded-lg bg-zinc-950 p-3 text-[12px] leading-relaxed text-zinc-100">{css}</pre>
               </div>
@@ -152,13 +154,13 @@ function VisualPreview({ request }: { request: any }) {
           )}
           {pages.length > 0 && (
             <div className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Páginas</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Páginas')}</h4>
               {pages.map((p) => (
                 <PageStructurePreview key={p.key} page={p} blueprint={after} />
               ))}
             </div>
           )}
-          {removed.length > 0 && <p className="text-sm text-zinc-500">Se eliminan las páginas: {removed.map((k) => before.pages?.find((p) => p.key === k)?.label ?? k).join(', ')}.</p>}
+          {removed.length > 0 && <p className="text-sm text-zinc-500">{t('Se eliminan las páginas: {pages}.', { pages: removed.map((k) => before.pages?.find((p) => p.key === k)?.label ?? k).join(', ') })}</p>}
         </div>
       )}
     </Card>
@@ -183,7 +185,7 @@ function Steps({ steps, progress, status }: { steps: { key: string; label: strin
             </span>
             <div className="min-w-0">
               <div className={cx('text-sm font-medium', state === 'pending' && 'text-zinc-400')}>{s.label}</div>
-              {state === 'interrupted' ? <div className="text-xs text-amber-600 dark:text-amber-400">Interrumpido</div> : p?.detail && <div className="text-xs text-zinc-500">{p.detail}</div>}
+              {state === 'interrupted' ? <div className="text-xs text-amber-600 dark:text-amber-400">{t('Interrumpido')}</div> : p?.detail && <div className="text-xs text-zinc-500">{p.detail}</div>}
             </div>
           </li>
         );
@@ -195,7 +197,11 @@ function Steps({ steps, progress, status }: { steps: { key: string; label: strin
 function TestReport({ report }: { report: any }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <Card title="Pruebas en el entorno aislado" description={`${report.total - report.failed}/${report.total} superadas · ${report.warnings} aviso(s) · ${report.durationMs} ms`} actions={<Badge color={report.passed ? 'emerald' : 'red'} dot>{report.passed ? 'Todo correcto' : `${report.failed} fallida(s)`}</Badge>}>
+    <Card
+      title={t('Pruebas en el entorno aislado')}
+      description={`${t('{passed}/{total} superadas', { passed: report.total - report.failed, total: report.total })} · ${tp(report.warnings, '{count} aviso', '{count} avisos')} · ${report.durationMs} ms`}
+      actions={<Badge color={report.passed ? 'emerald' : 'red'} dot>{report.passed ? t('Todo correcto') : tp(report.failed, '{count} fallida', '{count} fallidas')}</Badge>}
+    >
       <div className="space-y-4">
         {report.suites.map((s: any) => (
           <div key={s.key}>
@@ -237,10 +243,10 @@ function TestReport({ report }: { report: any }) {
 function Impact({ impact }: { impact: any }) {
   const kindIcon = (k: string) => (k === 'add' ? <Plus className="size-3.5 text-emerald-500" /> : k === 'remove' ? <Trash2 className="size-3.5 text-red-500" /> : k === 'data' ? <Database className="size-3.5 text-sky-500" /> : <Pencil className="size-3.5 text-amber-500" />);
   return (
-    <Card title="Qué va a cambiar" description="Revisa el impacto antes de autorizar la publicación.">
+    <Card title={t('Qué va a cambiar')} description={t('Revisa el impacto antes de autorizar la publicación.')}>
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Cambios</h4>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Cambios')}</h4>
           <ul className="space-y-1.5">
             {impact.changes.map((c: any) => (
               <li key={c.index} className="flex gap-2 text-sm">
@@ -252,13 +258,13 @@ function Impact({ impact }: { impact: any }) {
         </div>
         <div className="space-y-5">
           <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Tablas lógicas creadas o modificadas</h4>
-            {!impact.tables.length ? <p className="text-sm text-zinc-500">Ninguna</p> : (
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Tablas lógicas creadas o modificadas')}</h4>
+            {!impact.tables.length ? <p className="text-sm text-zinc-500">{t('Ninguna')}</p> : (
               <ul className="space-y-2">
-                {impact.tables.map((t: any) => (
-                  <li key={t.module} className="rounded-lg bg-zinc-50 p-2.5 text-sm dark:bg-zinc-800/50">
-                    <div className="flex items-center gap-2"><Database className="size-3.5 text-zinc-400" /><span className="font-medium">{t.label}</span><Badge color={t.action === 'create' ? 'emerald' : t.action === 'archive' ? 'red' : 'amber'}>{t.action === 'create' ? 'nueva' : t.action === 'archive' ? 'archivada' : 'modificada'}</Badge></div>
-                    {t.columns.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{t.columns.map((c: any) => <code key={c.key + c.action} className={cx('rounded px-1 text-[11px]', c.action === 'add' ? 'bg-emerald-100/70 dark:bg-emerald-500/15' : c.action === 'archive' ? 'bg-red-100/70 line-through dark:bg-red-500/15' : 'bg-amber-100/70 dark:bg-amber-500/15')}>{c.key}{c.type ? `: ${c.type}` : ''}</code>)}</div>}
+                {impact.tables.map((table: any) => (
+                  <li key={table.module} className="rounded-lg bg-zinc-50 p-2.5 text-sm dark:bg-zinc-800/50">
+                    <div className="flex items-center gap-2"><Database className="size-3.5 text-zinc-400" /><span className="font-medium">{table.label}</span><Badge color={table.action === 'create' ? 'emerald' : table.action === 'archive' ? 'red' : 'amber'}>{table.action === 'create' ? t('nueva') : table.action === 'archive' ? t('archivada') : t('modificada')}</Badge></div>
+                    {table.columns.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{table.columns.map((c: any) => <code key={c.key + c.action} className={cx('rounded px-1 text-[11px]', c.action === 'add' ? 'bg-emerald-100/70 dark:bg-emerald-500/15' : c.action === 'archive' ? 'bg-red-100/70 line-through dark:bg-red-500/15' : 'bg-amber-100/70 dark:bg-amber-500/15')}>{c.key}{c.type ? `: ${c.type}` : ''}</code>)}</div>}
                   </li>
                 ))}
               </ul>
@@ -266,28 +272,28 @@ function Impact({ impact }: { impact: any }) {
           </div>
           {impact.dataMigrations?.length > 0 && (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Migraciones de datos (reversibles)</h4>
-              {impact.dataMigrations.map((d: any, i: number) => <p key={i} className="text-sm">{d.module}.{d.field} · {d.mode === 'only_empty' ? 'solo vacíos' : 'sobrescribe'}{d.estimatedRows !== undefined ? ` · hasta ${d.estimatedRows} registros` : ''}</p>)}
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Migraciones de datos (reversibles)')}</h4>
+              {impact.dataMigrations.map((d: any, i: number) => <p key={i} className="text-sm">{d.module}.{d.field} · {d.mode === 'only_empty' ? t('solo vacíos') : t('sobrescribe')}{d.estimatedRows !== undefined ? ` · ${tp(d.estimatedRows, 'hasta {count} registro', 'hasta {count} registros')}` : ''}</p>)}
             </div>
           )}
         </div>
         <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Artefactos versionados que se modificarán</h4>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Artefactos versionados que se modificarán')}</h4>
           <ul className="space-y-0.5">{impact.artifacts.map((a: any, i: number) => <li key={i} className="flex items-center gap-2 text-xs"><FileJson className="size-3.5 text-zinc-400" /><code className="truncate">{a.path}</code><span className="text-zinc-400">{a.action}</span></li>)}</ul>
         </div>
         <div className="space-y-5">
           <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Permisos y salida de datos</h4>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Permisos y salida de datos')}</h4>
             <ul className="space-y-1 text-sm">{impact.permissions.map((p: string, i: number) => <li key={i} className="flex gap-2"><ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-zinc-400" />{p}</li>)}</ul>
-            <p className="mt-2 text-xs text-zinc-500">Debe aprobarlo: <strong>{impact.approverRole}</strong></p>
+            <p className="mt-2 text-xs text-zinc-500">{tx('Debe aprobarlo: {role}', { role: <strong>{impact.approverRole}</strong> })}</p>
           </div>
           <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Riesgos</h4>
-            <ul className="space-y-1">{impact.risks.map((r: any, i: number) => <li key={i} className="flex items-start gap-2 text-sm"><Badge color={r.level === 'high' ? 'red' : r.level === 'medium' ? 'amber' : 'emerald'}>{r.level === 'high' ? 'alto' : r.level === 'medium' ? 'medio' : 'bajo'}</Badge><span>{r.message}</span></li>)}</ul>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Riesgos')}</h4>
+            <ul className="space-y-1">{impact.risks.map((r: any, i: number) => <li key={i} className="flex items-start gap-2 text-sm"><Badge color={r.level === 'high' ? 'red' : r.level === 'medium' ? 'amber' : 'emerald'}>{r.level === 'high' ? t('alto') : r.level === 'medium' ? t('medio') : t('bajo')}</Badge><span>{r.message}</span></li>)}</ul>
           </div>
           {impact.affectedFeatures?.length > 0 && (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Funcionalidades afectadas</h4>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Funcionalidades afectadas')}</h4>
               <div className="flex flex-wrap gap-1">{impact.affectedFeatures.map((f: string) => <Badge key={f}>{f}</Badge>)}</div>
             </div>
           )}
@@ -325,11 +331,11 @@ function RequestDetail({ id }: { id: string }) {
       if (vars.path.endsWith('/deploy')) {
         setDeployResult(res);
         qc.invalidateQueries({ queryKey: ['blueprint'] });
-        toast(res.verification?.ok ? `Publicada la versión v${res.version}` : 'La verificación falló: se ha restaurado la versión anterior', res.verification?.ok ? 'success' : 'error');
+        toast(res.verification?.ok ? t('Publicada la versión v{version}', { version: res.version }) : t('La verificación falló: se ha restaurado la versión anterior'), res.verification?.ok ? 'success' : 'error');
       } else if (vars.path.endsWith('/refine')) {
         setFeedback('');
-        toast('Replanificando con tus indicaciones');
-      } else toast('Hecho');
+        toast(t('Replanificando con tus indicaciones'));
+      } else toast(t('Hecho'));
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
@@ -350,10 +356,10 @@ function RequestDetail({ id }: { id: string }) {
           <StatusBadge status={r.status} />
           <RiskBadge risk={r.risk} />
         </div>
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{r.title ?? 'Petición de cambio'}</h1>
-        <p className="text-sm text-zinc-500">Pedido por {r.requested_by_name ?? '—'} · {formatDate(r.created_at, true)}</p>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{r.title ?? t('Petición de cambio')}</h1>
+        <p className="text-sm text-zinc-500">{t('Pedido por {name}', { name: r.requested_by_name ?? '—' })} · {formatDate(r.created_at, true)}</p>
         {r.summary && <Card><p className="whitespace-pre-wrap text-sm">{r.summary}</p></Card>}
-        <Alert tone="info" title="Detalle restringido">Este cambio afecta a módulos o a configuración a los que tu rol no tiene acceso, así que solo se muestra el resumen.</Alert>
+        <Alert tone="info" title={t('Detalle restringido')}>{t('Este cambio afecta a módulos o a configuración a los que tu rol no tiene acceso, así que solo se muestra el resumen.')}</Alert>
       </div>
     );
   }
@@ -369,10 +375,10 @@ function RequestDetail({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={r.status} />
             <RiskBadge risk={r.risk} />
-            {r.source === 'manual' && <Badge>Cambio manual</Badge>}
+            {r.source === 'manual' && <Badge>{t('Cambio manual')}</Badge>}
           </div>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">{cs?.title ?? 'Analizando la petición…'}</h1>
-          <p className="mt-1 text-sm text-zinc-500">Pedido por {r.requested_by_name ?? '—'} · {formatDate(r.created_at, true)} · sobre la versión v{r.base_version}</p>
+          <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">{cs?.title ?? t('Analizando la petición…')}</h1>
+          <p className="mt-1 text-sm text-zinc-500">{t('Pedido por {name}', { name: r.requested_by_name ?? '—' })} · {formatDate(r.created_at, true)} · {t('sobre la versión v{version}', { version: r.base_version })}</p>
         </div>
       </div>
 
@@ -382,7 +388,7 @@ function RequestDetail({ id }: { id: string }) {
             <div className="flex gap-3">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800"><MessageSquare className="size-4 text-zinc-500" /></span>
               <div className="min-w-0">
-                <div className="text-xs font-medium text-zinc-500">Petición</div>
+                <div className="text-xs font-medium text-zinc-500">{t('Petición')}</div>
                 <p className="whitespace-pre-wrap text-sm">{r.prompt}</p>
                 {(r.conversation ?? []).filter((c: any) => c.role === 'feedback').map((c: any, i: number) => (
                   <p key={i} className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900 dark:bg-brand-500/10 dark:text-brand-200">↳ {c.content}</p>
@@ -391,17 +397,17 @@ function RequestDetail({ id }: { id: string }) {
             </div>
           </Card>
 
-          {running && <Alert tone="info" title="EVOLVE AI ENGINE está trabajando">Planificando, desarrollando en un entorno aislado y probando los cambios. Puedes salir de esta página: el proceso continúa en segundo plano.</Alert>}
-          {r.status === 'failed' && <Alert tone="danger" title="No supera las pruebas">{r.error ?? 'Revisa el informe de pruebas.'}</Alert>}
+          {running && <Alert tone="info" title={t('EVOLVE AI ENGINE está trabajando')}>{t('Planificando, desarrollando en un entorno aislado y probando los cambios. Puedes salir de esta página: el proceso continúa en segundo plano.')}</Alert>}
+          {r.status === 'failed' && <Alert tone="danger" title={t('No supera las pruebas')}>{r.error ?? t('Revisa el informe de pruebas.')}</Alert>}
 
           {cs && (
-            <Card title={<span className="flex items-center gap-2"><Sparkles className="size-4 text-fuchsia-500" /> Plan propuesto</span>}>
+            <Card title={<span className="flex items-center gap-2"><Sparkles className="size-4 text-fuchsia-500" /> {t('Plan propuesto')}</span>}>
               <p className="whitespace-pre-wrap text-sm">{cs.summary}</p>
               {cs.assumptions?.length > 0 && (
-                <div className="mt-3"><div className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Supuestos</div><ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-600 dark:text-zinc-400">{cs.assumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>
+                <div className="mt-3"><div className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{t('Supuestos')}</div><ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-600 dark:text-zinc-400">{cs.assumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}</ul></div>
               )}
               {cs.questions?.length > 0 && (
-                <Alert tone="warning" title="La IA necesita aclarar" className="mt-3"><ul className="list-disc pl-5">{cs.questions.map((qq: string, i: number) => <li key={i}>{qq}</li>)}</ul></Alert>
+                <Alert tone="warning" title={t('La IA necesita aclarar')} className="mt-3"><ul className="list-disc pl-5">{cs.questions.map((qq: string, i: number) => <li key={i}>{qq}</li>)}</ul></Alert>
               )}
             </Card>
           )}
@@ -413,54 +419,58 @@ function RequestDetail({ id }: { id: string }) {
           {r.test_report && <TestReport report={r.test_report} />}
 
           {r.cross_review && (
-            <Card title="Revisión cruzada con otro modelo" description={`${r.cross_review.provider} / ${r.cross_review.model}`} actions={<Badge color={r.cross_review.verdict === 'approve' ? 'emerald' : 'amber'}>{r.cross_review.verdict === 'approve' ? 'Sin objeciones' : 'Con observaciones'}</Badge>}>
+            <Card title={t('Revisión cruzada con otro modelo')} description={`${r.cross_review.provider} / ${r.cross_review.model}`} actions={<Badge color={r.cross_review.verdict === 'approve' ? 'emerald' : 'amber'}>{r.cross_review.verdict === 'approve' ? t('Sin objeciones') : t('Con observaciones')}</Badge>}>
               <p className="text-sm">{r.cross_review.summary}</p>
               {r.cross_review.concerns?.map((c: any, i: number) => <p key={i} className="mt-1.5 flex gap-2 text-sm"><Badge color={c.severity === 'high' ? 'red' : c.severity === 'medium' ? 'amber' : 'slate'}>{c.severity}</Badge>{c.message}</p>)}
             </Card>
           )}
 
           {canRefine && (
-            <Card title="Refinar el plan" description="Indica qué quieres cambiar; la IA volverá a planificar y probar.">
-              <Textarea rows={2} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Ej.: El aviso debe ser 15 días antes, no 30, y también para el responsable de la empresa." />
-              <div className="mt-2 flex justify-end"><Button variant="primary" size="sm" disabled={feedback.trim().length < 3 || (busy && !pending('refine'))} loading={pending('refine')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/refine`, body: { feedback } })}>Replanificar</Button></div>
+            <Card title={t('Refinar el plan')} description={t('Indica qué quieres cambiar; la IA volverá a planificar y probar.')}>
+              <Textarea rows={2} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder={t('Ej.: El aviso debe ser 15 días antes, no 30, y también para el responsable de la empresa.')} />
+              <div className="mt-2 flex justify-end"><Button variant="primary" size="sm" disabled={feedback.trim().length < 3 || (busy && !pending('refine'))} loading={pending('refine')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/refine`, body: { feedback } })}>{t('Replanificar')}</Button></div>
             </Card>
           )}
         </div>
 
         <div className="space-y-5">
-          <Card title="Progreso">{steps.data ? <Steps steps={steps.data} progress={r.progress} status={r.status} /> : null}</Card>
+          <Card title={t('Progreso')}>{steps.data ? <Steps steps={steps.data} progress={r.progress} status={r.status} /> : null}</Card>
 
           {r.status === 'ready_for_review' && (
-            <Card title="Autorizar publicación">
+            <Card title={t('Autorizar publicación')}>
               {r.policy.canApprove ? (
                 <div className="space-y-2">
-                  <Textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentario (opcional)" />
+                  <Textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder={t('Comentario (opcional)')} />
                   <div className="flex gap-2">
-                    <Button variant="primary" className="flex-1" loading={pending('approve')} disabled={busy && !pending('approve')} onClick={() => (r.policy.needsConfirmation ? setConfirmApprove(true) : mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment } }))}>Aprobar</Button>
-                    <Button variant="dangerGhost" loading={pending('reject')} disabled={busy && !pending('reject')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/reject`, body: { comment } })}>Rechazar</Button>
+                    <Button variant="primary" className="flex-1" loading={pending('approve')} disabled={busy && !pending('approve')} onClick={() => (r.policy.needsConfirmation ? setConfirmApprove(true) : mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment } }))}>{t('Aprobar')}</Button>
+                    <Button variant="dangerGhost" loading={pending('reject')} disabled={busy && !pending('reject')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/reject`, body: { comment } })}>{t('Rechazar')}</Button>
                   </div>
-                  <p className="text-xs text-zinc-500">Requiere: {r.policy.requiredRoleLabel}{r.policy.requireDistinctApprover ? ' · distinta persona a quien lo pidió' : ''}</p>
+                  <p className="text-xs text-zinc-500">{t('Requiere: {role}', { role: r.policy.requiredRoleLabel })}{r.policy.requireDistinctApprover ? ` · ${t('distinta persona a quien lo pidió')}` : ''}</p>
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">Pendiente de aprobación por: <strong>{r.policy.requiredRoleLabel}</strong>{r.policy.requireDistinctApprover ? ' (distinta persona a quien lo solicitó)' : ''}.</p>
+                <p className="text-sm text-zinc-500">
+                  {r.policy.requireDistinctApprover
+                    ? tx('Pendiente de aprobación por: {role} (distinta persona a quien lo solicitó).', { role: <strong>{r.policy.requiredRoleLabel}</strong> })
+                    : tx('Pendiente de aprobación por: {role}.', { role: <strong>{r.policy.requiredRoleLabel}</strong> })}
+                </p>
               )}
             </Card>
           )}
 
           {r.status === 'approved' && (
-            <Card title="Publicar">
-              <p className="mb-3 text-sm text-zinc-500">Se creará la versión v{r.policy.currentVersion + 1}. Tras publicar se verifica automáticamente y, si algo falla, se restaura la versión anterior.</p>
+            <Card title={t('Publicar')}>
+              <p className="mb-3 text-sm text-zinc-500">{t('Se creará la versión v{version}. Tras publicar se verifica automáticamente y, si algo falla, se restaura la versión anterior.', { version: r.policy.currentVersion + 1 })}</p>
               {can(r.risk === 'high' ? 'owner' : 'admin') ? (
-                <Button variant="ai" className="w-full" icon={<Rocket className="size-4" />} loading={pending('deploy')} disabled={busy && !pending('deploy')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/deploy` })}>Publicar ahora</Button>
+                <Button variant="ai" className="w-full" icon={<Rocket className="size-4" />} loading={pending('deploy')} disabled={busy && !pending('deploy')} onClick={() => mut.mutate({ path: `/evolve/requests/${id}/deploy` })}>{t('Publicar ahora')}</Button>
               ) : (
-                <p className="text-sm text-zinc-500">Un {r.risk === 'high' ? 'propietario' : 'administrador'} debe publicarlo.</p>
+                <p className="text-sm text-zinc-500">{r.risk === 'high' ? t('Un propietario debe publicarlo.') : t('Un administrador debe publicarlo.')}</p>
               )}
             </Card>
           )}
 
           {(deployResult || r.release) && (
-            <Card title={r.status === 'rolled_back' ? 'Versión revertida' : 'Publicado'}>
-              <p className="text-sm">Versión <strong>v{deployResult?.version ?? r.release?.to_version}</strong> · {r.release ? relativeTime(r.release.created_at) : 'ahora'}</p>
+            <Card title={r.status === 'rolled_back' ? t('Versión revertida') : t('Publicado')}>
+              <p className="text-sm">{tx('Versión <b>v{version}</b>', { version: deployResult?.version ?? r.release?.to_version, b: (c) => <strong>{c}</strong> })} · {r.release ? relativeTime(r.release.created_at) : t('ahora')}</p>
               {(deployResult?.verification ?? r.release?.verification)?.checks?.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {(deployResult?.verification ?? r.release.verification).checks.map((c: any, i: number) => (
@@ -468,29 +478,29 @@ function RequestDetail({ id }: { id: string }) {
                   ))}
                 </ul>
               )}
-              <Link to="/evolve/releases" className="mt-3 inline-block text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">Ver historial de versiones →</Link>
+              <Link to="/evolve/releases" className="mt-3 inline-block text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">{t('Ver historial de versiones →')}</Link>
             </Card>
           )}
 
           {r.approvals?.length > 0 && (
-            <Card title={<span className="flex items-center gap-2"><Users className="size-4" /> Decisiones</span>}>
-              <ul className="space-y-2">{r.approvals.map((a: any, i: number) => <li key={i} className="text-sm"><Badge color={a.decision === 'approve' ? 'emerald' : 'red'}>{a.decision === 'approve' ? 'Aprobado' : 'Rechazado'}</Badge> <span className="font-medium">{a.name}</span> <span className="text-xs text-zinc-400">{relativeTime(a.created_at)}</span>{a.comment && <p className="mt-0.5 text-xs text-zinc-500">{a.comment}</p>}</li>)}</ul>
+            <Card title={<span className="flex items-center gap-2"><Users className="size-4" /> {t('Decisiones')}</span>}>
+              <ul className="space-y-2">{r.approvals.map((a: any, i: number) => <li key={i} className="text-sm"><Badge color={a.decision === 'approve' ? 'emerald' : 'red'}>{a.decision === 'approve' ? t('Aprobado') : t('Rechazado')}</Badge> <span className="font-medium">{a.name}</span> <span className="text-xs text-zinc-400">{relativeTime(a.created_at)}</span>{a.comment && <p className="mt-0.5 text-xs text-zinc-500">{a.comment}</p>}</li>)}</ul>
             </Card>
           )}
 
           {r.llm?.length > 0 && (
-            <Card title="Modelos utilizados">
+            <Card title={t('Modelos utilizados')}>
               <ul className="space-y-1.5 text-xs">{r.llm.map((l: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate"><span className="text-zinc-500">{l.phase}</span> · {l.provider}/{l.model}</span><span className="shrink-0 tabular-nums text-zinc-500">{l.latencyMs ? `${(l.latencyMs / 1000).toFixed(1)} s` : ''}{typeof l.costUsd === 'number' ? ` · $${l.costUsd.toFixed(4)}` : ''}</span></li>)}</ul>
             </Card>
           )}
 
           {['queued', 'planning', 'testing', 'ready_for_review', 'needs_input', 'failed', 'approved'].includes(r.status) && can('builder') && (
-            <button className="w-full text-center text-xs text-zinc-400 transition-colors hover:text-red-600 disabled:pointer-events-none disabled:opacity-50 dark:hover:text-red-400" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancelar petición</button>
+            <button className="w-full text-center text-xs text-zinc-400 transition-colors hover:text-red-600 disabled:pointer-events-none disabled:opacity-50 dark:hover:text-red-400" disabled={busy} onClick={() => setConfirmCancel(true)}>{t('Cancelar petición')}</button>
           )}
         </div>
       </div>
-      <ConfirmDialog open={confirmApprove} onClose={() => setConfirmApprove(false)} typed="APLICAR" title="Aprobar cambio de riesgo alto" description="Este cambio incluye operaciones de riesgo alto (salida de datos, cambios destructivos o de permisos). Revisa el impacto antes de continuar." onConfirm={(v) => { setConfirmApprove(false); mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment, confirmation: v } }); }} confirmLabel="Aprobar" />
-      <ConfirmDialog open={confirmCancel} onClose={() => setConfirmCancel(false)} danger title="¿Cancelar la petición?" description="Se detiene el trabajo de EVOLVE AI ENGINE sobre esta petición y no se publicará. El CRM no cambia." confirmLabel="Cancelar petición" cancelLabel="Seguir" onConfirm={() => { setConfirmCancel(false); mut.mutate({ path: `/evolve/requests/${id}/cancel` }); }} />
+      <ConfirmDialog open={confirmApprove} onClose={() => setConfirmApprove(false)} typed={tk(CONFIRM_WORDS.apply)} title={t('Aprobar cambio de riesgo alto')} description={t('Este cambio incluye operaciones de riesgo alto (salida de datos, cambios destructivos o de permisos). Revisa el impacto antes de continuar.')} onConfirm={(v) => { setConfirmApprove(false); mut.mutate({ path: `/evolve/requests/${id}/approve`, body: { comment, confirmation: CONFIRM_WORDS.apply } }); }} confirmLabel={t('Aprobar')} />
+      <ConfirmDialog open={confirmCancel} onClose={() => setConfirmCancel(false)} danger title={t('¿Cancelar la petición?')} description={t('Se detiene el trabajo de EVOLVE AI ENGINE sobre esta petición y no se publicará. El CRM no cambia.')} confirmLabel={t('Cancelar petición')} cancelLabel={t('Seguir')} onConfirm={() => { setConfirmCancel(false); mut.mutate({ path: `/evolve/requests/${id}/cancel` }); }} />
     </div>
   );
 }

@@ -25,6 +25,17 @@ import { commsRoutes } from './comms/routes';
 import { adminRoutes, publicRoutes } from './admin/routes';
 import { codeEngineRoutes } from './code-engine/routes';
 import { ProviderError } from './ai/types';
+import { inRequestLocale, msg, registerI18n, t, tk } from './i18n';
+
+/** Mensajes de error: los textos fijos (claves del catálogo) se traducen al idioma de la petición. */
+function localizeDetails(details: unknown): unknown {
+  if (!Array.isArray(details)) {
+    const fields = (details as { fields?: unknown } | null | undefined)?.fields;
+    if (!Array.isArray(fields)) return details;
+    return { ...(details as object), fields: fields.map((f) => (f && typeof f === 'object' && typeof (f as { message?: unknown }).message === 'string' ? { ...f, message: tk((f as { message: string }).message) } : f)) };
+  }
+  return details.map((d) => (d && typeof d === 'object' && typeof (d as { message?: unknown }).message === 'string' ? { ...d, message: tk((d as { message: string }).message) } : d));
+}
 
 export function buildVersion() {
   let sha = process.env.RAILWAY_GIT_COMMIT_SHA ?? null;
@@ -85,6 +96,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     genReqId: () => newId(),
   });
 
+  // Idioma de la petición: el primer hook, para que todo lo que sigue (límites, autenticación, rutas y errores)
+  // responda en el idioma de quien llama.
+  registerI18n(app);
+
   // JSON conservando el cuerpo original (necesario para verificar firmas HMAC de webhooks entrantes).
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body: Buffer, done) => {
@@ -93,7 +108,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     try {
       done(null, JSON.parse(body.toString('utf8')));
     } catch {
-      done(badRequest('JSON inválido'), undefined);
+      done(badRequest(msg('JSON inválido')), undefined);
     }
   });
   // Sin límite propio: se aplica el general (2 MB) y solo la ruta de subida de archivos amplía el suyo.
@@ -137,7 +152,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     ipv6Subnet: 64,
     // En tests todas las peticiones salen de la misma IP: se omite salvo que se pida explícitamente.
     allowList: config.isTest ? (req) => req.headers['x-test-rate-limit'] !== 'on' : undefined,
-    errorResponseBuilder: (_req, ctx) => ({ statusCode: 429, code: 'rate_limited', message: `Demasiadas peticiones. Reintenta en ${Math.max(1, Math.ceil(ctx.ttl / 1000))} s.` }),
+    errorResponseBuilder: (req, ctx) =>
+      inRequestLocale(req, () => ({ statusCode: 429, code: 'rate_limited', message: t('Demasiadas peticiones. Reintenta en {seconds} s.', { seconds: Math.max(1, Math.ceil(ctx.ttl / 1000)) }) })),
   });
   // Límite general ANTES de autenticar: también cuentan las peticiones que la autenticación rechaza (401/403)
   // y las rutas inexistentes, así nadie puede forzar consultas a la base de datos sin límite.
@@ -155,7 +171,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { allowed, retryAfter } = general.hit(ipBucket(req.ip), max);
     if (allowed) return;
     reply.header('retry-after', String(retryAfter));
-    return reply.status(429).send({ error: { code: 'rate_limited', message: `Demasiadas peticiones. Reintenta en ${retryAfter} s.` } });
+    return reply.status(429).send({ error: { code: 'rate_limited', message: t('Demasiadas peticiones. Reintenta en {seconds} s.', { seconds: retryAfter }) } });
   });
 
   registerAuth(app, deps);
@@ -164,18 +180,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (req.url.startsWith('/api/')) recordRequest(`${req.method} ${req.routeOptions?.url ?? 'unknown'}`, reply.statusCode, reply.elapsedTime);
   });
 
-  app.setErrorHandler(async (err, req, reply) => {
+  app.setErrorHandler(async (err, req, reply) => inRequestLocale(req, () => handleError(err, req, reply)));
+
+  async function handleError(err: unknown, req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) {
     if (err instanceof ZodError) {
-      return reply.status(400).send({ error: { code: 'validation_failed', message: 'Datos no válidos', details: err.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: i.message })) } });
+      return reply.status(400).send({ error: { code: 'validation_failed', message: t('Datos no válidos'), details: err.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: tk(i.message) })) } });
     }
-    if (err instanceof AppError) return reply.status(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
+    // Los mensajes fijos de AppError son claves del catálogo (se traducen aquí); los que llevan datos ya se
+    // crearon traducidos con t() dentro de la petición.
+    if (err instanceof AppError) return reply.status(err.status).send({ error: { code: err.code, message: tk(err.message), details: localizeDetails(err.details) } });
     if (err instanceof ProviderError) {
       const status = err.code === 'not_configured' ? 409 : err.code === 'limit_exceeded' ? 429 : 502;
-      return reply.status(status).send({ error: { code: `ai_${err.code}`, message: err.message, details: (err as any).attempts } });
+      return reply.status(status).send({ error: { code: `ai_${err.code}`, message: tk(err.message), details: (err as any).attempts } });
     }
     const e = err as { statusCode?: number; code?: string; message: string; stack?: string };
     if (e.statusCode && e.statusCode < 500) {
-      return reply.status(e.statusCode).send({ error: { code: e.code ?? 'bad_request', message: e.statusCode === 413 ? 'El cuerpo de la petición es demasiado grande' : e.message } });
+      return reply.status(e.statusCode).send({ error: { code: e.code ?? 'bad_request', message: e.statusCode === 413 ? t('El cuerpo de la petición es demasiado grande') : e.message } });
     }
     req.log.error({ err }, 'Error no controlado');
     try {
@@ -190,8 +210,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     } catch {
       /* no bloquear la respuesta si falla el registro */
     }
-    return reply.status(500).send({ error: { code: 'internal', message: config.isProd ? 'Error interno. Se ha registrado para su revisión.' : e.message, requestId: req.id } });
-  });
+    return reply.status(500).send({ error: { code: 'internal', message: config.isProd ? t('Error interno. Se ha registrado para su revisión.') : e.message, requestId: req.id } });
+  }
 
   app.get('/api/health', async (_req, reply) => {
     let db = 'ok';
@@ -235,7 +255,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
   app.setNotFoundHandler(async (req, reply) => {
     if (req.url.startsWith('/api/') || !hasWeb || req.method !== 'GET') {
-      return reply.status(404).send({ error: { code: 'not_found', message: 'Ruta no encontrada' } });
+      return reply.status(404).send({ error: { code: 'not_found', message: t('Ruta no encontrada') } });
     }
     reply.header('Cache-Control', 'no-cache');
     return reply.sendFile('index.html');

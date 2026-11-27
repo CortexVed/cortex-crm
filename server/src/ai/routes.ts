@@ -5,6 +5,7 @@ import type { AppDeps } from '../deps';
 import { audit } from '../lib/audit';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { requireUserSession, requireWorkspace } from '../auth/plugin';
+import { tk } from '../i18n';
 import { AiSettingsInputSchema } from './manager';
 import { addMemory, listMemory } from './memory';
 
@@ -61,8 +62,8 @@ export async function aiRoutes(app: FastifyInstance, deps: AppDeps) {
     const a = requireWorkspace(req, 'admin');
     const settings = await deps.ai.getSettings(a.workspaceId);
     const routes: Record<string, unknown> = {};
-    for (const t of AI_TASKS) routes[t] = await deps.ai.plan(a.workspaceId, t);
-    return { settings, tasks: AI_TASKS.map((t) => ({ key: t, label: AI_TASK_LABELS[t] })), effectiveRoutes: routes };
+    for (const task of AI_TASKS) routes[task] = await deps.ai.plan(a.workspaceId, task);
+    return { settings, tasks: AI_TASKS.map((task) => ({ key: task, label: tk(AI_TASK_LABELS[task]) })), effectiveRoutes: routes };
   });
 
   app.put('/ai/settings', async (req) => {

@@ -1,23 +1,24 @@
 import { useMemo, useState } from 'react';
 import { FileMinus2, FilePen, FilePlus2 } from 'lucide-react';
 import { Badge, Card, cx } from '../../components/ui';
+import { msg, t, tk, tp } from '../../lib/i18n';
 import type { FileEntry } from './codeTypes';
 import { collapse, countChanges, lineDiff } from './diff';
 
 const ACTION = {
-  add: { label: 'nuevo', color: 'emerald', icon: FilePlus2 },
-  modify: { label: 'modificado', color: 'amber', icon: FilePen },
-  delete: { label: 'borrado', color: 'red', icon: FileMinus2 },
+  add: { label: msg('nuevo'), color: 'emerald', icon: FilePlus2 },
+  modify: { label: msg('modificado'), color: 'amber', icon: FilePen },
+  delete: { label: msg('borrado'), color: 'red', icon: FileMinus2 },
 } as const;
 
 function FileDiff({ file }: { file: FileEntry }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const { lines, approximate } = useMemo(() => lineDiff(file.before, file.after), [file.before, file.after]);
   const rows = useMemo(() => collapse(lines, 3, expanded), [lines, expanded]);
-  if (!lines.length) return <p className="p-4 text-sm text-zinc-500">Archivo vacío.</p>;
+  if (!lines.length) return <p className="p-4 text-sm text-zinc-500">{t('Archivo vacío.')}</p>;
   return (
     <div className="overflow-x-auto scrollbar-thin">
-      {approximate && <p className="border-b border-zinc-100 px-3 py-1.5 text-xs text-amber-700 dark:border-zinc-800 dark:text-amber-300">Cambio muy grande: se muestra el contenido anterior completo y después el nuevo.</p>}
+      {approximate && <p className="border-b border-zinc-100 px-3 py-1.5 text-xs text-amber-700 dark:border-zinc-800 dark:text-amber-300">{t('Cambio muy grande: se muestra el contenido anterior completo y después el nuevo.')}</p>}
       <table className="w-full border-collapse font-mono text-[12px] leading-[1.45]">
         <tbody>
           {rows.map((r, i) =>
@@ -25,7 +26,7 @@ function FileDiff({ file }: { file: FileEntry }) {
               <tr key={`g${r.from}`}>
                 <td colSpan={3} className="bg-zinc-50 px-3 py-1 text-center dark:bg-zinc-800/40">
                   <button type="button" className="text-xs text-brand-600 hover:underline dark:text-brand-400" onClick={() => setExpanded((s) => new Set(s).add(r.from))}>
-                    ··· {r.count} líneas sin cambios ···
+                    ··· {tp(r.count, '{count} línea sin cambios', '{count} líneas sin cambios')} ···
                   </button>
                 </td>
               </tr>
@@ -54,7 +55,11 @@ export function DiffViewer({ files }: { files: FileEntry[] }) {
   if (!files.length) return null;
   const total = counts.reduce((acc, c) => ({ added: acc.added + c.added, removed: acc.removed + c.removed }), { added: 0, removed: 0 });
   return (
-    <Card title="Cambios en el código" description={`${files.length} archivo(s) · +${total.added} −${total.removed} líneas. Revisa el diff completo antes de aprobar: es exactamente lo que se desplegará.`} padded={false}>
+    <Card
+      title={t('Cambios en el código')}
+      description={t('{files} · +{added} −{removed} líneas. Revisa el diff completo antes de aprobar: es exactamente lo que se desplegará.', { files: tp(files.length, '{count} archivo', '{count} archivos'), added: total.added, removed: total.removed })}
+      padded={false}
+    >
       {/* Consultas de contenedor: la lista de archivos solo va al lado del diff si la tarjeta es ancha
           (con el panel de IA abierto, la ventana puede ser ancha y la tarjeta estrecha). */}
       <div className="@container">
@@ -84,7 +89,7 @@ export function DiffViewer({ files }: { files: FileEntry[] }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
             <code className="break-all text-xs font-medium">{current.path}</code>
-            <Badge color={ACTION[current.action].color}>{ACTION[current.action].label}</Badge>
+            <Badge color={ACTION[current.action].color}>{tk(ACTION[current.action].label)}</Badge>
           </div>
           <div className="max-h-[36rem] overflow-y-auto scrollbar-thin">
             <FileDiff key={current.path} file={current} />

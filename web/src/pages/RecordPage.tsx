@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Bot, FileText, MessageCircle, Paperclip, Pencil, Plus, Send, Sparkles, StickyNote, Trash2, Upload, Zap } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useSession } from '../lib/session';
 import { ModuleIcon } from '../lib/icons';
 import { MODULE_ACCENT } from '../lib/colors';
 import { formatBytes, formatDate, relativeTime } from '../lib/format';
+import { inSentence, t, tx } from '../lib/i18n';
 import type { Field, Module, RecordItem, Refs } from '../lib/types';
 import { recordTitle } from '../../../shared/records';
 import type { Color } from '../../../shared/constants';
@@ -28,10 +29,18 @@ function fmtChange(field: Field | undefined, v: unknown): string {
   if (!field) return typeof v === 'object' ? JSON.stringify(v) : String(v);
   if (field.type === 'select') return field.options?.find((o) => o.value === v)?.label ?? String(v);
   if (field.type === 'multi_select' && Array.isArray(v)) return v.map((x) => field.options?.find((o) => o.value === x)?.label ?? x).join(', ');
-  if (field.type === 'relation' || field.type === 'user' || field.type === 'file') return 'actualizado';
+  if (field.type === 'relation' || field.type === 'user' || field.type === 'file') return t('actualizado');
   if (field.type === 'date' || field.type === 'datetime') return formatDate(String(v), field.type === 'datetime');
-  if (field.type === 'boolean') return v ? 'Sí' : 'No';
+  if (field.type === 'boolean') return v ? t('Sí') : t('No');
   return String(v).slice(0, 80);
+}
+
+/** «Ana creó el registro»: la frase completa con quién la hizo dentro (el orden de las palabras cambia según el idioma). */
+function historyLine(action: string, actor: ReactNode): ReactNode {
+  if (action === 'create') return tx('{actor} creó el registro', { actor });
+  if (action === 'delete') return tx('{actor} eliminó el registro', { actor });
+  if (action === 'restore') return tx('{actor} restauró el registro', { actor });
+  return tx('{actor} actualizó', { actor });
 }
 
 function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
@@ -54,21 +63,21 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   return (
-    <Card title="Actividad" padded={false}>
+    <Card title={t('Actividad@@historial')} padded={false}>
       {can('member') && (
         <form className="border-b border-zinc-100 p-3 dark:border-zinc-800" onSubmit={(e) => { e.preventDefault(); if (note.trim()) add.mutate(); }}>
-          <Textarea rows={2} placeholder="Escribe una nota…" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim() && !add.isPending) { e.preventDefault(); add.mutate(); } }} />
+          <Textarea rows={2} placeholder={t('Escribe una nota…')} value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim() && !add.isPending) { e.preventDefault(); add.mutate(); } }} />
           <div className="mt-2 flex justify-end">
-            <Button size="sm" variant="primary" type="submit" loading={add.isPending} disabled={!note.trim()} icon={<StickyNote className="size-3.5" />}>Añadir nota</Button>
+            <Button size="sm" variant="primary" type="submit" loading={add.isPending} disabled={!note.trim()} icon={<StickyNote className="size-3.5" />}>{t('Añadir nota')}</Button>
           </div>
         </form>
       )}
       {q.isLoading ? (
-        <div className="p-4 text-sm text-zinc-400">Cargando actividad…</div>
+        <div className="p-4 text-sm text-zinc-400">{t('Cargando actividad…')}</div>
       ) : q.error ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data!.items.length ? (
-        <EmptyState title="Sin actividad todavía" />
+        <EmptyState title={t('Sin actividad todavía')} />
       ) : (
         <ol className="max-h-[560px] space-y-0 overflow-y-auto p-3 scrollbar-thin">
           {q.data!.items.map((it) => (
@@ -80,10 +89,8 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
               <div className="min-w-0 flex-1 pt-0.5 text-sm">
                 {it.kind === 'history' && (
                   <>
-                    <div>
-                      <span className="font-medium">{it.actor}</span>{' '}
-                      <span className="text-zinc-500">{it.action === 'create' ? 'creó el registro' : it.action === 'delete' ? 'eliminó el registro' : it.action === 'restore' ? 'restauró el registro' : 'actualizó'}</span>
-                    </div>
+                    {/* El nombre conserva el color del texto normal; el resto de la frase va atenuado. */}
+                    <div className="text-zinc-500">{historyLine(it.action, <span className="font-medium text-zinc-900 dark:text-zinc-100">{it.actor}</span>)}</div>
                     {it.action === 'update' && (
                       <ul className="mt-1 space-y-0.5 text-xs text-zinc-500">
                         {Object.entries(it.changes as Record<string, { from: unknown; to: unknown }>).slice(0, 8).map(([k, c]) => {
@@ -103,7 +110,7 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
                     <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
                       <span className="font-medium text-zinc-700 dark:text-zinc-300">{it.actor}</span>
                       {(it.mine || can('admin')) && (
-                        <button aria-label="Eliminar nota" className="text-zinc-400 hover:text-red-600" onClick={() => remove.mutate(it.id)}><Trash2 className="size-3.5" /></button>
+                        <button aria-label={t('Eliminar nota')} className="text-zinc-400 hover:text-red-600" onClick={() => remove.mutate(it.id)}><Trash2 className="size-3.5" /></button>
                       )}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap">{it.body}</p>
@@ -112,15 +119,15 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
                 {it.kind === 'message' && (
                   <div className={cx('rounded-lg px-3 py-2', it.direction === 'inbound' ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-zinc-100 dark:bg-zinc-800')}>
                     <div className="text-xs text-zinc-500">
-                      <Badge color={it.channel === 'whatsapp' ? 'green' : 'sky'}>{it.channel === 'whatsapp' ? 'WhatsApp' : 'Telegram'}</Badge> {it.direction === 'inbound' ? `de ${it.from ?? 'contacto'}` : 'enviado'}
+                      <Badge color={it.channel === 'whatsapp' ? 'green' : 'sky'}>{it.channel === 'whatsapp' ? 'WhatsApp' : 'Telegram'}</Badge> {it.direction === 'inbound' ? t('de {from}', { from: it.from ?? t('contacto') }) : t('enviado')}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap">{it.body}</p>
                   </div>
                 )}
                 {it.kind === 'automation' && (
                   <div>
-                    <span className="font-medium">Automatización</span> <span className="text-zinc-500">«{it.automation}»</span>{' '}
-                    <Badge color={it.status === 'success' ? 'emerald' : it.status === 'failed' ? 'red' : 'slate'}>{it.status === 'success' ? 'ejecutada' : it.status === 'failed' ? 'con error' : it.status}</Badge>
+                    <span className="font-medium">{t('Automatización')}</span> <span className="text-zinc-500">«{it.automation}»</span>{' '}
+                    <Badge color={it.status === 'success' ? 'emerald' : it.status === 'failed' ? 'red' : 'slate'}>{it.status === 'success' ? t('ejecutada') : it.status === 'failed' ? t('con error') : it.status}</Badge>
                     {Array.isArray(it.log) && it.log.length > 0 && <div className="mt-0.5 text-xs text-zinc-500">{it.log.join(' · ')}</div>}
                   </div>
                 )}
@@ -147,7 +154,7 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
       for (const f of files) await uploadFile(f, { recordId });
       qc.invalidateQueries({ queryKey: ['files', recordId] });
       qc.invalidateQueries({ queryKey: ['timeline', mod.key, recordId] });
-      toast('Documentos subidos');
+      toast(t('Documentos subidos'));
     } catch (e) {
       toast(errorMessage(e), 'error');
     } finally {
@@ -156,11 +163,11 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
   };
   return (
     <Card
-      title="Documentos"
+      title={t('Documentos')}
       actions={
         canEdit && (
           <label className={cx('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-zinc-600 ring-1 ring-zinc-200 hover:bg-zinc-50 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800', busy && 'pointer-events-none opacity-60')}>
-            <Upload className="size-3.5" /> {busy ? 'Subiendo…' : 'Subir'}
+            <Upload className="size-3.5" /> {busy ? t('Subiendo…') : t('Subir')}
             <input
               type="file"
               multiple
@@ -177,11 +184,11 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
       padded={false}
     >
       {q.isLoading ? (
-        <div className="p-4 text-sm text-zinc-400">Cargando…</div>
+        <div className="p-4 text-sm text-zinc-400">{t('Cargando…')}</div>
       ) : q.error ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data?.length ? (
-        <p className="px-4 py-5 text-center text-sm text-zinc-500">Sin documentos</p>
+        <p className="px-4 py-5 text-center text-sm text-zinc-500">{t('Sin documentos')}</p>
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {q.data.map((f) => (
@@ -191,7 +198,7 @@ function Documents({ mod, recordId, canEdit }: { mod: Module; recordId: string; 
               <span className="text-xs text-zinc-400">{formatBytes(f.size)}</span>
               {canAnalyze(f.name) && <AnalyzeFileButton file={f} mod={mod} recordId={recordId} />}
               {canEdit && (
-                <button aria-label="Eliminar documento" className="text-zinc-400 hover:text-red-600" onClick={() => remove.mutate(f.id)}><Trash2 className="size-3.5" /></button>
+                <button aria-label={t('Eliminar documento')} className="text-zinc-400 hover:text-red-600" onClick={() => remove.mutate(f.id)}><Trash2 className="size-3.5" /></button>
               )}
             </li>
           ))}
@@ -212,23 +219,23 @@ function Messaging({ mod, recordId }: { mod: Module; recordId: string }) {
     mutationFn: () => post('/comms/send', { connectorId: connectorId || active[0].id, recordId, text }),
     onSuccess: () => {
       setText('');
-      toast('Mensaje enviado');
+      toast(t('Mensaje enviado'));
       qc.invalidateQueries({ queryKey: ['timeline', mod.key, recordId] });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   if (!active.length) return null;
   return (
-    <Card title="Enviar mensaje">
+    <Card title={t('Enviar mensaje')}>
       <div className="space-y-2">
         {active.length > 1 && (
           <Select value={connectorId || active[0].id} onChange={(e) => setConnectorId(e.target.value)}>
             {active.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
           </Select>
         )}
-        <Textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Escribe un mensaje…" />
+        <Textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Escribe un mensaje…')} />
         <div className="flex justify-end">
-          <Button size="sm" variant="primary" icon={<Send className="size-3.5" />} loading={send.isPending} disabled={!text.trim()} onClick={() => send.mutate()}>Enviar</Button>
+          <Button size="sm" variant="primary" icon={<Send className="size-3.5" />} loading={send.isPending} disabled={!text.trim()} onClick={() => send.mutate()}>{t('Enviar')}</Button>
         </div>
       </div>
     </Card>
@@ -266,7 +273,7 @@ function RecordPage() {
       qc.invalidateQueries({ queryKey: ['record', module, id] });
       qc.invalidateQueries({ queryKey: ['records', module] });
       qc.invalidateQueries({ queryKey: ['timeline', module, id] });
-      toast('Cambios guardados');
+      toast(t('Cambios guardados'));
     },
     onError: (e) => {
       if (e instanceof ApiError) setErrors(e.fieldErrors);
@@ -277,7 +284,7 @@ function RecordPage() {
     mutationFn: () => del(`/records/${module}/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['records', module] });
-      toast('Registro eliminado');
+      toast(t('Registro eliminado'));
       navigate(`/m/${module}`);
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -311,15 +318,15 @@ function RecordPage() {
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-              <span>{mod.label}</span>·<span>Creado {relativeTime(record.createdAt)}</span>·<span>Última actividad {relativeTime(record.lastActivityAt)}</span>
+              <span>{mod.label}</span>·<span>{t('Creado {time}', { time: relativeTime(record.createdAt) })}</span>·<span>{t('Última actividad {time}', { time: relativeTime(record.lastActivityAt) })}</span>
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" size="sm" icon={<Sparkles className="size-3.5 text-fuchsia-500" />} onClick={() => askAi(`Resume esta ficha y sugiere los próximos pasos.`)}>Preguntar a EVOLVE AI</Button>
+          <Button variant="ghost" size="sm" icon={<Sparkles className="size-3.5 text-fuchsia-500" />} onClick={() => askAi(t('Resume esta ficha y sugiere los próximos pasos.'))}>{t('Preguntar a EVOLVE AI')}</Button>
           {canEdit && hasClassifiable && <ClassifyButton mod={mod} recordId={record.id} data={record.data} />}
-          {canEdit && !editing && <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => { setValues(editable); setErrors({}); setEditing(true); }}>Editar</Button>}
-          {can(mod.permissions.delete) && <Button size="sm" variant="dangerGhost" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>Eliminar</Button>}
+          {canEdit && !editing && <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => { setValues(editable); setErrors({}); setEditing(true); }}>{t('Editar')}</Button>}
+          {can(mod.permissions.delete) && <Button size="sm" variant="dangerGhost" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>{t('Eliminar')}</Button>}
         </div>
       </div>
 
@@ -333,7 +340,7 @@ function RecordPage() {
               <button
                 key={o.value}
                 disabled={!canEdit || save.isPending || editing}
-                title={editing ? 'Guarda o cancela la edición para cambiar la etapa' : undefined}
+                title={editing ? t('Guarda o cancela la edición para cambiar la etapa') : undefined}
                 onClick={() => !active && save.mutate({ [headline.key]: o.value })}
                 className={cx('flex-1 shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:cursor-default', active ? 'bg-brand-600 text-white shadow-sm' : idx < activeIdx ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800')}
               >
@@ -346,7 +353,7 @@ function RecordPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0 space-y-5">
-          <Card title={editing ? 'Editar' : 'Información'} actions={editing && (<><Button size="sm" onClick={() => setEditing(false)}>Cancelar</Button><Button size="sm" variant="primary" loading={save.isPending} onClick={() => save.mutate(values)}>Guardar</Button></>)}>
+          <Card title={editing ? t('Editar') : t('Información')} actions={editing && (<><Button size="sm" onClick={() => setEditing(false)}>{t('Cancelar')}</Button><Button size="sm" variant="primary" loading={save.isPending} onClick={() => save.mutate(values)}>{t('Guardar')}</Button></>)}>
             {editing ? (
               <RecordForm mod={mod} values={values} onChange={setValues} errors={errors} refs={refs} recordId={record.id} mode="edit" />
             ) : (
@@ -375,16 +382,16 @@ function RecordPage() {
               <Card
                 key={`${rel.module}-${rel.field}`}
                 title={<span className="flex items-center gap-2"><ModuleIcon name={rel.icon} className="size-4 text-zinc-400" /> {rel.label} <span className="font-normal text-zinc-400">({rel.total})</span></span>}
-                description={rel.fieldLabel !== mod.label ? `Vinculados por «${rel.fieldLabel}»` : undefined}
+                description={rel.fieldLabel !== mod.label ? t('Vinculados por «{field}»', { field: rel.fieldLabel }) : undefined}
                 actions={can(relMod.permissions.create) && (
                   <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => { sessionStorage.setItem(`evolve-new-prefill:${rel.module}`, JSON.stringify({ [rel.field]: record.id })); navigate(`/m/${rel.module}?new=1`); }}>
-                    Nuevo
+                    {t('Nuevo')}
                   </Button>
                 )}
                 padded={false}
               >
                 {!rel.items.length ? (
-                  <p className="px-4 py-5 text-center text-sm text-zinc-500">Ninguno todavía</p>
+                  <p className="px-4 py-5 text-center text-sm text-zinc-500">{t('Ninguno todavía')}</p>
                 ) : (
                   <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
                     {rel.items.map((it) => (
@@ -395,7 +402,7 @@ function RecordPage() {
                         </Link>
                       </li>
                     ))}
-                    {rel.total > rel.items.length && <li className="px-4 py-2 text-xs text-zinc-500">Y {rel.total - rel.items.length} más…</li>}
+                    {rel.total > rel.items.length && <li className="px-4 py-2 text-xs text-zinc-500">{t('Y {count} más…', { count: rel.total - rel.items.length })}</li>}
                   </ul>
                 )}
               </Card>
@@ -407,11 +414,21 @@ function RecordPage() {
           <Timeline mod={mod} recordId={record.id} />
           <Documents mod={mod} recordId={record.id} canEdit={canEdit} />
           <div className="flex items-center gap-2 px-1 text-xs text-zinc-400">
-            <Paperclip className="size-3" /> Actualizado {formatDate(record.updatedAt, true)}{record.updatedBy && refs.users[record.updatedBy] ? <> por <Avatar name={refs.users[record.updatedBy]} size="sm" /> {refs.users[record.updatedBy]}</> : null}
+            <Paperclip className="size-3" />{' '}
+            {record.updatedBy && refs.users[record.updatedBy]
+              ? tx('Actualizado {date} por {user}', {
+                  date: formatDate(record.updatedAt, true),
+                  user: (
+                    <>
+                      <Avatar name={refs.users[record.updatedBy]} size="sm" /> {refs.users[record.updatedBy]}
+                    </>
+                  ),
+                })
+              : t('Actualizado {date}', { date: formatDate(record.updatedAt, true) })}
           </div>
         </div>
       </div>
-      <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} loading={remove.isPending} danger title={`Eliminar ${mod.label.toLowerCase()}`} description={`«${title}» se moverá a la papelera. Un administrador puede restaurarlo y la acción queda en el registro de auditoría.`} confirmLabel="Eliminar" />
+      <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} loading={remove.isPending} danger title={t('Eliminar {name}', { name: inSentence(mod.label) })} description={t('«{title}» se moverá a la papelera. Un administrador puede restaurarlo y la acción queda en el registro de auditoría.', { title })} confirmLabel={t('Eliminar')} />
     </div>
   );
 }

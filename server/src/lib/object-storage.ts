@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { t } from '../i18n';
 
 /**
  * Almacenamiento de objetos compatible con S3 para los archivos adjuntos: los buckets de Railway (y Tigris, R2,
@@ -114,7 +115,7 @@ export function objectUrl(cfg: Pick<ObjectStorageConfig, 'endpoint' | 'bucket' |
 function s3Error(status: number, text: string): ObjectStorageError {
   const code = /<Code>([^<]{1,100})<\/Code>/.exec(text)?.[1];
   const message = /<Message>([^<]{1,300})<\/Message>/.exec(text)?.[1];
-  return new ObjectStorageError(`El almacenamiento de archivos respondió ${status}${code ? ` (${code})` : ''}${message ? `: ${message}` : ''}`, status, code);
+  return new ObjectStorageError(t('El almacenamiento de archivos respondió {status}{details}', { status, details: `${code ? ` (${code})` : ''}${message ? `: ${message}` : ''}` }), status, code);
 }
 
 export function createObjectStorage(cfg: ObjectStorageConfig, fetchImpl: typeof fetch = fetch, now: () => Date = () => new Date()): ObjectStorage {
@@ -125,8 +126,7 @@ export function createObjectStorage(cfg: ObjectStorageConfig, fetchImpl: typeof 
     try {
       return await fetchImpl(url, { method, headers: signed, body: body ? new Uint8Array(body) : undefined, signal: AbortSignal.timeout(TIMEOUT_MS), redirect: 'error' });
     } catch (e) {
-      const reason = e instanceof Error && e.name === 'TimeoutError' ? 'no respondió a tiempo' : 'no está accesible';
-      throw new ObjectStorageError(`El almacenamiento de archivos ${reason}`);
+      throw new ObjectStorageError(e instanceof Error && e.name === 'TimeoutError' ? t('El almacenamiento de archivos no respondió a tiempo') : t('El almacenamiento de archivos no está accesible'));
     }
   }
 

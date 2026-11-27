@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, ErrorState, Field, Input, Spinner } from '../../components/ui';
 import { errorMessage, get, post } from '../../lib/api';
+import { t, tk, tx } from '../../lib/i18n';
 import { useSession } from '../../lib/session';
 import { ROLE_LABELS, type Role } from '../../../../shared/constants';
 import type { Me } from '../../lib/types';
@@ -40,7 +41,7 @@ export default function AcceptInvite() {
       setLoading(false);
     }
   };
-  if (!token) return <Alert tone="danger" title="Enlace no válido">El enlace de invitación está incompleto o mal copiado. Pide a quien te invitó que te envíe uno nuevo.</Alert>;
+  if (!token) return <Alert tone="danger" title={t('Enlace no válido')}>{t('El enlace de invitación está incompleto o mal copiado. Pide a quien te invitó que te envíe uno nuevo.')}</Alert>;
   if (info.isLoading) return <Spinner />;
   if (info.error) return <ErrorState error={info.error} />;
   const inv = info.data!;
@@ -48,31 +49,38 @@ export default function AcceptInvite() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Únete a {inv.workspaceName}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('Únete a {workspace}', { workspace: inv.workspaceName })}</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Invitación para <strong>{inv.email}</strong> con rol <strong>{ROLE_LABELS[inv.role]}</strong>.
+          {tx('Invitación para <b>{email}</b> con rol <b>{role}</b>.', { email: inv.email, role: tk(ROLE_LABELS[inv.role]), b: (c) => <strong>{c}</strong> })}
         </p>
       </div>
       {error && <Alert tone="danger">{error}</Alert>}
       {inv.userExists ? (
         !me ? (
-          <Alert tone="info" title="Ya tienes una cuenta">
-            <Link className="font-semibold underline" to={`/login?next=${encodeURIComponent(`/invite/${token}`)}`}>Inicia sesión con {inv.email}</Link> para aceptar.
+          <Alert tone="info" title={t('Ya tienes una cuenta')}>
+            {tx('<link>Inicia sesión con {email}</link> para aceptar.', {
+              email: inv.email,
+              link: (c) => (
+                <Link className="font-semibold underline" to={`/login?next=${encodeURIComponent(`/invite/${token}`)}`}>
+                  {c}
+                </Link>
+              ),
+            })}
           </Alert>
         ) : wrongUser ? (
-          <Alert tone="warning">Has iniciado sesión como {me.user.email}. Cierra sesión y entra con {inv.email} para aceptar.</Alert>
+          <Alert tone="warning">{t('Has iniciado sesión como {current}. Cierra sesión y entra con {email} para aceptar.', { current: me.user.email, email: inv.email })}</Alert>
         ) : (
-          <Button variant="primary" className="w-full" loading={loading} onClick={accept}>Aceptar invitación</Button>
+          <Button variant="primary" className="w-full" loading={loading} onClick={accept}>{t('Aceptar invitación')}</Button>
         )
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void accept(); }} className="space-y-4">
-          <Field label="Tu nombre">
+          <Field label={t('Tu nombre')}>
             <Input required value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Elige una contraseña" hint="Mínimo 10 caracteres combinando letras con números o símbolos.">
+          <Field label={t('Elige una contraseña')} hint={t('Mínimo 10 caracteres combinando letras con números o símbolos.')}>
             <Input type="password" required minLength={10} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
-          <Button type="submit" variant="primary" className="w-full" loading={loading}>Crear cuenta y unirme</Button>
+          <Button type="submit" variant="primary" className="w-full" loading={loading}>{t('Crear cuenta y unirme')}</Button>
         </form>
       )}
     </div>

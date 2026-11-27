@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
 import { activeModules, findModule, NotifyTargetSchema } from '../../../shared/blueprint';
+import { msg, t, tk } from '../i18n';
 import type { RecordService } from './record-service';
 import type { StoredRecord } from './store';
 
@@ -100,6 +102,18 @@ export type ScriptOutput = z.infer<typeof ScriptOutputSchema>;
 
 export class ScriptError extends Error {}
 
+/**
+ * Textos fijos que produce el propio sandbox (no el script). Dentro del hilo no hay traducciones: llegan en
+ * español y se traducen al recibirlos, en el idioma de quien ejecuta el script.
+ */
+const SANDBOX_TEXTS = {
+  noRun: msg('El script debe definir function run(input)'),
+  notObject: msg('run(input) debe devolver un objeto'),
+  noDescription: msg('error sin descripción'),
+  unusable: msg('sandbox inutilizable'),
+};
+const sandboxText = (s: string): string => ((Object.values(SANDBOX_TEXTS) as string[]).includes(s) ? tk(s) : s);
+
 // Preludio dentro del sandbox: console.log recoge trazas (no hay E/S real).
 const PRELUDE = `var __logs = [];
 var console = { log: function () { if (__logs.length < 20) __logs.push(Array.prototype.map.call(arguments, function (a) { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }).join(' ').slice(0, 500)); } };
@@ -108,10 +122,10 @@ console.info = console.warn = console.error = console.log;
 
 const EPILOGUE = `
 ;(function () {
-  if (typeof run !== 'function') throw new Error('El script debe definir function run(input)');
+  if (typeof run !== 'function') throw new Error(${JSON.stringify(SANDBOX_TEXTS.noRun)});
   var out = run(JSON.parse(__input));
   if (out === undefined || out === null) out = {};
-  if (typeof out !== 'object' || Array.isArray(out)) throw new Error('run(input) debe devolver un objeto');
+  if (typeof out !== 'object' || Array.isArray(out)) throw new Error(${JSON.stringify(SANDBOX_TEXTS.notObject)});
   return JSON.stringify({ out: out, logs: __logs });
 })()`;
 
@@ -171,7 +185,7 @@ function evaluate(vm, job, started) {
   input.dispose();
   const result = vm.evalCode(L.prelude + job.code + L.epilogue, 'script.js');
   if (result.error) {
-    const msg = errorText(vm, result.error) || 'error sin descripción';
+    const msg = errorText(vm, result.error) || ${JSON.stringify(SANDBOX_TEXTS.noDescription)};
     result.error.dispose();
     if (/interrupted/i.test(msg) || Date.now() - started >= job.timeoutMs) return { kind: 'timeout' };
     if (/out of memory/i.test(msg)) return { kind: 'memory' };
@@ -184,7 +198,7 @@ function evaluate(vm, job, started) {
 }
 
 function execute(QuickJS, job) {
-  if (broken) return { id: job.id, kind: 'internal', message: 'sandbox inutilizable' };
+  if (broken) return { id: job.id, kind: 'internal', message: ${JSON.stringify(SANDBOX_TEXTS.unusable)} };
   const started = Date.now();
   try {
     // Runtime y contexto nuevos por ejecución: nada de un script sobrevive al siguiente.
@@ -227,6 +241,8 @@ interface PendingRun {
   timeoutMs: number;
   resolve: (reply: WorkerReply) => void;
   reject: (err: Error) => void;
+  /** Contexto de quien pidió la ejecución: los errores que detecta el pool se redactan en su idioma. */
+  inContext: <R>(fn: () => R) => R;
 }
 
 interface PoolWorker {
@@ -241,19 +257,22 @@ interface PoolWorker {
 /** Tras tantos arranques fallidos seguidos se deja de insistir hasta que llegue trabajo nuevo. */
 const MAX_FAILED_STARTS = 3;
 
+/** Detalle de un fallo del pool; se redacta al rechazar cada ejecución, en el idioma de quien la pidió. */
+type Detail = () => string;
+
 const pool = {
   workers: new Set<PoolWorker>(),
   queue: [] as PendingRun[],
   nextId: 1,
   failedStarts: 0,
-  lastStartError: '',
+  lastStartError: null as Detail | null,
   started: 0,
   replaced: 0,
 };
 let quickjsPaths: { corePath: string; variantPath: string } | null = null;
 
 function workerError(detail: string): ScriptError {
-  return new ScriptError(`El sandbox de scripts ha fallado y se ha reiniciado (${detail.slice(0, 300)})`);
+  return new ScriptError(t('El sandbox de scripts ha fallado y se ha reiniciado ({detail})', { detail: detail.slice(0, 300) }));
 }
 
 function clearTimer(slot: PoolWorker): void {
@@ -309,24 +328,25 @@ function spawnWorker(): boolean {
     });
   } catch (e) {
     pool.failedStarts++;
-    pool.lastStartError = describe(e);
+    const reason = describe(e);
+    pool.lastStartError = () => reason;
     return false;
   }
   const slot: PoolWorker = { worker, ready: false, run: null, timer: null, retired: false };
   pool.workers.add(slot);
   pool.started++;
-  slot.timer = setTimeout(() => fail(slot, 'el hilo no ha arrancado a tiempo'), SCRIPT_POOL.startTimeoutMs);
+  slot.timer = setTimeout(() => fail(slot, () => t('el hilo no ha arrancado a tiempo')), SCRIPT_POOL.startTimeoutMs);
   slot.timer.unref();
-  worker.on('message', (msg: unknown) => onMessage(slot, msg));
+  worker.on('message', (data: unknown) => onMessage(slot, data));
   // Sin estos manejadores, un 'error' del hilo tumbaría el proceso principal.
-  worker.on('error', (err) => fail(slot, describe(err)));
-  worker.on('messageerror', (err) => fail(slot, describe(err)));
-  worker.on('exit', (code) => fail(slot, `el hilo ha terminado con código ${code}`));
+  worker.on('error', (err) => fail(slot, () => describe(err)));
+  worker.on('messageerror', (err) => fail(slot, () => describe(err)));
+  worker.on('exit', (code) => fail(slot, () => t('el hilo ha terminado con código {code}', { code })));
   return true;
 }
 
 /** El hilo murió por su cuenta ('error', 'exit', límites de recursos) o no arrancó a tiempo. */
-function fail(slot: PoolWorker, detail: string): void {
+function fail(slot: PoolWorker, detail: Detail): void {
   if (slot.retired) return;
   const run = slot.run;
   if (slot.ready) pool.replaced++;
@@ -335,26 +355,26 @@ function fail(slot: PoolWorker, detail: string): void {
     pool.lastStartError = detail;
   }
   void discard(slot);
-  run?.reject(workerError(detail));
+  if (run) run.reject(run.inContext(() => workerError(detail())));
   pump();
 }
 
-function onMessage(slot: PoolWorker, msg: unknown): void {
-  if (slot.retired || !msg || typeof msg !== 'object') return;
-  if ((msg as { type?: unknown }).type === 'ready') {
+function onMessage(slot: PoolWorker, data: unknown): void {
+  if (slot.retired || !data || typeof data !== 'object') return;
+  if ((data as { type?: unknown }).type === 'ready') {
     slot.ready = true;
     clearTimer(slot);
     pool.failedStarts = 0;
     pump();
     return;
   }
-  const reply = msg as WorkerReply;
+  const reply = data as WorkerReply;
   const run = slot.run;
   if (reply.kind === 'internal') {
     // El motor de ese hilo ya no es fiable, sea cual sea la ejecución que lo provocó: fuera del pool.
     pool.replaced++;
     void discard(slot);
-    if (run && run.id === reply.id) run.reject(workerError(reply.message));
+    if (run && run.id === reply.id) run.reject(run.inContext(() => workerError(sandboxText(reply.message))));
     else if (run) pool.queue.unshift(run); // no llegó a ejecutarse en ese hilo: va a otro
     pump();
     return;
@@ -373,7 +393,7 @@ function dispatch(slot: PoolWorker, run: PendingRun): void {
     if (slot.run !== run) return;
     pool.replaced++;
     void discard(slot);
-    run.reject(new ScriptError(`Tiempo máximo de ejecución superado (${run.timeoutMs} ms)`));
+    run.reject(run.inContext(() => new ScriptError(t('Tiempo máximo de ejecución superado ({ms} ms)', { ms: run.timeoutMs }))));
     pump();
   }, run.timeoutMs + SCRIPT_POOL.deadlineMarginMs);
   slot.worker.postMessage({ id: run.id, code: run.code, inputJson: run.inputJson, timeoutMs: run.timeoutMs });
@@ -390,8 +410,10 @@ function pump(): void {
     // Ningún hilo vivo ni por arrancar: se rechaza la cola en vez de dejarla colgada. El siguiente
     // script volverá a intentarlo una vez.
     pool.failedStarts = MAX_FAILED_STARTS - 1;
-    const detail = pool.lastStartError ? ` (${pool.lastStartError.slice(0, 300)})` : '';
-    for (const run of queue.splice(0)) run.reject(new ScriptError(`No se ha podido iniciar el sandbox de scripts${detail}`));
+    const detail = pool.lastStartError;
+    for (const run of queue.splice(0)) {
+      run.reject(run.inContext(() => new ScriptError(detail ? t('No se ha podido iniciar el sandbox de scripts ({detail})', { detail: detail().slice(0, 300) }) : t('No se ha podido iniciar el sandbox de scripts'))));
+    }
   }
   for (const slot of workers) {
     if (!queue.length) break;
@@ -405,9 +427,9 @@ function pump(): void {
 }
 
 function submit(code: string, inputJson: string, timeoutMs: number): Promise<WorkerReply> {
-  if (pool.queue.length >= SCRIPT_POOL.maxQueued) return Promise.reject(new ScriptError('Demasiados scripts en ejecución; inténtalo de nuevo'));
+  if (pool.queue.length >= SCRIPT_POOL.maxQueued) return Promise.reject(new ScriptError(t('Demasiados scripts en ejecución; inténtalo de nuevo')));
   return new Promise((resolve, reject) => {
-    pool.queue.push({ id: pool.nextId++, code, inputJson, timeoutMs, resolve, reject });
+    pool.queue.push({ id: pool.nextId++, code, inputJson, timeoutMs, resolve, reject, inContext: AsyncLocalStorage.snapshot() });
     pump();
   });
 }
@@ -420,7 +442,7 @@ export async function shutdownScriptPool(): Promise<void> {
     return discard(slot);
   });
   pool.failedStarts = 0;
-  for (const run of pending) run.reject(new ScriptError('El sandbox de scripts se ha detenido'));
+  for (const run of pending) run.reject(run.inContext(() => new ScriptError(t('El sandbox de scripts se ha detenido'))));
   await Promise.all(stopping);
 }
 
@@ -439,10 +461,10 @@ export function scriptPoolStats(): { workers: number; ready: number; busy: numbe
 
 /** Ejecuta `run(input)` del script en un sandbox nuevo y devuelve su salida validada. */
 export async function runScript(code: string, input: unknown, opts: { timeoutMs?: number } = {}): Promise<{ output: ScriptOutput; logs: string[]; ms: number }> {
-  if (!code.trim()) throw new ScriptError('El script no tiene código');
-  if (code.length > SCRIPT_LIMITS.maxCodeChars) throw new ScriptError(`El script supera ${SCRIPT_LIMITS.maxCodeChars} caracteres`);
+  if (!code.trim()) throw new ScriptError(t('El script no tiene código'));
+  if (code.length > SCRIPT_LIMITS.maxCodeChars) throw new ScriptError(t('El script supera {max} caracteres', { max: SCRIPT_LIMITS.maxCodeChars }));
   const inputJson = JSON.stringify(input) ?? 'null';
-  if (inputJson.length > SCRIPT_LIMITS.maxInputChars) throw new ScriptError('Los datos de entrada del script son demasiado grandes');
+  if (inputJson.length > SCRIPT_LIMITS.maxInputChars) throw new ScriptError(t('Los datos de entrada del script son demasiado grandes'));
   const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? SCRIPT_LIMITS.defaultTimeoutMs, 50), SCRIPT_LIMITS.maxTimeoutMs);
 
   const reply = await submit(code, inputJson, timeoutMs);
@@ -450,28 +472,28 @@ export async function runScript(code: string, input: unknown, opts: { timeoutMs?
     case 'ok':
       break;
     case 'timeout':
-      throw new ScriptError(`Tiempo máximo de ejecución superado (${timeoutMs} ms)`);
+      throw new ScriptError(t('Tiempo máximo de ejecución superado ({ms} ms)', { ms: timeoutMs }));
     case 'memory':
       // 16 MB por asignación y ~27 MB en total (tope de memoria WebAssembly del hilo): sin cifra para no engañar.
-      throw new ScriptError('Memoria máxima del script superada');
+      throw new ScriptError(t('Memoria máxima del script superada'));
     case 'too_big':
-      throw new ScriptError('La respuesta del script es demasiado grande');
+      throw new ScriptError(t('La respuesta del script es demasiado grande'));
     case 'script':
-      throw new ScriptError(`Error en el script: ${reply.message}`);
+      throw new ScriptError(t('Error en el script: {message}', { message: sandboxText(reply.message) }));
     default:
-      throw workerError('respuesta desconocida');
+      throw workerError(t('respuesta desconocida'));
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(reply.raw);
   } catch {
-    throw new ScriptError('El script no devolvió un resultado válido');
+    throw new ScriptError(t('El script no devolvió un resultado válido'));
   }
-  if (!parsed || typeof parsed !== 'object') throw new ScriptError('El script no devolvió un resultado válido');
+  if (!parsed || typeof parsed !== 'object') throw new ScriptError(t('El script no devolvió un resultado válido'));
   const { out: rawOut, logs: rawLogs } = parsed as { out?: unknown; logs?: unknown };
   const out = ScriptOutputSchema.safeParse(rawOut);
   if (!out.success) {
-    throw new ScriptError(`Resultado no válido: ${out.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'resultado'}: ${i.message}`).join('; ')}`);
+    throw new ScriptError(t('Resultado no válido: {issues}', { issues: out.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || t('resultado')}: ${i.message}`).join('; ') }));
   }
   const logs = Array.isArray(rawLogs) ? rawLogs.filter((l): l is string => typeof l === 'string').slice(0, 20).map((l) => l.slice(0, 500)) : [];
   return { output: out.data, logs, ms: reply.ms };

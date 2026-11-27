@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { formatValue } from '../lib/format';
+import { t } from '../lib/i18n';
 import type { Widget, WidgetData } from '../lib/types';
 import { Skeleton } from './ui';
 import { BarChart, DonutChart, LineChart } from './charts';
@@ -15,7 +16,7 @@ export function WidgetBody({ w, data }: { w: Widget; data: WidgetData | undefine
     if (data.type === 'donut') return <DonutChart points={data.points} format={data.format} currency={data.currency} />;
     return <LineChart points={data.points} format={data.format} currency={data.currency} />;
   }
-  if (!data.items.length) return <p className="py-6 text-center text-sm text-zinc-500">Nada por aquí</p>;
+  if (!data.items.length) return <p className="py-6 text-center text-sm text-zinc-500">{t('Nada por aquí')}</p>;
   return (
     <ul className="-mx-1 divide-y divide-zinc-100 dark:divide-zinc-800">
       {data.items.map((it) => (

@@ -1,5 +1,6 @@
 import type { AppDeps } from '../deps';
 import { ProviderError } from '../ai/types';
+import { msg, t } from '../i18n';
 import { newId } from '../lib/crypto';
 import type { Job, JobContext } from '../lib/jobs';
 import { runCodeAgent } from './agent';
@@ -33,17 +34,17 @@ const MAX_AGENT_RUNS = 14;
 const MAX_TRANSIENT = 5;
 
 export const CODE_STEPS = [
-  { key: 'prepare', label: 'Preparar el código base' },
-  { key: 'develop', label: 'Desarrollar con IA' },
-  { key: 'guards', label: 'Reglas de seguridad deterministas' },
-  { key: 'ci', label: 'CI aislado en Railway (tipos, pruebas y build)' },
-  { key: 'review', label: 'Revisión de seguridad con IA' },
-  { key: 'present', label: 'Presentar para aprobación' },
-  { key: 'approve', label: 'Aprobación (DESPLEGAR)' },
-  { key: 'deploy_worker', label: 'Desplegar en el worker (canario)' },
-  { key: 'deploy_web', label: 'Desplegar en el servicio web' },
-  { key: 'verify', label: 'Verificar /api/health' },
-  { key: 'rollback', label: 'Rollback' },
+  { key: 'prepare', label: msg('Preparar el código base') },
+  { key: 'develop', label: msg('Desarrollar con IA') },
+  { key: 'guards', label: msg('Reglas de seguridad deterministas') },
+  { key: 'ci', label: msg('CI aislado en Railway (tipos, pruebas y build)') },
+  { key: 'review', label: msg('Revisión de seguridad con IA') },
+  { key: 'present', label: msg('Presentar para aprobación') },
+  { key: 'approve', label: msg('Aprobación ({word})') },
+  { key: 'deploy_worker', label: msg('Desplegar en el worker (canario)') },
+  { key: 'deploy_web', label: msg('Desplegar en el servicio web') },
+  { key: 'verify', label: msg('Verificar /api/health') },
+  { key: 'rollback', label: msg('Rollback') },
 ] as const;
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,7 +66,7 @@ export function buildVersionTree(ws: VirtualWorkspace, version: SourceVersion, r
 export function buildCiTree(ws: VirtualWorkspace, version: SourceVersion): Map<string, Buffer> {
   const files = ws.tree({ 'source-version.json': `${JSON.stringify(version, null, 2)}\n` });
   const ci = files.get('Dockerfile.ci');
-  if (!ci) throw new Error('El código base no tiene Dockerfile.ci');
+  if (!ci) throw new Error(t('El código base no tiene Dockerfile.ci'));
   files.set('Dockerfile', ci);
   return files;
 }
@@ -121,18 +122,18 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
   const tree = loadSourceTree(sourceRoot());
   let change = lease.change;
   if (!change.ai_workspace_id) {
-    await lease.save({ status: 'failed', error: 'La organización cuya configuración de IA usa este cambio ya no existe. Crea el cambio de nuevo.' }, [progressEntry('prepare', 'failed', 'Sin organización para la IA')]);
+    await lease.save({ status: 'failed', error: t('La organización cuya configuración de IA usa este cambio ya no existe. Crea el cambio de nuevo.') }, [progressEntry('prepare', 'failed', t('Sin organización para la IA'))]);
     return;
   }
   if (change.base_tree_hash && change.base_tree_hash !== tree.hash) {
     const error = change.patch.files.length
-      ? 'El código en ejecución ha cambiado desde que se preparó este cambio. Refínalo para reconstruirlo sobre la versión actual.'
-      : 'El worker y el servicio web ejecutan versiones distintas del código. Espera a que terminen los despliegues en curso y crea el cambio de nuevo.';
+      ? t('El código en ejecución ha cambiado desde que se preparó este cambio. Refínalo para reconstruirlo sobre la versión actual.')
+      : t('El worker y el servicio web ejecutan versiones distintas del código. Espera a que terminen los despliegues en curso y crea el cambio de nuevo.');
     await lease.save({ status: 'failed', error }, [progressEntry('prepare', 'failed', error)]);
     return;
   }
   if (change.status === 'queued') {
-    await lease.save({ status: 'planning', base_version: tree.label, base_tree_hash: tree.hash, error: null }, [progressEntry('prepare', 'done', `${tree.files.size} archivos · versión ${tree.label}`, deps.now())]);
+    await lease.save({ status: 'planning', base_version: tree.label, base_tree_hash: tree.hash, error: null }, [progressEntry('prepare', 'done', t('{files} archivos · versión {version}', { files: tree.files.size, version: tree.label }), deps.now())]);
     change = lease.change;
   }
 
@@ -172,10 +173,10 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
     }
     const agentRuns = (change.ci.agentRuns ?? 0) + 1;
     if (agentRuns > MAX_AGENT_RUNS) {
-      await lease.save({ status: 'failed', error: `Se ha superado el máximo de ${MAX_AGENT_RUNS} rondas del agente. Refina la petición o divídela en cambios más pequeños.` }, [progressEntry('develop', 'failed', 'Demasiadas rondas')]);
+      await lease.save({ status: 'failed', error: t('Se ha superado el máximo de {max} rondas del agente. Refina la petición o divídela en cambios más pequeños.', { max: MAX_AGENT_RUNS }) }, [progressEntry('develop', 'failed', t('Demasiadas rondas'))]);
       return;
     }
-    const detail = problems.length ? `Ronda ${agentRuns}: corrigiendo ${problems.length} problema(s)` : `Ronda ${agentRuns}`;
+    const detail = problems.length ? t('Ronda {round}: corrigiendo {count} problema(s)', { round: agentRuns, count: problems.length }) : t('Ronda {round}', { round: agentRuns });
     await lease.save({ ci: { ...change.ci, agentRuns } }, [progressEntry('develop', 'running', detail, deps.now())]);
     // Borrador: con el latido se guarda lo que lleve hecho el agente (si el proceso muere, no se pierde).
     let saved = ws.version;
@@ -201,11 +202,11 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
     let changes = ws.changes();
     const now = deps.now().toISOString();
     const llm = [...lease.change.llm, { phase: `agent_${agentRuns}`, provider: result.provider, model: result.model, costUsd: result.costUsd, steps: result.steps, at: now }];
-    const calls = `${result.calls.writes + result.calls.edits} escritura(s), ${result.calls.deletes} borrado(s), ${result.steps} paso(s)`;
+    const calls = t('{writes} escritura(s), {deletes} borrado(s), {steps} paso(s)', { writes: result.calls.writes + result.calls.edits, deletes: result.calls.deletes, steps: result.steps });
     if (!changes.length) {
       await lease.save({ status: 'needs_input', title: result.title, summary: result.summary, llm, patch: { files: [] }, problems: [], error: null }, [
-        progressEntry('develop', 'done', `Sin cambios en el código (${calls})`),
-        progressEntry('present', 'skipped', 'El agente no ha hecho cambios: lee su resumen y refina la petición'),
+        progressEntry('develop', 'done', t('Sin cambios en el código ({calls})', { calls })),
+        progressEntry('present', 'skipped', t('El agente no ha hecho cambios: lee su resumen y refina la petición')),
       ]);
       return;
     }
@@ -219,7 +220,7 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
       } else {
         changes = ws.changes();
         guards = checkChanges(tree, changes);
-        lockNote = ` · package-lock.json generado (${guards.dependencies.length} dependencia(s))`;
+        lockNote = ` · ${t('package-lock.json generado ({count} dependencia(s))', { count: guards.dependencies.length })}`;
       }
     }
     const base = { title: result.title, summary: result.summary, llm, patch: { files: changes, testsAdded: result.testsAdded }, stats: guards.stats, flags: guards.flags, guards: { ok: guards.ok, violations: guards.violations, at: now } };
@@ -230,34 +231,35 @@ async function planPhase(deps: AppDeps, lease: ChangeLease, run: RunContext, set
         typeRounds++;
         const seconds = Math.max(1, Math.round(tc.durationMs / 1000));
         if (typeRounds > MAX_TYPE_ROUNDS) {
-          await lease.save({ ...base, status: 'failed', error: `El código no compila tras ${MAX_TYPE_ROUNDS} rondas de corrección (${tc.errors.length} error(es) de tipos). Refina la petición o divídela en cambios más pequeños.` }, [
-            progressEntry('develop', 'done', `${changes.length} archivo(s)`),
-            progressEntry('guards', 'failed', `${tc.errors.length} error(es) de tipos (tsc): no se sube al CI`),
+          await lease.save({ ...base, status: 'failed', error: t('El código no compila tras {rounds} rondas de corrección ({count} error(es) de tipos). Refina la petición o divídela en cambios más pequeños.', { rounds: MAX_TYPE_ROUNDS, count: tc.errors.length }) }, [
+            progressEntry('develop', 'done', t('{count} archivo(s)', { count: changes.length })),
+            progressEntry('guards', 'failed', t('{count} error(es) de tipos (tsc): no se sube al CI', { count: tc.errors.length })),
           ]);
           return;
         }
         problems = [`El código no compila: tsc encuentra ${tc.errors.length} error(es) de tipos. Corrígelos (lee cada archivo antes de editarlo) y comprueba con check_code:`, formatTsErrors(tc.errors)];
-        await lease.save(base, [progressEntry('develop', 'done', `${changes.length} archivo(s)`), progressEntry('guards', 'failed', `${tc.errors.length} error(es) de tipos (tsc, ${seconds} s): se pide al agente que los corrija`)]);
+        await lease.save(base, [progressEntry('develop', 'done', t('{count} archivo(s)', { count: changes.length })), progressEntry('guards', 'failed', t('{count} error(es) de tipos (tsc, {seconds} s): se pide al agente que los corrija', { count: tc.errors.length, seconds }))]);
         continue;
       }
-      const typeNote = !tc ? '' : tc.skipped ? ` · tipos sin comprobar en el worker (${tc.skipped.slice(0, 100)}): los comprueba el CI` : ` · tipos correctos (tsc, ${Math.max(1, Math.round(tc.durationMs / 1000))} s)`;
+      const typeNote = !tc ? '' : tc.skipped ? ` · ${t('tipos sin comprobar en el worker ({reason}): los comprueba el CI', { reason: tc.skipped.slice(0, 100) })}` : ` · ${t('tipos correctos (tsc, {seconds} s)', { seconds: Math.max(1, Math.round(tc.durationMs / 1000)) })}`;
       await lease.save({ ...base, problems: [] }, [
-        progressEntry('develop', 'done', `${changes.length} archivo(s): +${guards.stats.linesAdded} −${guards.stats.linesRemoved} líneas (${calls})`),
-        progressEntry('guards', 'done', `Sin infracciones · ${guards.flags.length} aviso(s) para quien aprueba${lockNote}${typeNote}`),
+        progressEntry('develop', 'done', t('{count} archivo(s): +{added} −{removed} líneas ({calls})', { count: changes.length, added: guards.stats.linesAdded, removed: guards.stats.linesRemoved, calls })),
+        progressEntry('guards', 'done', `${t('Sin infracciones · {count} aviso(s) para quien aprueba', { count: guards.flags.length })}${lockNote}${typeNote}`),
       ]);
       break;
     }
     const list = guards.violations.map(formatViolation);
     if (guardFails >= MAX_GUARD_ROUNDS) {
-      await lease.save({ ...base, status: 'failed', error: `El cambio incumple las reglas del motor de código: ${list.slice(0, 5).join(' · ')}${list.length > 5 ? ` (y ${list.length - 5} más)` : ''}` }, [
-        progressEntry('develop', 'done', `${changes.length} archivo(s)`),
-        progressEntry('guards', 'failed', `${list.length} infracción(es) tras ${guardFails + 1} ronda(s): no se sube al CI`),
+      const shown = list.slice(0, 5).join(' · ');
+      await lease.save({ ...base, status: 'failed', error: list.length > 5 ? t('El cambio incumple las reglas del motor de código: {list} (y {more} más)', { list: shown, more: list.length - 5 }) : t('El cambio incumple las reglas del motor de código: {list}', { list: shown }) }, [
+        progressEntry('develop', 'done', t('{count} archivo(s)', { count: changes.length })),
+        progressEntry('guards', 'failed', t('{count} infracción(es) tras {rounds} ronda(s): no se sube al CI', { count: list.length, rounds: guardFails + 1 })),
       ]);
       return;
     }
     guardFails++;
     problems = ['El cambio incumple estas reglas del motor de código. Corrígelo; si la petición no se puede hacer sin romperlas, deshaz esos cambios y explícalo en finish:', ...list];
-    await lease.save(base, [progressEntry('develop', 'done', `${changes.length} archivo(s)`), progressEntry('guards', 'failed', `${list.length} infracción(es): se pide al agente que las corrija`)]);
+    await lease.save(base, [progressEntry('develop', 'done', t('{count} archivo(s)', { count: changes.length })), progressEntry('guards', 'failed', t('{count} infracción(es): se pide al agente que las corrija', { count: list.length }))]);
   }
   await startCi(deps, lease, run, tree, ws);
 }
@@ -279,7 +281,7 @@ async function runTypecheck(ws: VirtualWorkspace, signal: AbortSignal): Promise<
 async function generateLockfile(ws: VirtualWorkspace, tree: SourceTree, signal: AbortSignal): Promise<string[]> {
   const pkg = ws.read('package.json');
   const baseLock = tree.files.get('package-lock.json')?.toString('utf8');
-  if (!pkg || !baseLock) return ['No se puede generar package-lock.json: falta package.json o el package-lock.json del código base'];
+  if (!pkg || !baseLock) return [t('No se puede generar package-lock.json: falta package.json o el package-lock.json del código base')];
   let lock: string;
   try {
     lock = await engineOptions().resolveLockfile(pkg, baseLock, signal);
@@ -288,7 +290,7 @@ async function generateLockfile(ws: VirtualWorkspace, tree: SourceTree, signal: 
     throw e;
   }
   const problems = verifyLockfile(pkg, lock);
-  if (problems.length) return problems.map((p) => `El package-lock.json que ha generado npm no es válido: ${p}`);
+  if (problems.length) return problems.map((p) => t('El package-lock.json que ha generado npm no es válido: {problem}', { problem: p }));
   ws.setGenerated('package-lock.json', lock);
   return [];
 }
@@ -302,10 +304,10 @@ async function startCi(deps: AppDeps, lease: ChangeLease, run: RunContext, tree:
   const files = buildCiTree(ws, sourceVersion);
   const hash = treeHash(files, TREE_HASH_EXCLUDE);
   const archive = createTarGz(files, { mtime: mtimeOf(change) });
-  const up = await client.upload(targets.ci, archive, `Cortex CI #${n} · ${change.title ?? 'cambio de código'}`);
+  const up = await client.upload(targets.ci, archive, `Cortex CI #${n} · ${change.title ?? t('cambio de código')}`);
   const attempt: CiAttempt = { n, deploymentId: up.deploymentId, status: 'running', startedAt: deps.now().toISOString(), treeHash: hash, sourceVersion, files: files.size, bytes: archive.length };
   await lease.save({ status: 'testing', ci: { ...change.ci, attempts: [...change.ci.attempts, attempt], transientErrors: 0 } }, [
-    progressEntry('ci', 'running', `Intento ${n}: ${files.size} archivos (${Math.ceil(archive.length / 1024)} KB comprimidos) subidos al servicio CI`, deps.now()),
+    progressEntry('ci', 'running', t('Intento {n}: {files} archivos ({size} KB comprimidos) subidos al servicio CI', { n, files: files.size, size: Math.ceil(archive.length / 1024) }), deps.now()),
   ]);
   run.next = engineOptions().requeueDelayMs;
 }
@@ -313,7 +315,6 @@ async function startCi(deps: AppDeps, lease: ChangeLease, run: RunContext, tree:
 const replaceLast = (attempts: CiAttempt[], a: CiAttempt) => [...attempts.slice(0, -1), a];
 
 /** Despliegues del CI sustituidos por otro (no por el código): se repiten como mucho estas veces por cambio. */
-const SUPERSEDED_NOTE = 'Despliegue del CI sustituido por otro';
 const MAX_SUPERSEDED = 2;
 
 /** Sondea el despliegue del CI; con el resultado, revisión (si pasa) o auto-corrección (si falla). */
@@ -322,7 +323,7 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
   const change = lease.change;
   const attempt = change.ci.attempts[change.ci.attempts.length - 1];
   if (!attempt || attempt.status !== 'running' || !attempt.deploymentId) {
-    await lease.save({ status: 'failed', error: 'Estado del CI inconsistente: refina el cambio para volver a probarlo.' }, [progressEntry('ci', 'failed', 'Sin ejecución del CI en curso')]);
+    await lease.save({ status: 'failed', error: t('Estado del CI inconsistente: refina el cambio para volver a probarlo.') }, [progressEntry('ci', 'failed', t('Sin ejecución del CI en curso'))]);
     return;
   }
   const { client } = await railwayForJob(deps, run.signal);
@@ -369,15 +370,16 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
   // sigue conectado) no dice nada del código: se vuelve a subir el mismo árbol, sin pasar por el agente y sin
   // gastar un intento de auto-corrección. Si se repite, se para con una explicación.
   if (outcome === 'removed') {
-    const superseded = change.ci.attempts.filter((a) => a.status === 'cancelled' && a.note?.startsWith(SUPERSEDED_NOTE)).length;
+    // Se cuentan por el estado (la nota está en el idioma de quien lo pidió).
+    const superseded = change.ci.attempts.filter((a) => a.status === 'cancelled' && deploymentOutcome(a.railwayStatus ?? '') === 'removed').length;
     if (superseded >= MAX_SUPERSEDED) {
       await lease.save(
         {
           status: 'failed',
-          ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: `${SUPERSEDED_NOTE} (${status})` }) },
-          error: `El despliegue del CI se ha sustituido ${superseded + 1} veces seguidas: probablemente el servicio CI sigue conectado a un repositorio o alguien despliega en él. Desconéctalo en Railway (servicio CI › Settings › Source › Disconnect) y refina el cambio para volver a probarlo.`,
+          ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: t('Despliegue del CI sustituido por otro ({status})', { status }) }) },
+          error: t('El despliegue del CI se ha sustituido {count} veces seguidas: probablemente el servicio CI sigue conectado a un repositorio o alguien despliega en él. Desconéctalo en Railway (servicio CI › Settings › Source › Disconnect) y refina el cambio para volver a probarlo.', { count: superseded + 1 }),
         },
-        [progressEntry('ci', 'failed', `Intento ${attempt.n}: el despliegue del CI se ha vuelto a sustituir (${status})`, deps.now())],
+        [progressEntry('ci', 'failed', t('Intento {n}: el despliegue del CI se ha vuelto a sustituir ({status})', { n: attempt.n, status }), deps.now())],
       );
       return;
     }
@@ -385,12 +387,12 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
       {
         ci: {
           ...change.ci,
-          attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: `${SUPERSEDED_NOTE} (${status}): se ha vuelto a subir el mismo código, sin contar como intento.` }),
+          attempts: replaceLast(change.ci.attempts, { ...attempt, status: 'cancelled', railwayStatus: status, finishedAt, removed, note: t('Despliegue del CI sustituido por otro ({status}): se ha vuelto a subir el mismo código, sin contar como intento.', { status }) }),
           // No cuenta para el máximo de intentos de auto-corrección de la ronda.
           roundStart: (change.ci.roundStart ?? 0) + 1,
         },
       },
-      [progressEntry('ci', 'running', `Intento ${attempt.n}: el despliegue del CI se ha sustituido (${status}); se repite con el mismo código`, deps.now())],
+      [progressEntry('ci', 'running', t('Intento {n}: el despliegue del CI se ha sustituido ({status}); se repite con el mismo código', { n: attempt.n, status }), deps.now())],
     );
     const tree = loadSourceTree(sourceRoot());
     await startCi(deps, lease, run, tree, new VirtualWorkspace(tree, lease.change.patch.files));
@@ -401,42 +403,47 @@ async function ciPhase(deps: AppDeps, lease: ChangeLease, run: RunContext) {
     // Defensa adicional: un CI superado tiene que demostrar en su log que se ejecutaron las pruebas (Vitest imprime
     // «Test Files … passed»). Si no aparece, el servicio no ha construido Dockerfile.ci (o el log no se pudo leer):
     // no se da por bueno ni se pide al agente que lo arregle, porque no es un fallo del código.
-    const unproven: CiAttempt = { ...attempt, status: 'failed', railwayStatus: status, finishedAt, excerpt: analysis.excerpt, removed, note: 'El log del CI no muestra la ejecución de las pruebas' };
+    const unproven: CiAttempt = { ...attempt, status: 'failed', railwayStatus: status, finishedAt, excerpt: analysis.excerpt, removed, note: t('El log del CI no muestra la ejecución de las pruebas') };
     await lease.save(
       {
         status: 'failed',
         ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, unproven) },
         error: logs.length
-          ? 'El CI ha terminado sin ejecutar las pruebas (el log no muestra el resumen de Vitest): el servicio CI no está construyendo Dockerfile.ci. Revisa su configuración en Railway (Settings › Build) y refina el cambio para volver a probarlo.'
-          : 'No se ha podido leer el log del CI para confirmar que se ejecutaron las pruebas. Refina el cambio para volver a probarlo.',
+          ? t('El CI ha terminado sin ejecutar las pruebas (el log no muestra el resumen de Vitest): el servicio CI no está construyendo Dockerfile.ci. Revisa su configuración en Railway (Settings › Build) y refina el cambio para volver a probarlo.')
+          : t('No se ha podido leer el log del CI para confirmar que se ejecutaron las pruebas. Refina el cambio para volver a probarlo.'),
       },
-      [progressEntry('ci', 'failed', `Intento ${attempt.n}: el log no muestra la ejecución de las pruebas`, deps.now())],
+      [progressEntry('ci', 'failed', t('Intento {n}: el log no muestra la ejecución de las pruebas', { n: attempt.n }), deps.now())],
     );
     return;
   }
 
   if (outcome === 'success') {
     const passed: CiAttempt = { ...attempt, status: 'passed', railwayStatus: status, finishedAt, summary: analysis.testSummary, excerpt: analysis.excerpt, removed };
+    const tests = analysis.testSummary.join(' · ').replace(/\s+/g, ' ');
     await lease.save({ ci: { ...change.ci, attempts: replaceLast(change.ci.attempts, passed) } }, [
-      progressEntry('ci', 'done', `Intento ${attempt.n} superado: tipos, pruebas y build${analysis.testSummary.length ? ` (${analysis.testSummary.join(' · ').replace(/\s+/g, ' ')})` : ''}`, deps.now()),
+      progressEntry('ci', 'done', analysis.testSummary.length ? t('Intento {n} superado: tipos, pruebas y build ({tests})', { n: attempt.n, tests }) : t('Intento {n} superado: tipos, pruebas y build', { n: attempt.n }), deps.now()),
     ]);
     await reviewPhase(deps, lease);
     return;
   }
 
-  const note = status === 'TIMEOUT' ? 'Tiempo máximo del CI superado' : undefined;
+  const note = status === 'TIMEOUT' ? t('Tiempo máximo del CI superado') : undefined;
   const failed: CiAttempt = { ...attempt, status: 'failed', railwayStatus: status, finishedAt, errors: analysis.problems.slice(0, 40), failedTests: analysis.failedTests, summary: analysis.testSummary, excerpt: analysis.excerpt, removed, ...(note ? { note } : {}) };
   const ci = { ...change.ci, attempts: replaceLast(change.ci.attempts, failed) };
-  const short = analysis.tsErrors.length ? `${analysis.tsErrors.length} error(es) de TypeScript` : analysis.failedTests.length ? `${analysis.failedTests.length} prueba(s) fallida(s)` : (note ?? 'el build ha fallado');
+  const short = analysis.tsErrors.length
+    ? t('{count} error(es) de TypeScript', { count: analysis.tsErrors.length })
+    : analysis.failedTests.length
+      ? t('{count} prueba(s) fallida(s)', { count: analysis.failedTests.length })
+      : (note ?? t('el build ha fallado'));
   const inRound = attempt.n - (change.ci.roundStart ?? 0);
   if (inRound <= MAX_HEAL_ATTEMPTS) {
     await lease.save({ status: 'planning', ci, problems: [`El CI (intento ${attempt.n}) ha fallado: ${short}. Errores extraídos del log:`, ...analysis.problems] }, [
-      progressEntry('ci', 'failed', `Intento ${attempt.n}: ${short}. Auto-corrección ${inRound}/${MAX_HEAL_ATTEMPTS}…`, deps.now()),
+      progressEntry('ci', 'failed', t('Intento {n}: {problem}. Auto-corrección {round}/{max}…', { n: attempt.n, problem: short, round: inRound, max: MAX_HEAL_ATTEMPTS }), deps.now()),
     ]);
     run.next = 0;
     return;
   }
-  await lease.save({ status: 'failed', ci, error: `El CI no se ha superado tras ${inRound} intentos (${short}). Revisa el log y refina la petición.` }, [progressEntry('ci', 'failed', `Intento ${attempt.n}: ${short}. Sin más intentos`, deps.now())]);
+  await lease.save({ status: 'failed', ci, error: t('El CI no se ha superado tras {count} intentos ({problem}). Revisa el log y refina la petición.', { count: inRound, problem: short }) }, [progressEntry('ci', 'failed', t('Intento {n}: {problem}. Sin más intentos', { n: attempt.n, problem: short }), deps.now())]);
 }
 
 async function reviewPhase(deps: AppDeps, lease: ChangeLease) {
@@ -455,18 +462,19 @@ async function reviewPhase(deps: AppDeps, lease: ChangeLease) {
     stats: change.stats,
     agentProvider: agent?.provider ?? null,
   });
-  const verdict = review.verdict === 'approve' ? 'sin objeciones' : review.verdict === 'reject' ? 'recomienda NO desplegar' : `${review.concerns?.length ?? 0} observación(es)`;
-  const detail = review.status === 'done' ? `${review.provider}/${review.model}: ${verdict}${review.sameProvider ? ' (mismo proveedor que el autor)' : ''}` : (review.message ?? 'Sin revisión');
+  const verdict = review.verdict === 'approve' ? t('sin objeciones') : review.verdict === 'reject' ? t('recomienda NO desplegar') : t('{count} observación(es)', { count: review.concerns?.length ?? 0 });
+  const reviewer = `${review.provider}/${review.model}`;
+  const detail = review.status === 'done' ? (review.sameProvider ? t('{reviewer}: {verdict} (mismo proveedor que el autor)', { reviewer, verdict }) : `${reviewer}: ${verdict}`) : (review.message ?? t('Sin revisión'));
   const llm = review.status === 'done' ? [...lease.change.llm, { phase: 'review', provider: review.provider!, model: review.model!, costUsd: null, at: review.at }] : lease.change.llm;
   const flags = [
     ...lease.change.flags.filter((f) => !f.key.startsWith('review')),
-    ...(review.status !== 'done' ? [{ key: 'review_missing', level: 'warning' as const, message: `Sin revisión de IA: ${review.message ?? ''}` }] : []),
-    ...(review.status === 'done' && review.sameProvider ? [{ key: 'review_same_provider', level: 'info' as const, message: 'La revisión la ha hecho el mismo proveedor que escribió el código: configura otro para una revisión cruzada' }] : []),
-    ...(review.verdict === 'reject' ? [{ key: 'review_reject', level: 'warning' as const, message: 'La revisión de IA recomienda no desplegar este cambio' }] : []),
+    ...(review.status !== 'done' ? [{ key: 'review_missing', level: 'warning' as const, message: t('Sin revisión de IA: {reason}', { reason: review.message ?? '' }) }] : []),
+    ...(review.status === 'done' && review.sameProvider ? [{ key: 'review_same_provider', level: 'info' as const, message: t('La revisión la ha hecho el mismo proveedor que escribió el código: configura otro para una revisión cruzada') }] : []),
+    ...(review.verdict === 'reject' ? [{ key: 'review_reject', level: 'warning' as const, message: t('La revisión de IA recomienda no desplegar este cambio') }] : []),
   ];
   await lease.save({ status: 'ready_for_review', review, llm, flags, risk: 'high', error: null }, [
     progressEntry('review', review.status === 'done' ? 'done' : 'skipped', detail, deps.now()),
-    progressEntry('present', 'done', 'Listo para revisión · riesgo alto (cambio del código de la plataforma)', deps.now()),
+    progressEntry('present', 'done', t('Listo para revisión · riesgo alto (cambio del código de la plataforma)'), deps.now()),
   ]);
 }
 
@@ -478,7 +486,7 @@ async function failPlan(deps: AppDeps, lease: ChangeLease, e: unknown, run: RunC
     const n = (lease.change.ci.transientErrors ?? 0) + 1;
     if (n <= MAX_TRANSIENT) {
       try {
-        await lease.save({ ci: { ...lease.change.ci, transientErrors: n } }, [progressEntry('ci', 'running', `Railway no responde (${n}/${MAX_TRANSIENT}): se reintenta en ${n} min`, deps.now())]);
+        await lease.save({ ci: { ...lease.change.ci, transientErrors: n } }, [progressEntry('ci', 'running', t('Railway no responde ({n}/{max}): se reintenta en {minutes} min', { n, max: MAX_TRANSIENT, minutes: n }), deps.now())]);
         run.next = n * 60_000;
       } catch {
         /* el cambio ya no es de esta ejecución */
@@ -487,16 +495,16 @@ async function failPlan(deps: AppDeps, lease: ChangeLease, e: unknown, run: RunC
     }
   }
   const timedOut = signal.aborted && !(signal.reason instanceof ChangeStopped);
-  const msg = timedOut
-    ? 'Se ha superado el tiempo máximo de esta fase. Refina la petición o divídela en cambios más pequeños.'
+  const message = timedOut
+    ? t('Se ha superado el tiempo máximo de esta fase. Refina la petición o divídela en cambios más pequeños.')
     : e instanceof ProviderError
-      ? `IA: ${e.message}`
+      ? t('IA: {error}', { error: e.message })
       : e instanceof RailwayError || e instanceof ConfigMissingError || e instanceof PathError
         ? e.message
-        : `Error interno del motor de código: ${(e as Error)?.message ?? String(e)}`;
+        : t('Error interno del motor de código: {error}', { error: (e as Error)?.message ?? String(e) });
   const step = lease.change.status === 'testing' ? 'ci' : 'develop';
   try {
-    await lease.save({ status: 'failed', error: msg.slice(0, 2000) }, [progressEntry(step, 'failed', msg.slice(0, 300), deps.now())]);
+    await lease.save({ status: 'failed', error: message.slice(0, 2000) }, [progressEntry(step, 'failed', message.slice(0, 300), deps.now())]);
   } catch {
     /* el cambio ya no es de esta ejecución */
   }

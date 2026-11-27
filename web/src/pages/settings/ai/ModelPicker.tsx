@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronsUpDown, PenLine, RefreshCw, Search, Undo2 } from 'lucide-react';
 import { cx, Spinner } from '../../../components/ui';
 import { relativeTime } from '../../../lib/format';
+import { t, tp, tx } from '../../../lib/i18n';
 import { catalogAvailable, describeError, formatPerM, formatTokens, useModels, useRefreshModels } from './shared';
 import type { ModelInfo, ProviderState } from './types';
 
@@ -21,7 +22,7 @@ interface Position {
 function priceLabel(m: ModelInfo): string {
   if (!m.pricing) return '—';
   const { inputPerM, outputPerM } = m.pricing;
-  if (inputPerM === 0 && outputPerM === 0) return 'Gratis';
+  if (inputPerM === 0 && outputPerM === 0) return t('Gratis');
   return `${formatPerM(inputPerM)} / ${formatPerM(outputPerM)}`;
 }
 
@@ -39,7 +40,7 @@ export function ModelPicker({
   disabled,
   invalid,
   loading,
-  placeholder = 'Elige un modelo',
+  placeholder = t('Elige un modelo'),
   className,
   ariaLabel,
 }: {
@@ -76,7 +77,7 @@ export function ModelPicker({
     if (!terms.length) return all;
     return all.filter((m) => {
       const hay = `${m.id} ${m.name ?? ''}`.toLowerCase();
-      return terms.every((t) => hay.includes(t));
+      return terms.every((term) => hay.includes(term));
     });
   }, [all, trimmed]);
 
@@ -121,8 +122,8 @@ export function ModelPicker({
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
       setOpen(false);
     };
     document.addEventListener('mousedown', h);
@@ -139,8 +140,8 @@ export function ModelPicker({
     const idx = entries.findIndex((e) => (e.kind === 'model' ? e.model.id === value : e.kind === 'null' && value === null));
     const next = idx >= 0 ? idx : 0;
     setActive(next);
-    const t = setTimeout(() => listRef.current?.querySelector(`[data-idx="${next}"]`)?.scrollIntoView({ block: 'nearest' }), 30);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => listRef.current?.querySelector(`[data-idx="${next}"]`)?.scrollIntoView({ block: 'nearest' }), 30);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, models.data]);
 
@@ -186,11 +187,12 @@ export function ModelPicker({
 
   const canCatalog = catalogAvailable(provider);
   let status: string;
-  if (!provider) status = 'Elige primero un proveedor.';
-  else if (!canCatalog) status = `Añade la API key de ${provider.label} para ver su catálogo. Puedes escribir un ID de modelo.`;
-  else if (models.isLoading) status = 'Cargando catálogo en vivo…';
-  else if (models.error) status = `No se pudo cargar el catálogo: ${describeError(models.error)}`;
-  else status = `${all.length} modelos${models.data?.cachedAt ? ` · actualizado ${relativeTime(models.data.cachedAt)}` : ''}`;
+  if (!provider) status = t('Elige primero un proveedor.');
+  else if (!canCatalog) status = t('Añade la API key de {provider} para ver su catálogo. Puedes escribir un ID de modelo.', { provider: provider.label });
+  else if (models.isLoading) status = t('Cargando catálogo en vivo…');
+  else if (models.error) status = t('No se pudo cargar el catálogo: {error}', { error: describeError(models.error) });
+  else if (models.data?.cachedAt) status = tp(all.length, '{count} modelo · actualizado {time}', '{count} modelos · actualizado {time}', { time: relativeTime(models.data.cachedAt) });
+  else status = tp(all.length, '{count} modelo', '{count} modelos');
 
   const showModels = entries.some((e) => e.kind === 'model');
 
@@ -246,7 +248,7 @@ export function ModelPicker({
                 aria-autocomplete="list"
                 spellCheck={false}
                 autoComplete="off"
-                placeholder={all.length ? `Buscar entre ${all.length} modelos o escribir un ID…` : 'Escribe el ID del modelo…'}
+                placeholder={all.length ? tp(all.length, 'Buscar entre {count} modelo o escribir un ID…', 'Buscar entre {count} modelos o escribir un ID…') : t('Escribe el ID del modelo…')}
                 className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
               />
               {models.isFetching && <Spinner className="size-4" />}
@@ -263,16 +265,16 @@ export function ModelPicker({
                   className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-600 hover:underline disabled:opacity-60 dark:text-brand-400"
                 >
                   <RefreshCw className={cx('size-3', refresh.isPending && 'animate-spin')} />
-                  Actualizar catálogo
+                  {t('Actualizar catálogo')}
                 </button>
               )}
             </div>
             <div ref={listRef} id={listId} role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1 scrollbar-thin">
               {showModels && (
                 <div className="sticky top-0 z-10 flex items-center gap-3 bg-white/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 backdrop-blur dark:bg-zinc-900/95">
-                  <span className="flex-1">Modelo</span>
-                  <span className="hidden w-14 text-right sm:block">Contexto</span>
-                  <span className="w-32 text-right sm:w-40">Entrada / salida · 1M</span>
+                  <span className="flex-1">{t('Modelo')}</span>
+                  <span className="hidden w-14 text-right sm:block">{t('Contexto')}</span>
+                  <span className="w-32 text-right sm:w-40">{t('Entrada / salida · 1M')}</span>
                   <span className="size-4" />
                 </div>
               )}
@@ -293,7 +295,7 @@ export function ModelPicker({
                     <button key="__custom" type="button" role="option" aria-selected={false} data-idx={i} onMouseEnter={() => setActive(i)} onClick={() => pick(e)} className={base}>
                       <PenLine className="size-4 shrink-0 text-brand-500" />
                       <span className="min-w-0 flex-1 truncate text-sm">
-                        Usar <span className="font-mono text-[12.5px] font-medium">{e.id}</span> como ID de modelo
+                        {tx('Usar {id} como ID de modelo', { id: <span className="font-mono text-[12.5px] font-medium">{e.id}</span> })}
                       </span>
                     </button>
                   );
@@ -323,13 +325,13 @@ export function ModelPicker({
               })}
               {!entries.length && (
                 <p className="px-3 py-6 text-center text-sm text-zinc-500">
-                  {models.isLoading ? 'Cargando…' : trimmed ? 'Ningún modelo coincide. Revisa el ID: no puede contener espacios.' : canCatalog ? 'El proveedor no ha devuelto modelos.' : 'Escribe el ID exacto del modelo que quieres usar.'}
+                  {models.isLoading ? t('Cargando…') : trimmed ? t('Ningún modelo coincide. Revisa el ID: no puede contener espacios.') : canCatalog ? t('El proveedor no ha devuelto modelos.') : t('Escribe el ID exacto del modelo que quieres usar.')}
                 </p>
               )}
             </div>
             {filtered.length > MAX_ROWS && (
               <div className="border-t border-zinc-100 px-3 py-1.5 text-[11px] text-zinc-500 dark:border-zinc-800">
-                Mostrando {MAX_ROWS} de {filtered.length} modelos. Escribe para afinar la búsqueda.
+                {t('Mostrando {max} de {count} modelos. Escribe para afinar la búsqueda.', { max: MAX_ROWS, count: filtered.length })}
               </div>
             )}
           </div>,

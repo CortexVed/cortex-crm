@@ -8,6 +8,7 @@ import { useToast } from '../../components/toast';
 import { Badge, Button, Card, ErrorState, Field, Input, Select, Skeleton, Textarea, Toggle } from '../../components/ui';
 import type { Role } from '../../../../shared/constants';
 import { RoleBadge } from './TeamTab';
+import { getIntlTag, msg, t, tk, tx } from '../../lib/i18n';
 
 interface WorkspaceInfo {
   id: string;
@@ -33,7 +34,7 @@ type WorkspacePatch = { name?: string; settings?: SettingsPatch };
 
 const WORKSPACE_KEY = ['workspace'];
 const DRAFT_KEYS: (keyof Draft)[] = ['name', 'timezone', 'currency', 'locale', 'industry', 'description'];
-const PLAN_LABELS: Record<string, string> = { trial: 'Prueba' };
+const PLAN_LABELS: Record<string, string> = { trial: msg('Prueba') }; // se traduce al mostrarlo, con tk()
 
 const toDraft = (ws: WorkspaceInfo): Draft => ({
   name: ws.name,
@@ -48,7 +49,9 @@ const toDraft = (ws: WorkspaceInfo): Draft => ({
 
 const FALLBACK_TIMEZONES = ['Europe/Madrid', 'Atlantic/Canary', 'Europe/Lisbon', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Rome', 'America/Mexico_City', 'America/Bogota', 'America/Lima', 'America/Santiago', 'America/Argentina/Buenos_Aires', 'America/Caracas', 'America/New_York', 'America/Los_Angeles', 'UTC'];
 const COMMON_CURRENCIES = ['EUR', 'USD', 'GBP', 'MXN', 'COP', 'ARS', 'CLP', 'PEN', 'BRL', 'CHF'];
-const LOCALES = ['es-ES', 'es-MX', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-US', 'ca-ES', 'eu-ES', 'gl-ES', 'pt-PT', 'pt-BR', 'en-GB', 'en-US', 'fr-FR', 'de-DE', 'it-IT', 'nl-NL'];
+// La lengua de cada región decide el idioma por defecto de la interfaz (ca/eu/gl → español; las que Cortex no
+// tiene → inglés) y la región, el formato de fechas y números.
+const LOCALES = ['es-ES', 'es-MX', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-US', 'ca-ES', 'eu-ES', 'gl-ES', 'en-US', 'en-GB', 'en-IE', 'en-CA', 'en-AU', 'en-IN', 'pt-BR', 'pt-PT', 'fr-FR', 'fr-BE', 'fr-CA', 'fr-CH', 'de-DE', 'de-AT', 'de-CH', 'it-IT', 'it-CH', 'ja-JP', 'nl-NL'];
 
 interface Option {
   value: string;
@@ -65,7 +68,7 @@ function supportedValues(key: 'timeZone' | 'currency'): string[] {
 
 function displayNames(type: 'currency' | 'language'): Intl.DisplayNames | null {
   try {
-    return new Intl.DisplayNames(['es'], { type });
+    return new Intl.DisplayNames([getIntlTag()], { type });
   } catch {
     return null;
   }
@@ -139,11 +142,11 @@ async function downloadExport(): Promise<string> {
   try {
     res = await fetch('/api/workspace/export', { credentials: 'same-origin' });
   } catch {
-    throw new Error('No se pudo conectar con el servidor. Revisa tu conexión.');
+    throw new Error(t('No se pudo conectar con el servidor. Revisa tu conexión.'));
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error(data?.error?.message ?? `Error ${res.status}`);
+    throw new Error(data?.error?.message ?? t('Error {status}', { status: res.status }));
   }
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') ?? '';
@@ -220,10 +223,11 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
     onSuccess: async (r, body) => {
       qc.setQueryData<WorkspaceInfo>(WORKSPACE_KEY, (old) => (old ? { ...old, name: body.name ?? old.name, settings: r.settings } : old));
       setDraft(null);
-      toast('Cambios guardados');
+      toast(t('Cambios guardados'));
       qc.invalidateQueries({ queryKey: WORKSPACE_KEY });
       qc.invalidateQueries({ queryKey: ['blueprint'] });
-      if (body.name) await refresh();
+      // El nombre y el idioma de la organización viajan en la sesión (el idioma cambia la interfaz de quien no eligió otro).
+      if (body.name || body.settings?.locale) await refresh();
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
@@ -237,8 +241,8 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
     e.preventDefault();
     const errs: Partial<Record<keyof Draft, string>> = {};
     const name = values.name.trim();
-    if (name.length < 2 || name.length > 80) errs.name = 'El nombre debe tener entre 2 y 80 caracteres';
-    if (!/^[A-Z]{3}$/.test(values.currency)) errs.currency = 'Usa un código ISO de 3 letras (p. ej. EUR)';
+    if (name.length < 2 || name.length > 80) errs.name = t('El nombre debe tener entre 2 y 80 caracteres');
+    if (!/^[A-Z]{3}$/.test(values.currency)) errs.currency = t('Usa un código ISO de 3 letras (p. ej. EUR)');
     setErrors(errs);
     if (Object.keys(errs).length || !dirty) return;
     const body: WorkspacePatch = {};
@@ -254,15 +258,15 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
   if (!isAdmin) {
     const s = ws.settings;
     return (
-      <Card title="Datos de la organización" description="Solo los administradores pueden modificar estos datos.">
+      <Card title={t('Datos de la organización')} description={t('Solo los administradores pueden modificar estos datos.')}>
         <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-          <ReadOnly label="Nombre">{ws.name}</ReadOnly>
-          <ReadOnly label="Sector">{s.industry || <Muted>Sin indicar</Muted>}</ReadOnly>
-          <ReadOnly label="Zona horaria">{s.timezone.replace(/_/g, ' ')}</ReadOnly>
-          <ReadOnly label="Moneda">{currencyLabel(s.currency)}</ReadOnly>
-          <ReadOnly label="Idioma y región">{localeLabel(s.locale)}</ReadOnly>
-          <ReadOnly label="Descripción del negocio" className="sm:col-span-2">
-            {s.description ? <span className="whitespace-pre-line">{s.description}</span> : <Muted>Sin descripción</Muted>}
+          <ReadOnly label={t('Nombre')}>{ws.name}</ReadOnly>
+          <ReadOnly label={t('Sector')}>{s.industry || <Muted>{t('Sin indicar')}</Muted>}</ReadOnly>
+          <ReadOnly label={t('Zona horaria')}>{s.timezone.replace(/_/g, ' ')}</ReadOnly>
+          <ReadOnly label={t('Moneda')}>{currencyLabel(s.currency)}</ReadOnly>
+          <ReadOnly label={t('Idioma y región')}>{localeLabel(s.locale)}</ReadOnly>
+          <ReadOnly label={t('Descripción del negocio')} className="sm:col-span-2">
+            {s.description ? <span className="whitespace-pre-line">{s.description}</span> : <Muted>{t('Sin descripción')}</Muted>}
           </ReadOnly>
         </dl>
       </Card>
@@ -270,21 +274,21 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
   }
 
   return (
-    <Card title="Datos de la organización" description="Nombre, contexto del negocio y preferencias regionales.">
+    <Card title={t('Datos de la organización')} description={t('Nombre, contexto del negocio y preferencias regionales.')}>
       <form onSubmit={submit} className="space-y-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nombre" required error={errors.name}>
+          <Field label={t('Nombre')} required error={errors.name}>
             <Input value={values.name} maxLength={80} invalid={!!errors.name} onChange={(e) => set('name', e.target.value)} />
           </Field>
-          <Field label="Sector" hint="p. ej. Inmobiliaria, agencia de marketing, clínica dental">
-            <Input value={values.industry} maxLength={80} placeholder="Sin indicar" onChange={(e) => set('industry', e.target.value)} />
+          <Field label={t('Sector')} hint={t('p. ej. Inmobiliaria, agencia de marketing, clínica dental')}>
+            <Input value={values.industry} maxLength={80} placeholder={t('Sin indicar')} onChange={(e) => set('industry', e.target.value)} />
           </Field>
         </div>
-        <Field label="Descripción del negocio" hint={`EVOLVE AI ENGINE usa el sector y la descripción como contexto al proponer cambios · ${values.description.length}/1000`}>
-          <Textarea rows={4} maxLength={1000} value={values.description} placeholder="A qué se dedica la organización, qué vende y a qué clientes…" onChange={(e) => set('description', e.target.value)} />
+        <Field label={t('Descripción del negocio')} hint={t('EVOLVE AI ENGINE usa el sector y la descripción como contexto al proponer cambios · {count}/1000', { count: values.description.length })}>
+          <Textarea rows={4} maxLength={1000} value={values.description} placeholder={t('A qué se dedica la organización, qué vende y a qué clientes…')} onChange={(e) => set('description', e.target.value)} />
         </Field>
         <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Zona horaria" hint="Fechas, vencimientos y automatizaciones.">
+          <Field label={t('Zona horaria')} hint={t('Fechas, vencimientos y automatizaciones.')}>
             <Select value={values.timezone} onChange={(e) => set('timezone', e.target.value)}>
               {tzOptions.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -293,9 +297,9 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
               ))}
             </Select>
           </Field>
-          <Field label="Moneda" hint="Importes, previsiones e informes." error={errors.currency}>
+          <Field label={t('Moneda')} hint={t('Importes, previsiones e informes.')} error={errors.currency}>
             <Select value={values.currency} invalid={!!errors.currency} onChange={(e) => set('currency', e.target.value)}>
-              <optgroup label="Habituales">
+              <optgroup label={t('Habituales')}>
                 {curOptions.common.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
@@ -303,7 +307,7 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
                 ))}
               </optgroup>
               {curOptions.rest.length > 0 && (
-                <optgroup label="Todas las monedas">
+                <optgroup label={t('Todas las monedas')}>
                   {curOptions.rest.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -313,7 +317,7 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
               )}
             </Select>
           </Field>
-          <Field label="Idioma y región" hint="Formato regional de la organización.">
+          <Field label={t('Idioma y región')} hint={t('Idioma por defecto de la organización (para quien no haya elegido otro) y formato de fechas y números. No cambia los módulos ya creados.')}>
             <Select value={values.locale} onChange={(e) => set('locale', e.target.value)}>
               {locOptions.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -324,7 +328,7 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
           </Field>
         </div>
         <div className="flex flex-col-reverse gap-2 border-t border-zinc-100 pt-4 sm:flex-row sm:items-center sm:justify-end dark:border-zinc-800">
-          {dirty && <span className="text-xs text-zinc-500 sm:mr-auto">Tienes cambios sin guardar</span>}
+          {dirty && <span className="text-xs text-zinc-500 sm:mr-auto">{t('Tienes cambios sin guardar')}</span>}
           <Button
             type="button"
             variant="ghost"
@@ -334,10 +338,10 @@ function DetailsCard({ ws }: { ws: WorkspaceInfo }) {
               setErrors({});
             }}
           >
-            Descartar
+            {t('Descartar')}
           </Button>
           <Button type="submit" variant="primary" icon={<Save className="size-4" />} loading={save.isPending} disabled={!dirty}>
-            Guardar cambios
+            {t('Guardar cambios')}
           </Button>
         </div>
       </form>
@@ -368,7 +372,7 @@ function ApprovalCard({ ws }: { ws: WorkspaceInfo }) {
     mutationFn: (value: boolean) => patch<{ ok: boolean; settings: WorkspaceSettingsView }>('/workspace', { settings: { approval: { requireDistinctApprover: value } } }),
     onSuccess: (r, value) => {
       qc.setQueryData<WorkspaceInfo>(WORKSPACE_KEY, (old) => (old ? { ...old, settings: r.settings } : old));
-      toast(value ? 'Principio de cuatro ojos activado' : 'Principio de cuatro ojos desactivado');
+      toast(value ? t('Principio de cuatro ojos activado') : t('Principio de cuatro ojos desactivado'));
       qc.invalidateQueries({ queryKey: WORKSPACE_KEY });
       qc.invalidateQueries({ queryKey: ['blueprint'] });
     },
@@ -376,24 +380,24 @@ function ApprovalCard({ ws }: { ws: WorkspaceInfo }) {
   });
   const checked = update.isPending && update.variables !== undefined ? update.variables : current;
   return (
-    <Card title="Política de aprobación" description="Quién puede aprobar los cambios que propone EVOLVE AI ENGINE.">
+    <Card title={t('Política de aprobación')} description={t('Quién puede aprobar los cambios que propone EVOLVE AI ENGINE.')}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
             <ShieldCheck className="size-4 text-brand-600 dark:text-brand-400" />
-            Principio de cuatro ojos
+            {t('Principio de cuatro ojos')}
           </div>
           <p className="mt-1 text-sm text-zinc-500">
-            Exige que cada cambio lo apruebe una persona distinta a quien lo solicitó. Con independencia de esta opción, los cambios de riesgo alto siempre requieren a un propietario.
+            {t('Exige que cada cambio lo apruebe una persona distinta a quien lo solicitó. Con independencia de esta opción, los cambios de riesgo alto siempre requieren a un propietario.')}
           </p>
-          {!isOwner && <p className="mt-2 text-xs text-zinc-500">Solo los propietarios pueden cambiar esta política.</p>}
+          {!isOwner && <p className="mt-2 text-xs text-zinc-500">{t('Solo los propietarios pueden cambiar esta política.')}</p>}
         </div>
         <div className="shrink-0">
           {isOwner ? (
-            <Toggle checked={checked} disabled={update.isPending} label={checked ? 'Activado' : 'Desactivado'} onChange={(v) => update.mutate(v)} />
+            <Toggle checked={checked} disabled={update.isPending} label={checked ? t('Activado') : t('Desactivado')} onChange={(v) => update.mutate(v)} />
           ) : (
             <Badge color={current ? 'emerald' : 'slate'} dot>
-              {current ? 'Activado' : 'Desactivado'}
+              {current ? t('Activado') : t('Desactivado')}
             </Badge>
           )}
         </div>
@@ -403,38 +407,38 @@ function ApprovalCard({ ws }: { ws: WorkspaceInfo }) {
 }
 
 function SummaryCard({ ws }: { ws: WorkspaceInfo }) {
-  const row = 'flex items-center justify-between gap-3 py-2.5';
+  const row = 'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5';
   return (
-    <Card title="Resumen">
+    <Card title={t('Resumen')}>
       <dl className="-my-2.5 divide-y divide-zinc-100 text-sm dark:divide-zinc-800">
         <div className={row}>
-          <dt className="text-zinc-500">Identificador</dt>
+          <dt className="text-zinc-500">{t('Identificador')}</dt>
           <dd className="truncate font-mono text-xs text-zinc-800 dark:text-zinc-200">{ws.slug}</dd>
         </div>
         <div className={row}>
-          <dt className="text-zinc-500">Plan</dt>
+          <dt className="text-zinc-500">{t('Plan')}</dt>
           <dd>
-            <Badge color={ws.plan === 'trial' ? 'amber' : 'emerald'}>{PLAN_LABELS[ws.plan] ?? ws.plan}</Badge>
+            <Badge color={ws.plan === 'trial' ? 'amber' : 'emerald'}>{tk(PLAN_LABELS[ws.plan] ?? ws.plan)}</Badge>
           </dd>
         </div>
         <div className={row}>
-          <dt className="text-zinc-500">Versión de la configuración</dt>
+          <dt className="text-zinc-500">{t('Versión de la configuración')}</dt>
           <dd className="flex items-center gap-2">
             <span className="font-medium tabular-nums">v{ws.version}</span>
             <Link to="/evolve/releases" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
-              <History className="size-3.5" /> Historial
+              <History className="size-3.5" /> {t('Historial')}
             </Link>
           </dd>
         </div>
         <div className={row}>
-          <dt className="text-zinc-500">Tu rol</dt>
+          <dt className="text-zinc-500">{t('Tu rol')}</dt>
           <dd>
             <RoleBadge role={ws.role} />
           </dd>
         </div>
       </dl>
       <p className="mt-4 border-t border-zinc-100 pt-3 text-xs text-zinc-500 dark:border-zinc-800">
-        El identificador forma parte de las direcciones de los formularios públicos (<span className="font-mono">/f/{ws.slug}/…</span>).
+        {tx('El identificador forma parte de las direcciones de los formularios públicos (<mono>/f/{slug}/…</mono>).', { slug: ws.slug, mono: (c) => <span className="font-mono">{c}</span> })}
       </p>
     </Card>
   );
@@ -447,19 +451,19 @@ function ExportCard() {
   const exporter = useMutation({
     mutationFn: downloadExport,
     onSuccess: (name) => {
-      toast(`Exportación descargada: ${name}`);
+      toast(t('Exportación descargada: {name}', { name }));
       qc.invalidateQueries({ queryKey: ['audit'] });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   if (!can('admin')) return null;
   return (
-    <Card title="Exportar datos" description="Copia portable de tu información.">
+    <Card title={t('Exportar datos')} description={t('Copia portable de tu información.')}>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Descarga un archivo JSON con la configuración, los módulos, los registros y las notas de la organización. No incluye los archivos adjuntos. La descarga queda registrada en la auditoría.
+        {t('Descarga un archivo JSON con la configuración, los módulos, los registros y las notas de la organización. No incluye los archivos adjuntos. La descarga queda registrada en la auditoría.')}
       </p>
       <Button className="mt-4 w-full" icon={<Download className="size-4" />} loading={exporter.isPending} onClick={() => exporter.mutate()}>
-        Exportar datos (JSON)
+        {t('Exportar datos (JSON)')}
       </Button>
     </Card>
   );

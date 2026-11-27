@@ -1,5 +1,6 @@
 import { ProviderError, type ChatRequest, type ChatResponse, type Credentials, type ModelInfo, type ProviderAdapter, type ToolCall } from '../types';
 import type { ProviderDefinition } from './registry';
+import { t } from '../../i18n';
 
 /**
  * Adaptador genérico para APIs compatibles con OpenAI Chat Completions
@@ -19,7 +20,7 @@ function toMessages(req: ChatRequest, def: ProviderDefinition): any[] {
       for (const a of m.attachments ?? []) {
         if (a.kind === 'pdf') {
           // OpenAI y OpenRouter aceptan PDF como parte "file" (data URL en base64) en Chat Completions.
-          if (!PDF_CAPABLE.has(def.id)) throw new ProviderError('invalid_request', `${def.label} no admite PDF directamente: usa Claude, OpenAI u OpenRouter, o adjunta el texto`, false);
+          if (!PDF_CAPABLE.has(def.id)) throw new ProviderError('invalid_request', t('{provider} no admite PDF directamente: usa Claude, OpenAI u OpenRouter, o adjunta el texto', { provider: def.label }), false);
           files.push({ type: 'file', file: { filename: a.name, file_data: `data:application/pdf;base64,${a.data}` } });
         } else content = `[Documento: ${a.name}]\n${a.data}\n\n${content}`;
       }
@@ -39,16 +40,17 @@ function toMessages(req: ChatRequest, def: ProviderDefinition): any[] {
 
 function statusError(def: ProviderDefinition, status: number, detail: string): ProviderError {
   const d = detail.slice(0, 300);
-  if (status === 401 || status === 403) return new ProviderError('auth', `${def.label} rechazó la API key`, false, status);
-  if (status === 402) return new ProviderError('limit_exceeded', `${def.label}: saldo o créditos insuficientes`, false, status);
-  if (status === 429) return new ProviderError('rate_limit', `${def.label}: límite de peticiones alcanzado`, true, status);
-  if (status === 400 || status === 404 || status === 422) return new ProviderError('invalid_request', `${def.label} rechazó la petición: ${d}`, false, status);
-  return new ProviderError('unavailable', `${def.label} no disponible (${status}): ${d}`, true, status);
+  const provider = def.label;
+  if (status === 401 || status === 403) return new ProviderError('auth', t('{provider} rechazó la API key', { provider }), false, status);
+  if (status === 402) return new ProviderError('limit_exceeded', t('{provider}: saldo o créditos insuficientes', { provider }), false, status);
+  if (status === 429) return new ProviderError('rate_limit', t('{provider}: límite de peticiones alcanzado', { provider }), true, status);
+  if (status === 400 || status === 404 || status === 422) return new ProviderError('invalid_request', t('{provider} rechazó la petición: {detail}', { provider, detail: d }), false, status);
+  return new ProviderError('unavailable', t('{provider} no disponible ({status}): {detail}', { provider, status, detail: d }), true, status);
 }
 
 function combineSignals(timeoutMs: number, external?: AbortSignal): AbortSignal {
-  const t = AbortSignal.timeout(timeoutMs);
-  return external ? AbortSignal.any([t, external]) : t;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return external ? AbortSignal.any([timeout, external]) : timeout;
 }
 
 export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl: typeof fetch = fetch): ProviderAdapter {
@@ -70,7 +72,7 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
       else body.max_tokens = Math.min(req.maxTokens ?? 8_192, cap);
       if (req.json && def.supportsJsonMode && !req.tools?.length) body.response_format = { type: 'json_object' };
       if (req.tools?.length) {
-        body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
+        body.tools = req.tools.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } }));
         body.tool_choice = 'auto';
       }
       if (def.id === 'openai' && req.effort && /^(o\d|gpt-5)/i.test(req.model)) body.reasoning_effort = req.effort === 'xhigh' || req.effort === 'max' ? 'high' : req.effort;
@@ -86,8 +88,8 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
         });
       } catch (e) {
         const name = (e as Error)?.name;
-        if (name === 'TimeoutError' || name === 'AbortError') throw new ProviderError('timeout', `Tiempo de espera agotado con ${def.label}`, true);
-        throw new ProviderError('unavailable', `No se pudo conectar con ${def.label}`, true);
+        if (name === 'TimeoutError' || name === 'AbortError') throw new ProviderError('timeout', t('Tiempo de espera agotado con {provider}', { provider: def.label }), true);
+        throw new ProviderError('unavailable', t('No se pudo conectar con {provider}', { provider: def.label }), true);
       }
       if (!res.ok) {
         let detail = '';
@@ -102,8 +104,8 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
       const json: any = await res.json().catch(() => null);
       const choice = json?.choices?.[0];
       if (!choice?.message) {
-        if (json?.error) throw new ProviderError('unavailable', `${def.label}: ${json.error.message ?? 'error'}`, true);
-        throw new ProviderError('bad_response', `${def.label} devolvió una respuesta sin contenido`, true);
+        if (json?.error) throw new ProviderError('unavailable', t('{name}: {message}', { name: def.label, message: json.error.message ?? t('error') }), true);
+        throw new ProviderError('bad_response', t('{provider} devolvió una respuesta sin contenido', { provider: def.label }), true);
       }
       const content = choice.message.content;
       const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((p: any) => p?.text ?? '').join('') : '';
@@ -117,7 +119,7 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
         }
       });
       const finish = choice.finish_reason;
-      if (finish === 'content_filter') throw new ProviderError('refusal', `${def.label} bloqueó la respuesta por su filtro de contenido`, true);
+      if (finish === 'content_filter') throw new ProviderError('refusal', t('{provider} bloqueó la respuesta por su filtro de contenido', { provider: def.label }), true);
       return {
         text,
         toolCalls,
@@ -129,12 +131,12 @@ export function createOpenAiCompatibleAdapter(def: ProviderDefinition, fetchImpl
     },
 
     async listModels(cred): Promise<ModelInfo[]> {
-      if (!def.publicModels && !cred.apiKey) throw new ProviderError('not_configured', `Configura la API key de ${def.label} para listar modelos`, false);
+      if (!def.publicModels && !cred.apiKey) throw new ProviderError('not_configured', t('Configura la API key de {provider} para listar modelos', { provider: def.label }), false);
       let res: Response;
       try {
         res = await fetchImpl(`${cred.baseUrl.replace(/\/$/, '')}/models`, { headers: headers(cred), signal: AbortSignal.timeout(30_000) });
       } catch {
-        throw new ProviderError('unavailable', `No se pudo conectar con ${def.label}`, true);
+        throw new ProviderError('unavailable', t('No se pudo conectar con {provider}', { provider: def.label }), true);
       }
       if (!res.ok) throw statusError(def, res.status, res.statusText);
       const json: any = await res.json();

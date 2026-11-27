@@ -5,6 +5,8 @@
  * SUCCESS» = CI superado (si el log muestra las pruebas) y «FAILED» = algo falló; los logs del build dicen qué.
  */
 
+import { t } from '../i18n';
+
 /**
  * Rutas que no cuentan para la huella del árbol: el Dockerfile cambia entre el CI y el despliegue (en el CI es
  * Dockerfile.ci) y el railway.json lo pone el motor. Las dos están protegidas: el agente no puede tocarlas y el
@@ -66,10 +68,10 @@ export function analyzeCiLogs(raw: string[]): CiAnalysis {
   const excerpt = tail.join('\n').slice(-12_000);
   const problems: string[] = [
     ...tsErrors.map((e) => `TypeScript: ${e}`),
-    ...failedTests.map((t) => `Prueba fallida: ${t}`),
-    ...(failureDetails ? [`Detalle de las pruebas fallidas:\n${failureDetails}`] : []),
-    ...otherErrors.map((e) => `Error del build: ${e}`),
+    ...failedTests.map((test) => t('Prueba fallida: {test}', { test })),
+    ...(failureDetails ? [t('Detalle de las pruebas fallidas:\n{details}', { details: failureDetails })] : []),
+    ...otherErrors.map((e) => t('Error del build: {error}', { error: e })),
   ];
-  if (!problems.length) problems.push(`El CI falló sin un error reconocible. Últimas líneas del log:\n${lines.slice(-60).join('\n').slice(-6000)}`);
+  if (!problems.length) problems.push(t('El CI falló sin un error reconocible. Últimas líneas del log:\n{lines}', { lines: lines.slice(-60).join('\n').slice(-6000) }));
   return { tsErrors, failedTests, failureDetails, otherErrors, testSummary, excerpt, problems: problems.slice(0, 60) };
 }

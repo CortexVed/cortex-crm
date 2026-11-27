@@ -6,7 +6,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (297 tests en 20 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (310 tests en 21 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
@@ -21,7 +21,8 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 - **Automatizaciones** por evento y programadas (fechas, inactividad), que pueden ejecutar scripts de la organización; **paneles** personalizables, **informes** (ventas, conversión, actividad, rendimiento, clientes) y **predicciones con IA**.
 - **Comunicaciones**: WhatsApp Business (Cloud API) y Telegram; Gmail, Outlook y Slack preparados y marcados como no disponibles.
 - **Multi-organización con aislamiento estricto** (filtros de aplicación + Row Level Security de PostgreSQL, con tests entre organizaciones), 5 roles, API keys, auditoría, CSRF, CSP, *rate limiting* y cifrado AES-256-GCM.
-- **Interfaz** en español con modo claro/oscuro, paleta de comandos (`⌘/Ctrl+K`), atajos de teclado, notificaciones y panel de IA (`⌘/Ctrl+J`) en todas las pantallas, abierto por defecto en pantallas de 1280 px o más.
+- **Siete idiomas**: español, inglés, portugués de Brasil, francés, alemán, italiano y japonés. Cada persona elige el suyo (o usa el de su organización); el servidor, los correos, el CRM inicial de cada organización y las respuestas de la IA siguen ese idioma (ver [shared/i18n/README.md](shared/i18n/README.md)).
+- **Interfaz** con modo claro/oscuro, paleta de comandos (`⌘/Ctrl+K`), atajos de teclado, notificaciones y panel de IA (`⌘/Ctrl+J`) en todas las pantallas, abierto por defecto en pantallas de 1280 px o más.
 
 ## Stack
 
@@ -38,7 +39,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (297 tests en 20 archivos)
+server/test/  Tests Vitest (310 tests en 21 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -87,7 +88,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 297 tests en 20 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 310 tests en 21 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 

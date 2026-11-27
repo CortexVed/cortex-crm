@@ -6,6 +6,7 @@ import { ApiError, errorMessage, get, post } from '../lib/api';
 import { useBlueprint } from '../lib/hooks';
 import { useSession } from '../lib/session';
 import { ModuleIcon } from '../lib/icons';
+import { inSentence, t, tp } from '../lib/i18n';
 import type { Blueprint, Module, Page, PageBlock, RecordList, WidgetData } from '../lib/types';
 import type { BlockWidth } from '../../../shared/appearance';
 import { Alert, Button, Card, cx, EmptyState, ErrorState, Field, PageHeader, PageLoader, Skeleton } from '../components/ui';
@@ -60,10 +61,16 @@ function RecordsBlock({ block, mod, fit }: { block: Extract<PageBlock, { type: '
       padded={false}
       className="h-full"
       title={title}
-      description={list.data ? `${list.data.total} ${list.data.total === 1 ? 'registro' : 'registros'}${list.data.total > list.data.items.length ? ` · se muestran ${list.data.items.length}` : ''}` : undefined}
+      description={
+        list.data
+          ? list.data.total > list.data.items.length
+            ? tp(list.data.total, '{count} registro · se muestran {shown}', '{count} registros · se muestran {shown}', { shown: list.data.items.length })
+            : tp(list.data.total, '{count} registro', '{count} registros')
+          : undefined
+      }
       actions={
         <Link to={`/m/${mod.key}${view ? `?view=${view.key}` : ''}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
-          Ver todos <ArrowRight className="size-3" />
+          {t('Ver todos')} <ArrowRight className="size-3" />
         </Link>
       }
     >
@@ -72,7 +79,7 @@ function RecordsBlock({ block, mod, fit }: { block: Extract<PageBlock, { type: '
       ) : list.error ? (
         <ErrorState error={list.error} onRetry={() => list.refetch()} className="py-8" />
       ) : !list.data!.items.length ? (
-        <EmptyState icon={<ModuleIcon name={mod.icon} className="size-5" />} title={`No hay ${mod.labelPlural.toLowerCase()}`} className="py-8" />
+        <EmptyState icon={<ModuleIcon name={mod.icon} className="size-5" />} title={t('No hay {module}', { module: inSentence(mod.labelPlural) })} className="py-8" />
       ) : (
         <RecordTable bare fit={fit} mod={mod} columns={block.columns?.length ? block.columns : view?.columns} data={list.data!} sort={sort ?? (view?.sort ? { field: view.sort.field, dir: view.sort.direction } : null)} setSort={setSort} onOpen={(r) => navigate(`/m/${mod.key}/${r.id}`)} />
       )}
@@ -111,7 +118,7 @@ function FormBlock({ formKey, blueprint }: { formKey: string; blueprint: Bluepri
   return (
     <Card title={form.name} className="h-full">
       {!can(mod.permissions.create) ? (
-        <p className="text-sm text-zinc-500">Tu rol no puede crear {mod.labelPlural.toLowerCase()}.</p>
+        <p className="text-sm text-zinc-500">{t('Tu rol no puede crear {module}.', { module: inSentence(mod.labelPlural) })}</p>
       ) : (
         <form
           className="space-y-3"
@@ -153,7 +160,7 @@ function BlockView({ block, blueprint, data, dataError }: { block: PageBlock; bl
       if (!activeModule(blueprint, w.module)) return null;
       return (
         <Card title={w.title} className="h-full">
-          {dataError ? <p className="text-sm text-zinc-500">No se han podido calcular los datos.</p> : <WidgetBody w={w} data={data?.[w.key]} />}
+          {dataError ? <p className="text-sm text-zinc-500">{t('No se han podido calcular los datos.')}</p> : <WidgetBody w={w} data={data?.[w.key]} />}
         </Card>
       );
     }
@@ -206,19 +213,19 @@ export function PageView({ page }: { page: Page }) {
               size="sm"
               icon={<Sparkles className="size-3.5 text-fuchsia-500" />}
               onClick={() => {
-                sessionStorage.setItem('evolve-prefill', `En la página «${page.label}»: `);
+                sessionStorage.setItem('evolve-prefill', `${t('En la página «{page}»:', { page: page.label })} `);
                 navigate('/evolve');
               }}
             >
-              Evolucionar página
+              {t('Evolucionar página')}
             </Button>
           )
         }
       />
-      {data.error && <Alert tone="warning">No se han podido calcular los widgets: {errorMessage(data.error)}</Alert>}
+      {data.error && <Alert tone="warning">{t('No se han podido calcular los widgets: {error}', { error: errorMessage(data.error) })}</Alert>}
       {page.blocks.length === 0 ? (
         <Card>
-          <EmptyState icon={<Sparkles className="size-5" />} title="Esta página todavía no tiene contenido" description="Pide a EVOLVE AI ENGINE que añada indicadores, listas de registros, textos o botones." />
+          <EmptyState icon={<Sparkles className="size-5" />} title={t('Esta página todavía no tiene contenido')} description={t('Pide a EVOLVE AI ENGINE que añada indicadores, listas de registros, textos o botones.')} />
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-6">

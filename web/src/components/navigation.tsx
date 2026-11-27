@@ -4,6 +4,7 @@ import { MODULE_ACCENT } from '../lib/colors';
 import type { Blueprint, Dashboard, Module, Navigation, Page } from '../lib/types';
 import type { Color } from '../../../shared/constants';
 import { navHrefKind } from '../../../shared/appearance';
+import { t } from '../lib/i18n';
 import { cx } from './ui';
 
 /** Elemento del menú ya resuelto contra el blueprint (módulo, página, panel o enlace). */
@@ -58,8 +59,8 @@ export function buildSections(bp: Blueprint | undefined, panel: string | null, n
   if (!groups.length) {
     const own = pages.filter((p) => p.key !== homeKey);
     return [
-      ...(own.length ? [{ key: '__pages', label: 'Páginas', entries: own.map((p) => pageEntry(p)), collapsible: false }] : []),
-      { key: '__modules', label: 'Módulos', entries: modules.map((m) => moduleEntry(m)), collapsible: false },
+      ...(own.length ? [{ key: '__pages', label: t('Páginas'), entries: own.map((p) => pageEntry(p)), collapsible: false }] : []),
+      { key: '__modules', label: t('Módulos'), entries: modules.map((m) => moduleEntry(m)), collapsible: false },
     ];
   }
   const listedModules = new Set<string>();
@@ -92,6 +93,6 @@ export function buildSections(bp: Blueprint | undefined, panel: string | null, n
     return { key: g.key, label: g.label, entries, collapsible: true };
   });
   const others = [...pages.filter((p) => !listedPages.has(p.key) && p.key !== homeKey).map((p) => pageEntry(p)), ...modules.filter((m) => !listedModules.has(m.key)).map((m) => moduleEntry(m))];
-  if (others.length) sections.push({ key: '__others', label: 'Otros', entries: others, collapsible: true });
+  if (others.length) sections.push({ key: '__others', label: t('Otros'), entries: others, collapsible: true });
   return sections.filter((s) => s.entries.length > 0);
 }

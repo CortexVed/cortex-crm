@@ -13,6 +13,7 @@ import {
   SIDEBAR_STYLES,
   THEME_MODES,
 } from './appearance';
+import { msg, t } from './i18n';
 
 /**
  * BLUEPRINT: definición versionada de la estructura del CRM de una organización
@@ -27,8 +28,8 @@ export const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const RESERVED_KEYS = new Set(['constructor', 'prototype']);
 export const KeySchema = z
   .string()
-  .regex(KEY_RE, 'Clave inválida: usa snake_case (a-z, 0-9, _) empezando por letra, máximo 40 caracteres')
-  .refine((k) => !RESERVED_KEYS.has(k), 'Clave reservada: elige otro nombre');
+  .regex(KEY_RE, msg('Clave inválida: usa snake_case (a-z, 0-9, _) empezando por letra, máximo 40 caracteres'))
+  .refine((k) => !RESERVED_KEYS.has(k), msg('Clave reservada: elige otro nombre'));
 const Label = z.string().trim().min(1).max(80);
 
 /**
@@ -64,7 +65,7 @@ const Text = (max: number) => z.string().max(max);
 const ConditionValueSchema = z.unknown().superRefine((v, ctx) => {
   const tooLong = (s: unknown) => typeof s === 'string' && s.length > 500;
   if (tooLong(v) || (Array.isArray(v) && (v.length > 100 || v.some(tooLong))) || (v !== null && typeof v === 'object' && !Array.isArray(v))) {
-    ctx.addIssue({ code: 'custom', message: 'Valor de condición no válido o demasiado largo' });
+    ctx.addIssue({ code: 'custom', message: t('Valor de condición no válido o demasiado largo') });
   }
 });
 
@@ -76,7 +77,7 @@ export const ConditionSchema = z.object({
 export type Condition = z.infer<typeof ConditionSchema>;
 
 export const SelectOptionSchema = z.object({
-  value: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,49}$/, 'Valor de opción inválido (minúsculas, números, _ o -)'),
+  value: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,49}$/, msg('Valor de opción inválido (minúsculas, números, _ o -)')),
   label: Label,
   color: z.enum(COLORS).default('slate'),
 });
@@ -113,27 +114,27 @@ export const FieldBaseSchema = z.object({
 
 export const FieldSchema = FieldBaseSchema.superRefine((f, ctx) => {
   if ((SYSTEM_FIELD_KEYS as readonly string[]).includes(f.key)) {
-    ctx.addIssue({ code: 'custom', message: `"${f.key}" es una clave reservada del sistema`, path: ['key'] });
+    ctx.addIssue({ code: 'custom', message: t('"{key}" es una clave reservada del sistema', { key: f.key }), path: ['key'] });
   }
   if ((f.type === 'select' || f.type === 'multi_select') && (!f.options || f.options.length === 0)) {
-    ctx.addIssue({ code: 'custom', message: `El campo "${f.key}" necesita al menos una opción`, path: ['options'] });
+    ctx.addIssue({ code: 'custom', message: t('El campo "{key}" necesita al menos una opción', { key: f.key }), path: ['options'] });
   }
   if (f.options) {
     const seen = new Set<string>();
     for (const o of f.options) {
-      if (seen.has(o.value)) ctx.addIssue({ code: 'custom', message: `Opción duplicada "${o.value}"`, path: ['options'] });
+      if (seen.has(o.value)) ctx.addIssue({ code: 'custom', message: t('Opción duplicada "{value}"', { value: o.value }), path: ['options'] });
       seen.add(o.value);
     }
   }
   if (f.type === 'relation' && !f.relation) {
-    ctx.addIssue({ code: 'custom', message: `El campo "${f.key}" necesita indicar el módulo relacionado`, path: ['relation'] });
+    ctx.addIssue({ code: 'custom', message: t('El campo "{key}" necesita indicar el módulo relacionado', { key: f.key }), path: ['relation'] });
   }
   if (f.type === 'formula') {
-    if (!f.formula) ctx.addIssue({ code: 'custom', message: `El campo "${f.key}" necesita una fórmula`, path: ['formula'] });
-    if (f.required || f.unique) ctx.addIssue({ code: 'custom', message: 'Un campo calculado no puede ser obligatorio ni único', path: ['type'] });
+    if (!f.formula) ctx.addIssue({ code: 'custom', message: t('El campo "{key}" necesita una fórmula', { key: f.key }), path: ['formula'] });
+    if (f.required || f.unique) ctx.addIssue({ code: 'custom', message: t('Un campo calculado no puede ser obligatorio ni único'), path: ['type'] });
   }
   if (f.min !== undefined && f.max !== undefined && f.min > f.max) {
-    ctx.addIssue({ code: 'custom', message: 'min no puede ser mayor que max', path: ['min'] });
+    ctx.addIssue({ code: 'custom', message: t('min no puede ser mayor que max'), path: ['min'] });
   }
 });
 export type Field = z.infer<typeof FieldSchema>;
@@ -296,8 +297,9 @@ export const FormSchema = z.object({
   module: KeySchema,
   fields: z.array(KeySchema).min(1).max(BLUEPRINT_LIMITS.formFields),
   public: z.boolean().default(false),
-  submitLabel: z.string().max(40).default('Enviar'),
-  successMessage: Text(300).default('¡Gracias! Hemos recibido tus datos.'),
+  // Por defecto, en el idioma de quien crea el formulario (el CRM inicial, en el de la organización).
+  submitLabel: z.string().max(40).default(() => t('Enviar@@formulario')),
+  successMessage: Text(300).default(() => t('¡Gracias! Hemos recibido tus datos.')),
   defaults: z.record(z.string(), z.unknown()).default({}),
 });
 export type Form = z.infer<typeof FormSchema>;
@@ -306,14 +308,14 @@ export type Form = z.infer<typeof FormSchema>;
 // Solo presentación: no cambia datos ni permisos. Se versiona, prueba, aprueba y revierte como el resto.
 
 /** Color #rrggbb (se normaliza a minúsculas). */
-export const HexColorSchema = z.string().trim().regex(HEX_COLOR_RE, 'Color inválido: usa el formato #rrggbb').toLowerCase();
+export const HexColorSchema = z.string().trim().regex(HEX_COLOR_RE, msg('Color inválido: usa el formato #rrggbb')).toLowerCase();
 export const AppNameSchema = z.string().trim().min(1).max(40);
 /**
  * Aquí solo se limita la longitud: que sea CSS plano y seguro lo comprueba `validateBlueprint` con
  * `sanitizeCustomCss` (shared/appearance.ts), y el navegador lo vuelve a comprobar antes de inyectarlo. Así,
  * si las reglas se endurecen, una versión antigua sigue cargando (y su CSS simplemente no se aplica).
  */
-export const CustomCssSchema = z.string().max(MAX_CUSTOM_CSS, `El CSS personalizado no puede superar ${MAX_CUSTOM_CSS} caracteres`);
+export const CustomCssSchema = z.string().max(MAX_CUSTOM_CSS, { error: () => t('El CSS personalizado no puede superar {max} caracteres', { max: String(MAX_CUSTOM_CSS) }) });
 
 export const AppearanceSchema = z.object({
   /** Color principal (tono 600 de la paleta: botones, enlaces, selección). */

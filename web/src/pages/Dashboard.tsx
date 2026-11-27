@@ -6,6 +6,7 @@ import { errorMessage, get, post } from '../lib/api';
 import { useBlueprint } from '../lib/hooks';
 import { useSession } from '../lib/session';
 import { formatValue } from '../lib/format';
+import { getIntlTag, t } from '../lib/i18n';
 import type { Dashboard as DashboardT, Widget, WidgetData } from '../lib/types';
 import { Button, Card, cx, EmptyState, ErrorState, Field, Input, Modal, PageLoader, Select, Skeleton } from '../components/ui';
 import { WidgetBody } from '../components/WidgetBody';
@@ -23,7 +24,7 @@ function AddWidget({ dashboard, open, onClose }: { dashboard: DashboardT; open: 
   const mod = modules.find((m) => m.key === w.module);
   const numeric = mod?.fields.filter((f) => !f.archived && ['number', 'currency', 'percent', 'rating'].includes(f.type)) ?? [];
   const groupable = mod?.fields.filter((f) => !f.archived && ['select', 'user', 'boolean', 'relation', 'multi_select'].includes(f.type)) ?? [];
-  const dates = [{ key: 'created_at', label: 'Fecha de creación' }, ...(mod?.fields.filter((f) => !f.archived && ['date', 'datetime'].includes(f.type)) ?? [])];
+  const dates = [{ key: 'created_at', label: t('Fecha de creación') }, ...(mod?.fields.filter((f) => !f.archived && ['date', 'datetime'].includes(f.type)) ?? [])];
   const submit = useMutation({
     mutationFn: () => {
       const key = `w_${Date.now().toString(36)}`;
@@ -32,11 +33,11 @@ function AddWidget({ dashboard, open, onClose }: { dashboard: DashboardT; open: 
       if (w.type === 'bar' || w.type === 'donut') widget.groupBy = w.groupBy;
       if (w.type === 'line') widget.dateField = w.dateField;
       return post<{ id: string }>('/evolve/requests/manual', {
-        changeSet: { title: `Panel: añadir widget «${w.title}»`, summary: `Añade el widget «${w.title}» al panel ${dashboard.label}.`, operations: [{ op: 'upsert_dashboard', dashboard: { ...dashboard, widgets: [...dashboard.widgets, widget] } }] },
+        changeSet: { title: t('Panel: añadir widget «{title}»', { title: w.title }), summary: t('Añade el widget «{title}» al panel {dashboard}.', { title: w.title, dashboard: dashboard.label }), operations: [{ op: 'upsert_dashboard', dashboard: { ...dashboard, widgets: [...dashboard.widgets, widget] } }] },
       });
     },
     onSuccess: (r) => {
-      toast('Cambio enviado: se valida y prueba en el sandbox antes de publicarse');
+      toast(t('Cambio enviado: se valida y prueba en el sandbox antes de publicarse'));
       onClose();
       navigate(`/evolve/requests/${r.id}`);
     },
@@ -44,43 +45,43 @@ function AddWidget({ dashboard, open, onClose }: { dashboard: DashboardT; open: 
   });
   const valid = w.title.trim().length > 1 && w.module && (w.aggregate === 'count' || w.field || w.type === 'list') && (!(w.type === 'bar' || w.type === 'donut') || w.groupBy);
   return (
-    <Modal open={open} onClose={onClose} title="Añadir widget" description="El panel es parte de la configuración versionada: el cambio se valida y publica como una nueva versión." footer={<><Button onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={!valid} loading={submit.isPending} onClick={() => submit.mutate()}>Proponer cambio</Button></>}>
+    <Modal open={open} onClose={onClose} title={t('Añadir widget')} description={t('El panel es parte de la configuración versionada: el cambio se valida y publica como una nueva versión.')} footer={<><Button onClick={onClose}>{t('Cancelar')}</Button><Button variant="primary" disabled={!valid} loading={submit.isPending} onClick={() => submit.mutate()}>{t('Proponer cambio')}</Button></>}>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Título" className="sm:col-span-2"><Input value={w.title} onChange={(e) => setW({ ...w, title: e.target.value })} placeholder="Ej.: Importe ganado por comercial" /></Field>
-        <Field label="Tipo">
+        <Field label={t('Título')} className="sm:col-span-2"><Input value={w.title} onChange={(e) => setW({ ...w, title: e.target.value })} placeholder={t('Ej.: Importe ganado por comercial')} /></Field>
+        <Field label={t('Tipo')}>
           <Select value={w.type} onChange={(e) => setW({ ...w, type: e.target.value as Widget['type'] })}>
-            <option value="metric">Métrica</option><option value="bar">Barras</option><option value="donut">Donut</option><option value="line">Evolución</option><option value="list">Lista</option>
+            <option value="metric">{t('Métrica')}</option><option value="bar">{t('Barras')}</option><option value="donut">{t('Donut')}</option><option value="line">{t('Evolución@@gráfico')}</option><option value="list">{t('Lista')}</option>
           </Select>
         </Field>
-        <Field label="Módulo">
+        <Field label={t('Módulo')}>
           <Select value={w.module} onChange={(e) => setW({ ...w, module: e.target.value, field: '', groupBy: '' })}>
             {modules.map((m) => <option key={m.key} value={m.key}>{m.labelPlural}</option>)}
           </Select>
         </Field>
         {w.type !== 'list' && (
-          <Field label="Cálculo">
+          <Field label={t('Cálculo')}>
             <Select value={w.aggregate} onChange={(e) => setW({ ...w, aggregate: e.target.value as Widget['aggregate'] })}>
-              <option value="count">Contar registros</option><option value="sum" disabled={!numeric.length}>Sumar</option><option value="avg" disabled={!numeric.length}>Media</option>
+              <option value="count">{t('Contar registros')}</option><option value="sum" disabled={!numeric.length}>{t('Sumar')}</option><option value="avg" disabled={!numeric.length}>{t('Media@@promedio')}</option>
             </Select>
           </Field>
         )}
         {w.type !== 'list' && w.aggregate !== 'count' && (
-          <Field label="Campo numérico">
-            <Select value={w.field} onChange={(e) => setW({ ...w, field: e.target.value })}><option value="">Elige…</option>{numeric.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</Select>
+          <Field label={t('Campo numérico')}>
+            <Select value={w.field} onChange={(e) => setW({ ...w, field: e.target.value })}><option value="">{t('Elige…')}</option>{numeric.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</Select>
           </Field>
         )}
         {(w.type === 'bar' || w.type === 'donut') && (
-          <Field label="Agrupar por">
-            <Select value={w.groupBy} onChange={(e) => setW({ ...w, groupBy: e.target.value })}><option value="">Elige…</option>{groupable.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</Select>
+          <Field label={t('Agrupar por')}>
+            <Select value={w.groupBy} onChange={(e) => setW({ ...w, groupBy: e.target.value })}><option value="">{t('Elige…')}</option>{groupable.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</Select>
           </Field>
         )}
         {w.type === 'line' && (
-          <Field label="Fecha">
+          <Field label={t('Fecha')}>
             <Select value={w.dateField} onChange={(e) => setW({ ...w, dateField: e.target.value })}>{dates.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</Select>
           </Field>
         )}
-        <Field label="Tamaño">
-          <Select value={w.size} onChange={(e) => setW({ ...w, size: e.target.value as Widget['size'] })}><option value="sm">Pequeño</option><option value="md">Mediano</option><option value="lg">Grande</option><option value="xl">Ancho completo</option></Select>
+        <Field label={t('Tamaño')}>
+          <Select value={w.size} onChange={(e) => setW({ ...w, size: e.target.value as Widget['size'] })}><option value="sm">{t('Pequeño')}</option><option value="md">{t('Mediano')}</option><option value="lg">{t('Grande')}</option><option value="xl">{t('Ancho completo')}</option></Select>
         </Field>
       </div>
     </Modal>
@@ -105,15 +106,17 @@ export default function Dashboard() {
   const removeWidget = useMutation({
     mutationFn: (key: string) =>
       post<{ id: string }>('/evolve/requests/manual', {
-        changeSet: { title: `Panel: quitar widget`, summary: `Quita el widget «${dashboard!.widgets.find((w) => w.key === key)?.title}» del panel ${dashboard!.label}.`, operations: [{ op: 'upsert_dashboard', dashboard: { ...dashboard!, widgets: dashboard!.widgets.filter((w) => w.key !== key) } }] },
+        changeSet: { title: t('Panel: quitar widget'), summary: t('Quita el widget «{title}» del panel {dashboard}.', { title: dashboard!.widgets.find((w) => w.key === key)?.title, dashboard: dashboard!.label }), operations: [{ op: 'upsert_dashboard', dashboard: { ...dashboard!, widgets: dashboard!.widgets.filter((w) => w.key !== key) } }] },
       }),
-    onSuccess: (r) => { toast('Cambio enviado a revisión'); navigate(`/evolve/requests/${r.id}`); },
+    onSuccess: (r) => { toast(t('Cambio enviado a revisión')); navigate(`/evolve/requests/${r.id}`); },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
+  const firstName = me?.user.name.split(' ')[0];
   const greeting = useMemo(() => {
     const h = new Date().getHours();
-    return h < 13 ? 'Buenos días' : h < 21 ? 'Buenas tardes' : 'Buenas noches';
-  }, []);
+    const vars = { name: firstName };
+    return h < 13 ? t('Buenos días, {name}', vars) : h < 21 ? t('Buenas tardes, {name}', vars) : t('Buenas noches, {name}', vars);
+  }, [firstName]);
 
   if (bp.isLoading) return <PageLoader />;
   if (bp.error) return <ErrorState error={bp.error} onRetry={() => bp.refetch()} className="py-24" />;
@@ -122,22 +125,22 @@ export default function Dashboard() {
     <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm text-zinc-500">{new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">{greeting}, {me?.user.name.split(' ')[0]}</h1>
+          <p className="text-sm text-zinc-500">{new Date().toLocaleDateString(getIntlTag(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">{greeting}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dashboards.length > 1 && (
             // El ancho va en un envoltorio: la clase base w-full del Select no se puede anular con className.
             <div className="w-48">
-              <Select aria-label="Panel" value={dashboard?.key} onChange={(e) => setParams({ panel: e.target.value })}>
+              <Select aria-label={t('Panel')} value={dashboard?.key} onChange={(e) => setParams({ panel: e.target.value })}>
                 {dashboards.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
               </Select>
             </div>
           )}
           {can('admin') && dashboard && (
             <>
-              <Button size="sm" icon={<LayoutGrid className="size-3.5" />} variant={editing ? 'primary' : 'secondary'} onClick={() => setEditing((e) => !e)}>{editing ? 'Terminar' : 'Personalizar'}</Button>
-              {editing && <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>Widget</Button>}
+              <Button size="sm" icon={<LayoutGrid className="size-3.5" />} variant={editing ? 'primary' : 'secondary'} onClick={() => setEditing((e) => !e)}>{editing ? t('Terminar') : t('Personalizar')}</Button>
+              {editing && <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>{t('Widget')}</Button>}
             </>
           )}
         </div>
@@ -149,15 +152,15 @@ export default function Dashboard() {
           <div className="absolute -bottom-20 left-20 size-56 rounded-full bg-brand-600/30 blur-3xl" />
           <span className="relative flex size-11 shrink-0 items-center justify-center rounded-xl evolve-gradient"><Wand2 className="size-5" /></span>
           <span className="relative min-w-0 flex-1">
-            <span className="block text-sm font-semibold">Haz evolucionar tu CRM</span>
-            <span className="block truncate text-sm text-zinc-400">«Quiero un módulo de contratos con avisos de vencimiento» · «Avisa a los comerciales si un cliente importante lleva 15 días sin actividad»</span>
+            <span className="block text-sm font-semibold">{t('Haz evolucionar tu CRM')}</span>
+            <span className="block truncate text-sm text-zinc-400">{t('«Quiero un módulo de contratos con avisos de vencimiento» · «Avisa a los comerciales si un cliente importante lleva 15 días sin actividad»')}</span>
           </span>
           <ArrowRight className="relative size-5 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-white" />
         </button>
       )}
 
       {!dashboard ? (
-        <Card><EmptyState icon={<Sparkles className="size-5" />} title="No hay paneles configurados" description="Pide a EVOLVE AI ENGINE que cree un panel con las métricas que necesites." /></Card>
+        <Card><EmptyState icon={<Sparkles className="size-5" />} title={t('No hay paneles configurados')} description={t('Pide a EVOLVE AI ENGINE que cree un panel con las métricas que necesites.')} /></Card>
       ) : data.error ? (
         <ErrorState error={data.error} onRetry={() => data.refetch()} />
       ) : (
@@ -168,7 +171,7 @@ export default function Dashboard() {
               className={cx(SIZE[w.size] ?? '', 'animate-pop')}
               title={w.title}
               actions={editing && (
-                <button aria-label="Quitar widget" className="text-zinc-400 hover:text-red-600" onClick={() => removeWidget.mutate(w.key)}><Trash2 className="size-4" /></button>
+                <button aria-label={t('Quitar widget')} className="text-zinc-400 hover:text-red-600" onClick={() => removeWidget.mutate(w.key)}><Trash2 className="size-4" /></button>
               )}
             >
               <WidgetBody w={w} data={data.data?.data[w.key]} />

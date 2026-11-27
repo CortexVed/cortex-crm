@@ -1,5 +1,6 @@
 import { findModule, type Blueprint } from '../../../shared/blueprint';
 import type { Queryable } from '../db/db';
+import { activeIntlTag, t } from '../i18n';
 
 export const REPORT_TYPES = ['sales', 'conversion', 'activity', 'performance', 'customers'] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
@@ -23,30 +24,31 @@ export interface Report {
   table?: { columns: { key: string; label: string; format?: 'currency' | 'number' | 'percent' }[]; rows: Record<string, unknown>[] };
 }
 
-const TITLES: Record<ReportType, [string, string]> = {
-  sales: ['Ventas', 'Ingresos ganados, pipeline abierto y ponderado.'],
-  conversion: ['Conversión', 'Embudo de oportunidades y ciclo de vida de contactos.'],
-  activity: ['Actividad comercial', 'Llamadas, reuniones, emails y tareas completadas.'],
-  performance: ['Rendimiento del equipo', 'Resultados por comercial.'],
-  customers: ['Evolución de clientes', 'Altas de contactos y empresas, y estado de la cartera.'],
-};
+/** Título y descripción de cada informe (en el idioma de la petición). */
+const titles = (): Record<ReportType, [string, string]> => ({
+  sales: [t('Ventas'), t('Ingresos ganados, pipeline abierto y ponderado.')],
+  conversion: [t('Conversión'), t('Embudo de oportunidades y ciclo de vida de contactos.')],
+  activity: [t('Actividad comercial'), t('Llamadas, reuniones, emails y tareas completadas.')],
+  performance: [t('Rendimiento del equipo'), t('Resultados por comercial.')],
+  customers: [t('Evolución de clientes'), t('Altas de contactos y empresas, y estado de la cartera.')],
+});
 
 function months(n: number, now: Date) {
   const out: { key: string; label: string }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    out.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('es-ES', { month: 'short', year: '2-digit', timeZone: 'UTC' }) });
+    out.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString(activeIntlTag(), { month: 'short', year: '2-digit', timeZone: 'UTC' }) });
   }
   return out;
 }
 
 export async function buildReport(q: Queryable, workspaceId: string, bp: Blueprint, type: ReportType, now: Date): Promise<Report> {
-  const [title, description] = TITLES[type];
+  const [title, description] = titles()[type];
   const base: Report = { type, title, description, available: true, missing: [], kpis: [], charts: [] };
   const need = (moduleKey: string, fields: string[]) => {
     const m = findModule(bp, moduleKey);
     if (!m || m.archived) {
-      base.missing.push(`módulo "${moduleKey}"`);
+      base.missing.push(t('módulo "{key}"', { key: moduleKey }));
       return null;
     }
     for (const f of fields) if (!m.fields.some((x) => x.key === f && !x.archived)) base.missing.push(`${moduleKey}.${f}`);
@@ -58,7 +60,7 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
     const deals = need('deals', ['stage', 'amount']);
     const stageField = deals?.fields.find((f) => f.key === 'stage');
     const hasWon = stageField?.options?.some((o) => o.value === 'ganado');
-    if (deals && !hasWon) base.missing.push('deals.stage con la etapa "ganado"');
+    if (deals && !hasWon) base.missing.push(t('deals.stage con la etapa "ganado"'));
     if (base.missing.length) return { ...base, available: false };
     const options = stageField!.options!;
     const closed = ['ganado', 'perdido'];
@@ -89,17 +91,17 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
         [ws, closed],
       );
       base.kpis = [
-        { label: 'Ganado (12 meses)', value: totalWon, format: 'currency' },
-        { label: 'Oportunidades ganadas', value: wonCount, format: 'number' },
-        { label: 'Ticket medio', value: wonCount ? totalWon / wonCount : 0, format: 'currency' },
-        { label: 'Pipeline abierto', value: open.reduce((a, b) => a + Number(b.amount), 0), format: 'currency' },
-        { label: 'Pipeline ponderado', value: Number(weighted.rows[0]?.v ?? 0), format: 'currency' },
+        { label: t('Ganado (12 meses)'), value: totalWon, format: 'currency' },
+        { label: t('Oportunidades ganadas'), value: wonCount, format: 'number' },
+        { label: t('Ticket medio'), value: wonCount ? totalWon / wonCount : 0, format: 'currency' },
+        { label: t('Pipeline abierto'), value: open.reduce((a, b) => a + Number(b.amount), 0), format: 'currency' },
+        { label: t('Pipeline ponderado'), value: Number(weighted.rows[0]?.v ?? 0), format: 'currency' },
       ];
       base.charts = [
-        { key: 'won_by_month', title: 'Ingresos ganados por mes', type: 'bar', format: 'currency', points: series },
+        { key: 'won_by_month', title: t('Ingresos ganados por mes'), type: 'bar', format: 'currency', points: series },
         {
           key: 'pipeline_by_stage',
-          title: 'Pipeline por etapa',
+          title: t('Pipeline por etapa'),
           type: 'bar',
           format: 'currency',
           points: options.filter((o) => !closed.includes(o.value)).map((o) => ({ key: o.value, label: o.label, value: Number(stageMap.get(o.value)?.amount ?? 0), color: o.color })),
@@ -112,14 +114,14 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
     const lost = stageMap.get('perdido')?.n ?? 0;
     const total = byStage.rows.reduce((a, b) => a + b.n, 0);
     base.kpis = [
-      { label: 'Tasa de cierre (ganadas / cerradas)', value: won + lost ? (won / (won + lost)) * 100 : 0, format: 'percent' },
-      { label: 'Oportunidades totales', value: total, format: 'number' },
-      { label: 'Ganadas', value: won, format: 'number' },
-      { label: 'Perdidas', value: lost, format: 'number' },
+      { label: t('Tasa de cierre (ganadas / cerradas)'), value: won + lost ? (won / (won + lost)) * 100 : 0, format: 'percent' },
+      { label: t('Oportunidades totales'), value: total, format: 'number' },
+      { label: t('Ganadas'), value: won, format: 'number' },
+      { label: t('Perdidas'), value: lost, format: 'number' },
     ];
     base.charts.push({
       key: 'deal_funnel',
-      title: 'Embudo de oportunidades',
+      title: t('Embudo de oportunidades'),
       type: 'funnel',
       format: 'number',
       points: options.map((o) => ({ key: o.value, label: o.label, value: stageMap.get(o.value)?.n ?? 0, color: o.color })),
@@ -133,8 +135,8 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
       );
       const lcMap = new Map(lc.rows.map((r) => [r.k, r.n]));
       const totalC = lc.rows.reduce((a, b) => a + b.n, 0);
-      base.kpis.push({ label: 'Contactos convertidos en clientes', value: totalC ? ((lcMap.get('cliente') ?? 0) / totalC) * 100 : 0, format: 'percent' });
-      base.charts.push({ key: 'lifecycle', title: 'Ciclo de vida de contactos', type: 'funnel', format: 'number', points: lifecycle.options.map((o) => ({ key: o.value, label: o.label, value: lcMap.get(o.value) ?? 0, color: o.color })) });
+      base.kpis.push({ label: t('Contactos convertidos en clientes'), value: totalC ? ((lcMap.get('cliente') ?? 0) / totalC) * 100 : 0, format: 'percent' });
+      base.charts.push({ key: 'lifecycle', title: t('Ciclo de vida de contactos'), type: 'funnel', format: 'number', points: lifecycle.options.map((o) => ({ key: o.value, label: o.label, value: lcMap.get(o.value) ?? 0, color: o.color })) });
     }
     return base;
   }
@@ -157,7 +159,7 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
       const day = d.getUTCDay() || 7;
       d.setUTCDate(d.getUTCDate() - day + 1 - i * 7);
       const key = d.toISOString().slice(0, 10);
-      weeks.push({ key, label: d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'UTC' }), value: wMap.get(key) ?? 0 });
+      weeks.push({ key, label: d.toLocaleDateString(activeIntlTag(), { day: '2-digit', month: 'short', timeZone: 'UTC' }), value: wMap.get(key) ?? 0 });
     }
     const byType = await q.query<{ k: string | null; n: number }>(
       `SELECT data->>'type' AS k, count(*)::int AS n FROM records WHERE workspace_id = $1 AND module_key = 'activities' AND deleted_at IS NULL
@@ -173,12 +175,12 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
       [ws],
     );
     base.kpis = [
-      { label: 'Actividades (30 días)', value: last30.rows[0].n, format: 'number' },
-      { label: 'Tareas completadas (30 días)', value: tasksDone.rows[0].n, format: 'number' },
+      { label: t('Actividades (30 días)'), value: last30.rows[0].n, format: 'number' },
+      { label: t('Tareas completadas (30 días)'), value: tasksDone.rows[0].n, format: 'number' },
     ];
     base.charts = [
-      { key: 'weekly', title: 'Actividades por semana', type: 'line', format: 'number', points: weeks },
-      { key: 'by_type', title: 'Actividades por tipo (90 días)', type: 'donut', format: 'number', points: (typeField.options ?? []).map((o) => ({ key: o.value, label: o.label, value: byType.rows.find((r) => r.k === o.value)?.n ?? 0, color: o.color })) },
+      { key: 'weekly', title: t('Actividades por semana'), type: 'line', format: 'number', points: weeks },
+      { key: 'by_type', title: t('Actividades por tipo (90 días)'), type: 'donut', format: 'number', points: (typeField.options ?? []).map((o) => ({ key: o.value, label: o.label, value: byType.rows.find((r) => r.k === o.value)?.n ?? 0, color: o.color })) },
     ];
     return base;
   }
@@ -205,17 +207,17 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
     const rows = r.rows.map((x: any) => ({ ...x, win_rate: x.won + x.lost ? (x.won / (x.won + x.lost)) * 100 : 0 }));
     base.table = {
       columns: [
-        { key: 'name', label: 'Comercial' },
-        { key: 'won', label: 'Ganadas', format: 'number' },
-        { key: 'won_amount', label: 'Importe ganado', format: 'currency' },
-        { key: 'pipeline', label: 'Pipeline abierto', format: 'currency' },
-        { key: 'win_rate', label: 'Tasa de cierre', format: 'percent' },
-        { key: 'activities', label: 'Actividades (90 d)', format: 'number' },
-        { key: 'tasks_done', label: 'Tareas hechas (90 d)', format: 'number' },
+        { key: 'name', label: t('Comercial') },
+        { key: 'won', label: t('Ganadas'), format: 'number' },
+        { key: 'won_amount', label: t('Importe ganado'), format: 'currency' },
+        { key: 'pipeline', label: t('Pipeline abierto'), format: 'currency' },
+        { key: 'win_rate', label: t('Tasa de cierre'), format: 'percent' },
+        { key: 'activities', label: t('Actividades (90 d)'), format: 'number' },
+        { key: 'tasks_done', label: t('Tareas hechas (90 d)'), format: 'number' },
       ],
       rows,
     };
-    base.charts = [{ key: 'won_by_owner', title: 'Importe ganado por comercial', type: 'bar', format: 'currency', points: rows.map((x: any) => ({ key: x.id, label: x.name, value: Number(x.won_amount) })) }];
+    base.charts = [{ key: 'won_by_owner', title: t('Importe ganado por comercial'), type: 'bar', format: 'currency', points: rows.map((x: any) => ({ key: x.id, label: x.name, value: Number(x.won_amount) })) }];
     return base;
   }
 
@@ -231,8 +233,8 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
   };
   const contactsSeries = findModule(bp, 'contacts') ? await series('contacts') : [];
   const companiesSeries = findModule(bp, 'companies') ? await series('companies') : [];
-  base.charts.push({ key: 'new_contacts', title: 'Nuevos contactos por mes', type: 'line', format: 'number', points: contactsSeries });
-  base.charts.push({ key: 'new_companies', title: 'Nuevas empresas por mes', type: 'bar', format: 'number', points: companiesSeries });
+  base.charts.push({ key: 'new_contacts', title: t('Nuevos contactos por mes'), type: 'line', format: 'number', points: contactsSeries });
+  base.charts.push({ key: 'new_companies', title: t('Nuevas empresas por mes'), type: 'bar', format: 'number', points: companiesSeries });
   const companies = findModule(bp, 'companies');
   const status = companies?.fields.find((f) => f.key === 'status' && !f.archived);
   if (status?.options) {
@@ -240,11 +242,11 @@ export async function buildReport(q: Queryable, workspaceId: string, bp: Bluepri
       `SELECT data->>'status' AS k, count(*)::int AS n FROM records WHERE workspace_id = $1 AND module_key = 'companies' AND deleted_at IS NULL GROUP BY 1`,
       [ws],
     );
-    base.charts.push({ key: 'companies_status', title: 'Cartera por estado', type: 'donut', format: 'number', points: status.options.map((o) => ({ key: o.value, label: o.label, value: r.rows.find((x) => x.k === o.value)?.n ?? 0, color: o.color })) });
+    base.charts.push({ key: 'companies_status', title: t('Cartera por estado'), type: 'donut', format: 'number', points: status.options.map((o) => ({ key: o.value, label: o.label, value: r.rows.find((x) => x.k === o.value)?.n ?? 0, color: o.color })) });
   }
   base.kpis = [
-    { label: 'Nuevos contactos (12 meses)', value: contactsSeries.reduce((a, b) => a + b.value, 0), format: 'number' },
-    { label: 'Nuevas empresas (12 meses)', value: companiesSeries.reduce((a, b) => a + b.value, 0), format: 'number' },
+    { label: t('Nuevos contactos (12 meses)'), value: contactsSeries.reduce((a, b) => a + b.value, 0), format: 'number' },
+    { label: t('Nuevas empresas (12 meses)'), value: companiesSeries.reduce((a, b) => a + b.value, 0), format: 'number' },
   ];
   return base;
 }

@@ -10,6 +10,7 @@ import { cx, IconButton, Input } from '../../../components/ui';
 import { useToast } from '../../../components/toast';
 import { post } from '../../../lib/api';
 import { DOT, MODULE_ACCENT } from '../../../lib/colors';
+import { msg, t, tk, tx } from '../../../lib/i18n';
 import { ModuleIcon } from '../../../lib/icons';
 import type { Module } from '../../../lib/types';
 import { describeError } from '../ai/shared';
@@ -59,15 +60,16 @@ export function uniqueKey(base: string, taken: Set<string>, max = 40): string {
   return base;
 }
 
-export function keyError(key: string, opts: { taken?: Map<string, { archived: boolean }> | Set<string>; what?: string } = {}): string | null {
-  if (!key) return 'La clave es obligatoria';
-  if (!KEY_RE.test(key)) return 'Usa a-z, 0-9 y _, empezando por una letra (máximo 40)';
-  if ((SYSTEM_FIELD_KEYS as readonly string[]).includes(key)) return `"${key}" está reservada por el sistema`;
-  const t = opts.taken;
-  if (t instanceof Map) {
-    const hit = t.get(key);
-    if (hit) return hit.archived ? `Ya existe un ${opts.what ?? 'campo'} archivado con esta clave: restáuralo en lugar de crearlo` : `Ya existe un ${opts.what ?? 'campo'} con esta clave`;
-  } else if (t?.has(key)) return `Ya existe un ${opts.what ?? 'elemento'} con esta clave`;
+export function keyError(key: string, opts: { taken?: Map<string, { archived: boolean }> | Set<string>; what?: 'field' | 'module' } = {}): string | null {
+  if (!key) return t('La clave es obligatoria');
+  if (!KEY_RE.test(key)) return t('Usa a-z, 0-9 y _, empezando por una letra (máximo 40)');
+  if ((SYSTEM_FIELD_KEYS as readonly string[]).includes(key)) return t('"{key}" está reservada por el sistema', { key });
+  const taken = opts.taken;
+  if (taken instanceof Map) {
+    const hit = taken.get(key);
+    if (hit && opts.what === 'module') return hit.archived ? t('Ya existe un módulo archivado con esta clave: restáuralo en lugar de crearlo') : t('Ya existe un módulo con esta clave');
+    if (hit) return hit.archived ? t('Ya existe un campo archivado con esta clave: restáuralo en lugar de crearlo') : t('Ya existe un campo con esta clave');
+  } else if (taken?.has(key)) return opts.what === 'module' ? t('Ya existe un módulo con esta clave') : opts.what === 'field' ? t('Ya existe un campo con esta clave') : t('Ya existe un elemento con esta clave');
   return null;
 }
 
@@ -75,9 +77,9 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 
 /** Construye un change set manual con título y resumen legibles para los revisores. */
 export function buildChangeSet(title: string, summary: string, operations: OperationInput[], reason?: string): ChangeSetInput {
-  const t = clip(title.trim(), 140);
-  const parts = [summary.trim(), reason?.trim() ? `Motivo: ${reason.trim()}` : '', 'Cambio creado con el editor manual de Personalización (sin IA).'].filter(Boolean);
-  return { title: t.length >= 3 ? t : `Cambio manual: ${t}`, summary: clip(parts.join('\n\n'), 3000), operations };
+  const clipped = clip(title.trim(), 140);
+  const parts = [summary.trim(), reason?.trim() ? t('Motivo: {reason}', { reason: reason.trim() }) : '', t('Cambio creado con el editor manual de Personalización (sin IA).')].filter(Boolean);
+  return { title: clipped.length >= 3 ? clipped : t('Cambio manual: {title}', { title: clipped }), summary: clip(parts.join('\n\n'), 3000), operations };
 }
 
 /**
@@ -92,7 +94,7 @@ export function useSubmitChangeSet(onSent?: () => void) {
     mutationFn: (changeSet: ChangeSetInput) => post<{ id: string }>('/evolve/requests/manual', { changeSet }),
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ['evolve'] });
-      toast('Cambio enviado: se valida y prueba en el sandbox antes de publicarse');
+      toast(t('Cambio enviado: se valida y prueba en el sandbox antes de publicarse'));
       onSent?.();
       navigate('/evolve/requests/' + id);
     },
@@ -102,32 +104,33 @@ export function useSubmitChangeSet(onSent?: () => void) {
 
 // ---------------------------------------------------------------- textos
 
+// Textos marcados con msg(): se traducen al mostrarlos, con tk().
 export const COLOR_LABELS: Record<Color, string> = {
-  slate: 'Gris',
-  red: 'Rojo',
-  orange: 'Naranja',
-  amber: 'Ámbar',
-  yellow: 'Amarillo',
-  lime: 'Lima',
-  green: 'Verde',
-  emerald: 'Esmeralda',
-  teal: 'Verde azulado',
-  cyan: 'Cian',
-  sky: 'Celeste',
-  blue: 'Azul',
-  indigo: 'Índigo',
-  violet: 'Violeta',
-  purple: 'Morado',
-  fuchsia: 'Fucsia',
-  pink: 'Rosa',
-  rose: 'Rosa intenso',
+  slate: msg('Gris'),
+  red: msg('Rojo'),
+  orange: msg('Naranja'),
+  amber: msg('Ámbar'),
+  yellow: msg('Amarillo'),
+  lime: msg('Lima'),
+  green: msg('Verde'),
+  emerald: msg('Esmeralda'),
+  teal: msg('Verde azulado'),
+  cyan: msg('Cian'),
+  sky: msg('Celeste'),
+  blue: msg('Azul'),
+  indigo: msg('Índigo'),
+  violet: msg('Violeta'),
+  purple: msg('Morado'),
+  fuchsia: msg('Fucsia'),
+  pink: msg('Rosa'),
+  rose: msg('Rosa intenso'),
 };
 
 export const PERMISSION_LABELS: Record<keyof Module['permissions'], string> = {
-  read: 'Ver registros',
-  create: 'Crear',
-  update: 'Editar',
-  delete: 'Eliminar',
+  read: msg('Ver registros'),
+  create: msg('Crear'),
+  update: msg('Editar'),
+  delete: msg('Eliminar'),
 };
 
 // ---------------------------------------------------------------- UI
@@ -142,7 +145,7 @@ export function ModuleBadgeIcon({ mod, size = 'md' }: { mod: Pick<Module, 'icon'
 
 export function IconPicker({ value, onChange, color }: { value: string; onChange: (v: IconName) => void; color: string }) {
   return (
-    <div role="radiogroup" aria-label="Icono" className="grid grid-cols-8 gap-1 sm:grid-cols-11">
+    <div role="radiogroup" aria-label={t('Icono')} className="grid grid-cols-8 gap-1 sm:grid-cols-11">
       {ICONS.map((ic) => (
         <button
           key={ic}
@@ -166,15 +169,15 @@ export function IconPicker({ value, onChange, color }: { value: string; onChange
 
 export function ColorPicker({ value, onChange }: { value: string; onChange: (v: Color) => void }) {
   return (
-    <div role="radiogroup" aria-label="Color" className="flex flex-wrap gap-1.5">
+    <div role="radiogroup" aria-label={t('Color')} className="flex flex-wrap gap-1.5">
       {COLORS.map((c) => (
         <button
           key={c}
           type="button"
           role="radio"
           aria-checked={value === c}
-          aria-label={COLOR_LABELS[c]}
-          title={COLOR_LABELS[c]}
+          aria-label={tk(COLOR_LABELS[c])}
+          title={tk(COLOR_LABELS[c])}
           onClick={() => onChange(c)}
           className={cx('flex size-7 items-center justify-center rounded-full transition', value === c ? 'ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-zinc-900' : 'hover:scale-110')}
         >
@@ -197,7 +200,7 @@ export function ColorDot({ value, onChange }: { value: string; onChange: (v: Col
   }, [open]);
   return (
     <div ref={ref} className="relative shrink-0">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={`Color: ${COLOR_LABELS[value as Color] ?? value}`} title={COLOR_LABELS[value as Color] ?? value} className="flex size-9 items-center justify-center rounded-lg ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 dark:ring-zinc-700 dark:hover:bg-zinc-800">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={t('Color: {color}', { color: tk(COLOR_LABELS[value as Color] ?? value) })} title={tk(COLOR_LABELS[value as Color] ?? value)} className="flex size-9 items-center justify-center rounded-lg ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 dark:ring-zinc-700 dark:hover:bg-zinc-800">
         <span className={cx('size-4 rounded-full', DOT[value as Color] ?? DOT.slate)} />
       </button>
       {open && (
@@ -206,8 +209,8 @@ export function ColorDot({ value, onChange }: { value: string; onChange: (v: Col
             <button
               key={c}
               type="button"
-              title={COLOR_LABELS[c]}
-              aria-label={COLOR_LABELS[c]}
+              title={tk(COLOR_LABELS[c])}
+              aria-label={tk(COLOR_LABELS[c])}
               onClick={() => {
                 onChange(c);
                 setOpen(false);
@@ -233,10 +236,10 @@ export interface OptionDraft {
 
 export function optionErrors(options: OptionDraft[], existing: string[] = []): (string | null)[] {
   return options.map((o, i) => {
-    if (!o.label.trim()) return 'La etiqueta es obligatoria';
-    if (o.label.trim().length > 80) return 'Máximo 80 caracteres';
-    if (!OPTION_VALUE_RE.test(o.value)) return 'Valor inválido: minúsculas, números, _ o - (máx. 50)';
-    if (existing.includes(o.value) || options.findIndex((x) => x.value === o.value) !== i) return `El valor "${o.value}" está repetido`;
+    if (!o.label.trim()) return t('La etiqueta es obligatoria');
+    if (o.label.trim().length > 80) return t('Máximo 80 caracteres');
+    if (!OPTION_VALUE_RE.test(o.value)) return t('Valor inválido: minúsculas, números, _ o - (máx. 50)');
+    if (existing.includes(o.value) || options.findIndex((x) => x.value === o.value) !== i) return t('El valor "{value}" está repetido', { value: o.value });
     return null;
   });
 }
@@ -261,8 +264,8 @@ export function OptionsEditor({ options, onChange, existing = [], max = 100 }: {
           <div className="flex items-center gap-2">
             <ColorDot value={o.color} onChange={(color) => set(i, { color })} />
             <Input
-              aria-label="Etiqueta de la opción"
-              placeholder="Etiqueta"
+              aria-label={t('Etiqueta de la opción')}
+              placeholder={t('Etiqueta')}
               value={o.label}
               invalid={!!errors[i] && !o.label.trim()}
               onChange={(e) => {
@@ -277,16 +280,16 @@ export function OptionsEditor({ options, onChange, existing = [], max = 100 }: {
             />
             {/* El ancho va en un envoltorio: la clase base w-full del Input ganaba a w-32 y en móvil desbordaba la fila. */}
             <div className="w-28 shrink-0 sm:w-40">
-              <Input aria-label="Valor interno" placeholder="valor" value={o.value} invalid={!!errors[i] && !!o.label.trim()} onChange={(e) => set(i, { value: e.target.value.toLowerCase(), touched: true })} className="font-mono text-[12.5px]" />
+              <Input aria-label={t('Valor interno')} placeholder={t('valor')} value={o.value} invalid={!!errors[i] && !!o.label.trim()} onChange={(e) => set(i, { value: e.target.value.toLowerCase(), touched: true })} className="font-mono text-[12.5px]" />
             </div>
             <div className="flex shrink-0 items-center">
-              <IconButton label="Subir" disabled={i === 0} onClick={() => move(i, -1)} className="max-sm:hidden">
+              <IconButton label={t('Subir@@posición')} disabled={i === 0} onClick={() => move(i, -1)} className="max-sm:hidden">
                 <ArrowUp className="size-4" />
               </IconButton>
-              <IconButton label="Bajar" disabled={i === options.length - 1} onClick={() => move(i, 1)} className="max-sm:hidden">
+              <IconButton label={t('Bajar')} disabled={i === options.length - 1} onClick={() => move(i, 1)} className="max-sm:hidden">
                 <ArrowDown className="size-4" />
               </IconButton>
-              <IconButton label="Quitar opción" onClick={() => onChange(options.filter((_, j) => j !== i))} danger>
+              <IconButton label={t('Quitar opción')} onClick={() => onChange(options.filter((_, j) => j !== i))} danger>
                 <Trash2 className="size-4" />
               </IconButton>
             </div>
@@ -300,7 +303,7 @@ export function OptionsEditor({ options, onChange, existing = [], max = 100 }: {
           onClick={() => onChange([...options, { value: uniqueKey(`opcion_${options.length + 1}`, taken, 50), label: '', color: nextColor(existing.length + options.length) }])}
           className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
         >
-          + Añadir opción
+          {t('+ Añadir opción')}
         </button>
       )}
     </div>
@@ -312,9 +315,9 @@ export type RiskLevel = 'low' | 'medium' | 'high';
 /** Riesgo previsto según las reglas deterministas del servidor (server/src/evolve/risk.ts). */
 export function RiskNote({ level, reasons }: { level: RiskLevel; reasons: string[] }) {
   const meta = {
-    low: { label: 'Riesgo bajo', who: 'Lo puede aprobar un administrador.', cls: 'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/20', icon: <ShieldCheck className="mt-0.5 size-4 shrink-0" /> },
-    medium: { label: 'Riesgo medio', who: 'Lo puede aprobar un administrador.', cls: 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/20', icon: <ShieldAlert className="mt-0.5 size-4 shrink-0" /> },
-    high: { label: 'Riesgo alto', who: 'Requiere la aprobación de un propietario y confirmación explícita.', cls: 'bg-red-50 text-red-900 ring-red-200 dark:bg-red-500/10 dark:text-red-200 dark:ring-red-500/20', icon: <ShieldAlert className="mt-0.5 size-4 shrink-0" /> },
+    low: { label: t('Riesgo bajo'), who: t('Lo puede aprobar un administrador.'), cls: 'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/20', icon: <ShieldCheck className="mt-0.5 size-4 shrink-0" /> },
+    medium: { label: t('Riesgo medio'), who: t('Lo puede aprobar un administrador.'), cls: 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/20', icon: <ShieldAlert className="mt-0.5 size-4 shrink-0" /> },
+    high: { label: t('Riesgo alto'), who: t('Requiere la aprobación de un propietario y confirmación explícita.'), cls: 'bg-red-50 text-red-900 ring-red-200 dark:bg-red-500/10 dark:text-red-200 dark:ring-red-500/20', icon: <ShieldAlert className="mt-0.5 size-4 shrink-0" /> },
   }[level];
   return (
     <div className={cx('flex gap-2.5 rounded-lg px-3 py-2.5 text-xs ring-1 ring-inset', meta.cls)}>
@@ -338,9 +341,9 @@ export function ReasonInput({ value, onChange }: { value: string; onChange: (v: 
   return (
     <label className="block">
       <span className="mb-1.5 block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-        Motivo del cambio <span className="font-normal text-zinc-400">(opcional, lo verá quien lo apruebe)</span>
+        {tx('Motivo del cambio <hint>(opcional, lo verá quien lo apruebe)</hint>', { hint: (c) => <span className="font-normal text-zinc-400">{c}</span> })}
       </span>
-      <Input value={value} maxLength={500} onChange={(e) => onChange(e.target.value)} placeholder="Ej.: Lo pide el equipo comercial para segmentar campañas" />
+      <Input value={value} maxLength={500} onChange={(e) => onChange(e.target.value)} placeholder={t('Ej.: Lo pide el equipo comercial para segmentar campañas')} />
     </label>
   );
 }

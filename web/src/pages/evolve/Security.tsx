@@ -30,6 +30,7 @@ import { useToast } from '../../components/toast';
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { formatDate, relativeTime } from '../../lib/format';
+import { msg, t, tk, tp } from '../../lib/i18n';
 import { DOT } from '../../lib/colors';
 import type { Color } from '../../../../shared/constants';
 
@@ -41,7 +42,7 @@ interface Finding {
   title: string;
   description: string;
   recommendation?: string;
-  fix?: { kind: 'config' | 'code' | 'manual'; prompt: string };
+  fix?: { kind: 'config' | 'code' | 'manual'; prompt: string; link?: string };
   source: 'automatic' | 'ai';
 }
 
@@ -84,37 +85,38 @@ const RUNNING = new Set(['queued', 'planning']);
 const STALE_MS = 5 * 60_000;
 
 const RUN_STATUS: Record<string, { label: string; color: Color }> = {
-  queued: { label: 'En cola', color: 'slate' },
-  planning: { label: 'Analizando', color: 'violet' },
-  ready_for_review: { label: 'Completada', color: 'emerald' },
-  failed: { label: 'Fallida', color: 'red' },
-  cancelled: { label: 'Cancelada', color: 'slate' },
+  queued: { label: msg('En cola'), color: 'slate' },
+  planning: { label: msg('Analizando'), color: 'violet' },
+  ready_for_review: { label: msg('Completada'), color: 'emerald' },
+  failed: { label: msg('Fallida'), color: 'red' },
+  cancelled: { label: msg('Cancelada'), color: 'slate' },
 };
 
 const ORDER: IssueSeverity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
-const SEVERITY: Record<IssueSeverity, { label: string; group: string; color: Color; icon: LucideIcon; tile: string; one: string; many: string }> = {
-  critical: { label: 'Crítico', group: 'Críticos', color: 'red', icon: ShieldX, tile: 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400', one: 'crítico', many: 'críticos' },
-  high: { label: 'Alto', group: 'Riesgo alto', color: 'orange', icon: ShieldAlert, tile: 'bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400', one: 'riesgo alto', many: 'riesgos altos' },
-  medium: { label: 'Medio', group: 'Riesgo medio', color: 'amber', icon: TriangleAlert, tile: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400', one: 'riesgo medio', many: 'riesgos medios' },
-  low: { label: 'Bajo', group: 'Riesgo bajo', color: 'sky', icon: Shield, tile: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400', one: 'riesgo bajo', many: 'riesgos bajos' },
-  info: { label: 'Informativo', group: 'Informativos', color: 'slate', icon: Info, tile: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400', one: 'informativo', many: 'informativos' },
+// `count` da el número de hallazgos con su plural («2 riesgos altos»), traducido al pintar.
+const SEVERITY: Record<IssueSeverity, { label: string; group: string; color: Color; icon: LucideIcon; tile: string; count: (n: number) => string }> = {
+  critical: { label: msg('Crítico'), group: msg('Críticos'), color: 'red', icon: ShieldX, tile: 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400', count: (n) => tp(n, '{count} crítico', '{count} críticos') },
+  high: { label: msg('Alto'), group: msg('Riesgo alto'), color: 'orange', icon: ShieldAlert, tile: 'bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400', count: (n) => tp(n, '{count} riesgo alto', '{count} riesgos altos') },
+  medium: { label: msg('Medio'), group: msg('Riesgo medio'), color: 'amber', icon: TriangleAlert, tile: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400', count: (n) => tp(n, '{count} riesgo medio', '{count} riesgos medios') },
+  low: { label: msg('Bajo'), group: msg('Riesgo bajo'), color: 'sky', icon: Shield, tile: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400', count: (n) => tp(n, '{count} riesgo bajo', '{count} riesgos bajos') },
+  info: { label: msg('Informativo'), group: msg('Informativos'), color: 'slate', icon: Info, tile: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400', count: (n) => tp(n, '{count} informativo', '{count} informativos') },
 };
 
-// Las acciones manuales automáticas indican la ruta en Ajustes: se enlaza directamente cuando se reconoce.
+// Las acciones manuales de las comprobaciones automáticas traen la pantalla (fix.link); las antiguas y las de la IA
+// se reconocen por la ruta en Ajustes escrita en español.
 const MANUAL_LINKS: { match: RegExp; to: string; label: string }[] = [
-  { match: /Ajustes\s*›\s*Equipo/i, to: '/settings/team', label: 'Abrir Equipo' },
-  { match: /Ajustes\s*›\s*API keys/i, to: '/settings/api-keys', label: 'Abrir API keys' },
-  { match: /Proveedores de IA/i, to: '/settings/ai', label: 'Abrir Proveedores de IA' },
+  { match: /Ajustes\s*›\s*Equipo/i, to: '/settings/team', label: msg('Abrir Equipo') },
+  { match: /Ajustes\s*›\s*API keys/i, to: '/settings/api-keys', label: msg('Abrir API keys') },
+  { match: /Proveedores de IA/i, to: '/settings/ai', label: msg('Abrir Proveedores de IA') },
 ];
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const severityOf = (f: Finding): Severity => (f.severity === 'pass' || (ORDER as string[]).includes(f.severity) ? f.severity : 'info');
 
 function scoreTone(score: number) {
-  if (score >= 80) return { label: 'Buen nivel', color: 'emerald' as Color, stroke: '#10b981', text: 'text-emerald-600 dark:text-emerald-400' };
-  if (score >= 50) return { label: 'Mejorable', color: 'amber' as Color, stroke: '#f59e0b', text: 'text-amber-600 dark:text-amber-400' };
-  return { label: 'En riesgo', color: 'red' as Color, stroke: '#ef4444', text: 'text-red-600 dark:text-red-400' };
+  if (score >= 80) return { label: t('Buen nivel'), color: 'emerald' as Color, stroke: '#10b981', textClass: 'text-emerald-600 dark:text-emerald-400' };
+  if (score >= 50) return { label: t('Mejorable'), color: 'amber' as Color, stroke: '#f59e0b', textClass: 'text-amber-600 dark:text-amber-400' };
+  return { label: t('En riesgo'), color: 'red' as Color, stroke: '#ef4444', textClass: 'text-red-600 dark:text-red-400' };
 }
 
 export default function Security() {
@@ -122,9 +124,9 @@ export default function Security() {
   if (!can('admin')) {
     return (
       <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
-        <PageHeader title="Seguridad" description="Auditoría de seguridad de la organización." />
+        <PageHeader title={t('Seguridad')} description={t('Auditoría de seguridad de la organización.')} />
         <Card>
-          <EmptyState icon={<Lock className="size-5" />} title="Acceso restringido" description="La auditoría de seguridad está disponible para administradores y propietarios de la organización." />
+          <EmptyState icon={<Lock className="size-5" />} title={t('Acceso restringido')} description={t('La auditoría de seguridad está disponible para administradores y propietarios de la organización.')} />
         </Card>
       </div>
     );
@@ -160,8 +162,8 @@ function SecurityPage() {
     const prev = last.current;
     if (prev && prev.id === activeId && RUNNING.has(prev.status) && !RUNNING.has(status)) {
       qc.invalidateQueries({ queryKey: KEYS.runs });
-      if (status === 'ready_for_review') toast('Auditoría de seguridad completada');
-      else if (status === 'failed') toast('La auditoría de seguridad no se ha podido completar', 'error');
+      if (status === 'ready_for_review') toast(t('Auditoría de seguridad completada'));
+      else if (status === 'failed') toast(t('La auditoría de seguridad no se ha podido completar'), 'error');
     }
     last.current = { id: activeId, status };
   }, [activeId, status, qc, toast]);
@@ -171,7 +173,7 @@ function SecurityPage() {
     onSuccess: ({ id }) => {
       setSelectedId(id);
       qc.invalidateQueries({ queryKey: KEYS.runs });
-      toast('Auditoría en marcha');
+      toast(t('Auditoría en marcha'));
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
@@ -179,7 +181,7 @@ function SecurityPage() {
   const prepare = useMutation({
     mutationFn: (prompt: string) => post<{ id: string }>('/evolve/requests', { prompt }),
     onSuccess: ({ id }) => {
-      toast('Corrección enviada a EVOLVE AI ENGINE');
+      toast(t('Corrección enviada a EVOLVE AI ENGINE'));
       qc.invalidateQueries({ queryKey: ['evolve', 'requests'] });
       navigate(`/evolve/requests/${id}`);
     },
@@ -193,7 +195,7 @@ function SecurityPage() {
 
   const runButton = (
     <Button variant="primary" icon={<ShieldCheck className="size-4" />} loading={busy} onClick={() => start.mutate()}>
-      {busy && !start.isPending ? 'Auditando…' : 'Ejecutar auditoría'}
+      {busy && !start.isPending ? t('Auditando…') : t('Ejecutar auditoría')}
     </Button>
   );
 
@@ -210,8 +212,8 @@ function SecurityPage() {
       <Card>
         <EmptyState
           icon={<ShieldCheck className="size-5" />}
-          title="Aún no has ejecutado ninguna auditoría"
-          description="Lanza la primera para conocer la puntuación de seguridad de tu organización y qué puedes mejorar."
+          title={t('Aún no has ejecutado ninguna auditoría')}
+          description={t('Lanza la primera para conocer la puntuación de seguridad de tu organización y qué puedes mejorar.')}
           action={runButton}
         />
       </Card>
@@ -229,11 +231,11 @@ function SecurityPage() {
       main = (
         <Card>
           <div className="space-y-4">
-            <Alert tone="danger" title="La auditoría no se ha podido completar">
-              {run.error || 'Se produjo un error inesperado durante el análisis.'}
+            <Alert tone="danger" title={t('La auditoría no se ha podido completar')}>
+              {run.error || t('Se produjo un error inesperado durante el análisis.')}
             </Alert>
             <Button variant="primary" icon={<RotateCcw className="size-4" />} loading={start.isPending} onClick={() => start.mutate()}>
-              Volver a ejecutar
+              {t('Volver a ejecutar')}
             </Button>
           </div>
         </Card>
@@ -242,7 +244,7 @@ function SecurityPage() {
     else
       main = (
         <Card>
-          <EmptyState icon={<Info className="size-5" />} title="Esta auditoría no tiene informe" description={`Estado: ${RUN_STATUS[run.status]?.label ?? run.status}. Ejecuta una nueva auditoría para obtener resultados.`} />
+          <EmptyState icon={<Info className="size-5" />} title={t('Esta auditoría no tiene informe')} description={t('Estado: {status}. Ejecuta una nueva auditoría para obtener resultados.', { status: tk(RUN_STATUS[run.status]?.label ?? run.status) })} />
         </Card>
       );
   }
@@ -255,8 +257,8 @@ function SecurityPage() {
             <ShieldCheck className="size-5" />
           </span>
         }
-        title="Seguridad"
-        description="Comprobaciones automáticas y revisión con IA de la seguridad de tu organización."
+        title={t('Seguridad')}
+        description={t('Comprobaciones automáticas y revisión con IA de la seguridad de tu organización.')}
         actions={runButton}
       />
 
@@ -276,18 +278,18 @@ function HowItWorks() {
   const steps: { icon: LucideIcon; title: string; text: string }[] = [
     {
       icon: Cpu,
-      title: 'Comprobaciones automáticas',
-      text: 'Aislamiento entre organizaciones (RLS), roles y propietarios, API keys, permisos de borrado, integraciones con datos personales, formularios públicos e intentos de acceso fallidos.',
+      title: t('Comprobaciones automáticas'),
+      text: t('Aislamiento entre organizaciones (RLS), roles y propietarios, API keys, permisos de borrado, integraciones con datos personales, formularios públicos e intentos de acceso fallidos.'),
     },
     {
       icon: Sparkles,
-      title: 'Revisión con IA',
-      text: 'La IA de seguridad de tu organización analiza la configuración del CRM (nunca los datos personales) y señala riesgos adicionales.',
+      title: t('Revisión con IA'),
+      text: t('La IA de seguridad de tu organización analiza la configuración del CRM (nunca los datos personales) y señala riesgos adicionales.'),
     },
     {
       icon: GitBranch,
-      title: 'Correcciones con aprobación',
-      text: 'Los hallazgos de configuración se convierten en cambios que siguen el flujo habitual: pruebas en sandbox, aprobación humana y versión con rollback.',
+      title: t('Correcciones con aprobación'),
+      text: t('Los hallazgos de configuración se convierten en cambios que siguen el flujo habitual: pruebas en sandbox, aprobación humana y versión con rollback.'),
     },
   ];
   return (
@@ -314,7 +316,7 @@ function HowItWorks() {
 
 function ReportSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Cargando auditoría">
+    <div className="space-y-5" aria-busy="true" aria-label={t('Cargando auditoría')}>
       <div className="flex flex-col items-center gap-5 rounded-xl bg-white p-4 ring-1 ring-zinc-200/80 sm:flex-row dark:bg-zinc-900 dark:ring-zinc-800">
         <Skeleton className="size-36 shrink-0 rounded-full" />
         <div className="w-full flex-1 space-y-2.5">
@@ -335,8 +337,8 @@ function RunningCard({ run }: { run: RunDetail }) {
   // Reloj local para refrescar "hace X" y detectar auditorías atascadas sin depender del sondeo.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
   }, []);
   const slow = now - new Date(run.created_at).getTime() > STALE_MS;
   return (
@@ -348,16 +350,16 @@ function RunningCard({ run }: { run: RunDetail }) {
             <ShieldCheck className="size-6" />
           </span>
         </div>
-        <h3 className="mt-5 text-sm font-semibold">{run.status === 'queued' ? 'Auditoría en cola…' : 'Analizando la seguridad de tu organización…'}</h3>
+        <h3 className="mt-5 text-sm font-semibold">{run.status === 'queued' ? t('Auditoría en cola…') : t('Analizando la seguridad de tu organización…')}</h3>
         <p className="mt-1 max-w-md text-sm text-zinc-500">
-          Primero se ejecutan las comprobaciones automáticas y después la revisión con IA. Suele tardar menos de un minuto: puedes salir de esta página y consultar el resultado en el historial.
+          {t('Primero se ejecutan las comprobaciones automáticas y después la revisión con IA. Suele tardar menos de un minuto: puedes salir de esta página y consultar el resultado en el historial.')}
         </p>
         <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-zinc-500">
-          <Spinner className="size-3.5" /> Iniciada {relativeTime(run.created_at)}
+          <Spinner className="size-3.5" /> {t('Iniciada {time}', { time: relativeTime(run.created_at) })}
         </p>
         {slow && (
           <Alert tone="warning" className="mt-5 max-w-md text-left">
-            Está tardando más de lo habitual. Comprueba que el servicio de tareas en segundo plano está activo; también puedes lanzar una nueva auditoría.
+            {t('Está tardando más de lo habitual. Comprueba que el servicio de tareas en segundo plano está activo; también puedes lanzar una nueva auditoría.')}
           </Alert>
         )}
       </div>
@@ -371,14 +373,14 @@ function ScoreGauge({ score }: { score: number }) {
   const R = 52;
   const C = 2 * Math.PI * R;
   return (
-    <div className="relative size-36 shrink-0" role="img" aria-label={`Puntuación de seguridad: ${s} de 100 (${tone.label})`}>
+    <div className="relative size-36 shrink-0" role="img" aria-label={t('Puntuación de seguridad: {score} de 100 ({level})', { score: s, level: tone.label })}>
       <svg viewBox="0 0 120 120" className="size-full -rotate-90" aria-hidden>
         <circle cx="60" cy="60" r={R} fill="none" strokeWidth="10" className="stroke-zinc-100 dark:stroke-zinc-800" />
         {s > 0 && <circle cx="60" cy="60" r={R} fill="none" strokeWidth="10" strokeLinecap="round" stroke={tone.stroke} strokeDasharray={`${(s / 100) * C} ${C}`} className="transition-[stroke-dasharray] duration-700" />}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={cx('text-4xl font-semibold tracking-tight tabular-nums', tone.text)}>{s}</span>
-        <span className="text-[11px] text-zinc-500">de 100</span>
+        <span className={cx('text-4xl font-semibold tracking-tight tabular-nums', tone.textClass)}>{s}</span>
+        <span className="text-[11px] text-zinc-500">{t('de 100')}</span>
       </div>
     </div>
   );
@@ -401,7 +403,7 @@ function ReportView({ report, run, prepare }: { report: SecurityReport; run: Run
           <ScoreGauge score={report.score} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <h2 className="text-base font-semibold">Puntuación de seguridad</h2>
+              <h2 className="text-base font-semibold">{t('Puntuación de seguridad')}</h2>
               <Badge color={tone.color} dot>
                 {tone.label}
               </Badge>
@@ -410,41 +412,43 @@ function ReportView({ report, run, prepare }: { report: SecurityReport; run: Run
             <div className="mt-3 flex flex-wrap justify-center gap-1.5 sm:justify-start">
               {groups.map((g) => (
                 <Badge key={g.severity} color={SEVERITY[g.severity].color}>
-                  {plural(g.items.length, SEVERITY[g.severity].one, SEVERITY[g.severity].many)}
+                  {SEVERITY[g.severity].count(g.items.length)}
                 </Badge>
               ))}
-              {passed.length > 0 && <Badge color="emerald">{plural(passed.length, 'control verificado', 'controles verificados')}</Badge>}
+              {passed.length > 0 && <Badge color="emerald">{tp(passed.length, '{count} control verificado', '{count} controles verificados')}</Badge>}
             </div>
             <p className="mt-3 text-center text-xs text-zinc-500 sm:text-left">
-              Ejecutada el {formatDate(report.ranAt, true)}
-              {run.requested_by_name ? ` por ${run.requested_by_name}` : ''} · {report.model ? `Revisión con IA: ${report.model}` : 'Sin revisión con IA'}
+              {run.requested_by_name
+                ? t('Ejecutada el {date} por {name}', { date: formatDate(report.ranAt, true), name: run.requested_by_name })
+                : t('Ejecutada el {date}', { date: formatDate(report.ranAt, true) })}{' '}
+              · {report.model ? t('Revisión con IA: {model}', { model: report.model }) : t('Sin revisión con IA')}
             </p>
           </div>
         </div>
       </Card>
 
       {report.aiError && (
-        <Alert tone="warning" title="La revisión con IA no se ha completado">
+        <Alert tone="warning" title={t('La revisión con IA no se ha completado')}>
           <p className="break-words">{report.aiError}</p>
-          <p className="mt-1">Las comprobaciones automáticas se muestran igualmente y la puntuación se basa solo en ellas.</p>
+          <p className="mt-1">{t('Las comprobaciones automáticas se muestran igualmente y la puntuación se basa solo en ellas.')}</p>
           <Link to="/settings/ai" className="mt-2 inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline">
-            <Settings className="size-3.5" /> Revisar proveedores de IA
+            <Settings className="size-3.5" /> {t('Revisar proveedores de IA')}
           </Link>
         </Alert>
       )}
 
       {groups.length === 0 ? (
-        <Alert tone="success" title="No se han detectado riesgos">
-          Todas las comprobaciones se han superado. Repite la auditoría periódicamente o tras cambios importantes en el equipo o la configuración.
+        <Alert tone="success" title={t('No se han detectado riesgos')}>
+          {t('Todas las comprobaciones se han superado. Repite la auditoría periódicamente o tras cambios importantes en el equipo o la configuración.')}
         </Alert>
       ) : (
         groups.map((g) => {
           const meta = SEVERITY[g.severity];
           return (
-            <section key={g.severity} aria-label={meta.group}>
+            <section key={g.severity} aria-label={tk(meta.group)}>
               <h3 className="mb-2.5 flex items-center gap-2 text-sm font-semibold">
                 <span className={cx('size-2 rounded-full', DOT[meta.color])} />
-                {meta.group}
+                {tk(meta.group)}
                 <span className="rounded-full bg-zinc-100 px-1.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{g.items.length}</span>
               </h3>
               <div className="space-y-3">
@@ -461,10 +465,10 @@ function ReportView({ report, run, prepare }: { report: SecurityReport; run: Run
         <Card
           title={
             <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="size-4 text-emerald-500" /> Controles verificados
+              <ShieldCheck className="size-4 text-emerald-500" /> {t('Controles verificados')}
             </span>
           }
-          description="Medidas de seguridad comprobadas y activas en tu organización."
+          description={t('Medidas de seguridad comprobadas y activas en tu organización.')}
         >
           <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             {passed.map((f, i) => (
@@ -486,11 +490,11 @@ function ReportView({ report, run, prepare }: { report: SecurityReport; run: Run
 function SourceChip({ source }: { source: Finding['source'] }) {
   return source === 'ai' ? (
     <span className="inline-flex items-center gap-1 rounded-md bg-fuchsia-50 px-1.5 py-0.5 text-[11px] font-medium text-fuchsia-700 ring-1 ring-inset ring-fuchsia-200 dark:bg-fuchsia-500/10 dark:text-fuchsia-300 dark:ring-fuchsia-500/25">
-      <Sparkles className="size-3" /> IA
+      <Sparkles className="size-3" /> {t('IA')}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[11px] font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">
-      <Cpu className="size-3" /> Automático
+      <Cpu className="size-3" /> {t('Automático')}
     </span>
   );
 }
@@ -507,7 +511,7 @@ function FindingCard({ finding: f, severity, prepare }: { finding: Finding; seve
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge color={meta.color} dot>
-              {meta.label}
+              {tk(meta.label)}
             </Badge>
             <SourceChip source={f.source} />
           </div>
@@ -517,13 +521,13 @@ function FindingCard({ finding: f, severity, prepare }: { finding: Finding; seve
             <p className="mt-2 flex gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
               <Lightbulb className="mt-0.5 size-4 shrink-0 text-amber-500" />
               <span className="min-w-0 break-words">
-                <span className="font-medium">Recomendación:</span> {f.recommendation}
+                <span className="font-medium">{t('Recomendación:')}</span> {f.recommendation}
               </span>
             </p>
           )}
           {f.fix?.kind === 'config' && <ConfigFix prompt={f.fix.prompt} prepare={prepare} />}
           {f.fix?.kind === 'code' && <CodeFix prompt={f.fix.prompt} />}
-          {f.fix?.kind === 'manual' && <ManualFix prompt={f.fix.prompt} />}
+          {f.fix?.kind === 'manual' && <ManualFix prompt={f.fix.prompt} to={f.fix.link} />}
         </div>
       </div>
     </article>
@@ -535,12 +539,12 @@ function ConfigFix({ prompt, prepare }: { prompt: string; prepare: PrepareFix })
   return (
     <div className="mt-3 rounded-lg bg-brand-50/70 p-3 ring-1 ring-inset ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20">
       <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300">
-        <WandSparkles className="size-3.5" /> Corrección de configuración disponible
+        <WandSparkles className="size-3.5" /> {t('Corrección de configuración disponible')}
       </div>
       <p className="mt-1 break-words text-sm text-zinc-700 dark:text-zinc-300">«{prompt}»</p>
-      <p className="mt-1 text-xs text-zinc-500">EVOLVE AI ENGINE preparará el cambio, lo probará en un entorno aislado y lo dejará pendiente de tu aprobación. Nada se aplica sin tu visto bueno.</p>
+      <p className="mt-1 text-xs text-zinc-500">{t('EVOLVE AI ENGINE preparará el cambio, lo probará en un entorno aislado y lo dejará pendiente de tu aprobación. Nada se aplica sin tu visto bueno.')}</p>
       <Button size="sm" variant="ai" className="mt-2.5" icon={<WandSparkles className="size-3.5" />} loading={mine} disabled={prepare.isPending && !mine} onClick={() => prepare.mutate(prompt)}>
-        Preparar corrección
+        {t('Preparar corrección')}
       </Button>
     </div>
   );
@@ -551,47 +555,47 @@ function CodeFix({ prompt }: { prompt: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
   }, [copied]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(prompt);
       setCopied(true);
-      toast('Instrucción copiada al portapapeles');
+      toast(t('Instrucción copiada al portapapeles'));
     } catch {
-      toast('No se ha podido copiar al portapapeles', 'error');
+      toast(t('No se ha podido copiar al portapapeles'), 'error');
     }
   };
   return (
     <div className="mt-3 rounded-lg bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-          <CodeXml className="size-3.5" /> Requiere un cambio de código
+          <CodeXml className="size-3.5" /> {t('Requiere un cambio de código')}
         </span>
         <Button size="sm" variant="ghost" icon={copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />} onClick={copy}>
-          {copied ? 'Copiado' : 'Copiar'}
+          {copied ? t('Copiado') : t('Copiar')}
         </Button>
       </div>
       <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">{prompt}</pre>
       <p className="mt-2 text-xs text-zinc-500">
-        Este ajuste afecta a la plataforma completa (no solo a tu organización), así que lo aplica el equipo de Cortex CRM en una nueva versión de la plataforma. Los cambios que pide cada organización nunca modifican el código común.
+        {t('Este ajuste afecta a la plataforma completa (no solo a tu organización), así que lo aplica el equipo de Cortex CRM en una nueva versión de la plataforma. Los cambios que pide cada organización nunca modifican el código común.')}
       </p>
     </div>
   );
 }
 
-function ManualFix({ prompt }: { prompt: string }) {
-  const link = MANUAL_LINKS.find((l) => l.match.test(prompt));
+function ManualFix({ prompt, to }: { prompt: string; to?: string }) {
+  const link = (to && MANUAL_LINKS.find((l) => l.to === to)) || MANUAL_LINKS.find((l) => l.match.test(prompt));
   return (
     <div className="mt-3 flex gap-2.5 rounded-lg bg-sky-50 p-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/20">
       <Hand className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0">
-        <div className="text-xs font-semibold">Acción manual</div>
+        <div className="text-xs font-semibold">{t('Acción manual')}</div>
         <p className="mt-0.5 break-words">{prompt}</p>
         {link && (
           <Link to={link.to} className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold underline-offset-2 hover:underline">
-            {link.label} <ArrowUpRight className="size-3.5" />
+            {tk(link.label)} <ArrowUpRight className="size-3.5" />
           </Link>
         )}
       </div>
@@ -601,7 +605,7 @@ function ManualFix({ prompt }: { prompt: string }) {
 
 function HistoryCard({ runs, activeId, onSelect }: { runs: UseQueryResult<RunSummary[]>; activeId: string | null; onSelect: (id: string) => void }) {
   return (
-    <Card title="Historial" description="Auditorías anteriores de la organización." padded={false}>
+    <Card title={t('Historial')} description={t('Auditorías anteriores de la organización.')} padded={false}>
       {runs.isLoading ? (
         <div className="space-y-3 p-4">
           {[0, 1, 2].map((i) => (
@@ -611,7 +615,7 @@ function HistoryCard({ runs, activeId, onSelect }: { runs: UseQueryResult<RunSum
       ) : runs.isError ? (
         <ErrorState error={runs.error} onRetry={() => runs.refetch()} className="py-8" />
       ) : !runs.data?.length ? (
-        <p className="px-4 py-8 text-center text-sm text-zinc-500">Todavía no hay auditorías.</p>
+        <p className="px-4 py-8 text-center text-sm text-zinc-500">{t('Todavía no hay auditorías.')}</p>
       ) : (
         <ul className="max-h-[520px] divide-y divide-zinc-100 overflow-y-auto scrollbar-thin dark:divide-zinc-800">
           {runs.data.map((r) => {
@@ -633,7 +637,7 @@ function HistoryCard({ runs, activeId, onSelect }: { runs: UseQueryResult<RunSum
                     </span>
                   </span>
                   <Badge color={st.color} dot className="shrink-0">
-                    {st.label}
+                    {tk(st.label)}
                   </Badge>
                 </button>
               </li>

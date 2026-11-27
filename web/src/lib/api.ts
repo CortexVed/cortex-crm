@@ -1,3 +1,5 @@
+import { getLocale, t } from './i18n';
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -19,8 +21,8 @@ export class ApiError extends Error {
 }
 
 let csrfToken: string | null = null;
-export function setCsrfToken(t: string | null) {
-  csrfToken = t;
+export function setCsrfToken(token: string | null) {
+  csrfToken = token;
 }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -38,12 +40,13 @@ export async function api<T = any>(path: string, opts: { method?: Method; body?:
   const signal = timeout && opts.signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, opts.signal]) : (timeout ?? opts.signal);
   const aborted = () =>
     opts.signal?.aborted
-      ? new ApiError(0, 'aborted', 'Petición cancelada.')
+      ? new ApiError(0, 'aborted', t('Petición cancelada.'))
       : timeout?.aborted
-        ? new ApiError(0, 'timeout', 'El servidor está tardando demasiado en responder.')
+        ? new ApiError(0, 'timeout', t('El servidor está tardando demasiado en responder.'))
         : null;
   const isBinary = opts.body instanceof Blob || opts.body instanceof ArrayBuffer;
-  const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+  // El servidor responde (errores, textos generados) en el idioma que está usando la interfaz.
+  const headers: Record<string, string> = { 'Accept-Language': getLocale(), ...(opts.headers ?? {}) };
   if (opts.body !== undefined && !isBinary) headers['Content-Type'] = 'application/json';
   if (csrfToken && method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
   let res: Response;
@@ -56,13 +59,13 @@ export async function api<T = any>(path: string, opts: { method?: Method; body?:
       signal,
     });
   } catch {
-    throw aborted() ?? new ApiError(0, 'network', 'No se pudo conectar con el servidor. Revisa tu conexión.');
+    throw aborted() ?? new ApiError(0, 'network', t('No se pudo conectar con el servidor. Revisa tu conexión.'));
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   const cut = aborted();
   if (cut && data === null && res.status !== 204) throw cut;
   if (!res.ok) {
-    throw new ApiError(res.status, data?.error?.code ?? 'error', data?.error?.message ?? `Error ${res.status}`, data?.error?.details);
+    throw new ApiError(res.status, data?.error?.code ?? 'error', data?.error?.message ?? t('Error {status}', { status: res.status }), data?.error?.details);
   }
   return data as T;
 }
@@ -82,7 +85,7 @@ export async function uploadFile(file: File, opts: { recordId?: string; fieldKey
 
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) return e.message;
-  return (e as Error)?.message ?? 'Error inesperado';
+  return (e as Error)?.message ?? t('Error inesperado');
 }
 
 // Registro de errores del cliente (limitado en el servidor).

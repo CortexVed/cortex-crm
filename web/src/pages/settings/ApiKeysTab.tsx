@@ -5,6 +5,7 @@ import { useBlueprint } from '../../lib/hooks';
 import { del, errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { formatDate, relativeTime } from '../../lib/format';
+import { msg, t, tk, tp } from '../../lib/i18n';
 import { useToast } from '../../components/toast';
 import { Alert, Badge, Button, Card, ConfirmDialog, cx, EmptyState, ErrorState, Field, IconButton, Input, Modal, Select, Skeleton } from '../../components/ui';
 import { ROLE_LABELS, type Role } from '../../../../shared/constants';
@@ -31,11 +32,12 @@ interface CreatedKey {
 
 const KEYS_KEY = ['api-keys'];
 
+// Marcados con msg(): se traducen al mostrarlos con tk().
 const KEY_ROLE_HINTS: Record<Exclude<Role, 'owner'>, string> = {
-  admin: 'Acceso de administración, salvo las acciones que exigen una sesión de usuario.',
-  builder: 'Gestiona registros y puede solicitar cambios a EVOLVE AI ENGINE.',
-  member: 'Lee, crea y modifica registros. Recomendado para la mayoría de integraciones.',
-  viewer: 'Solo lectura de registros, paneles e informes.',
+  admin: msg('Acceso de administración, salvo las acciones que exigen una sesión de usuario.'),
+  builder: msg('Gestiona registros y puede solicitar cambios a EVOLVE AI ENGINE.'),
+  member: msg('Lee, crea y modifica registros. Recomendado para la mayoría de integraciones.'),
+  viewer: msg('Solo lectura de registros, paneles e informes.'),
 };
 
 const TH = 'px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-500';
@@ -55,7 +57,7 @@ export default function ApiKeysTab() {
     mutationFn: (k: ApiKeyRow) => del(`/workspace/api-keys/${k.id}`),
     onSuccess: (_r, k) => {
       setRevoking(null);
-      toast(`Clave «${k.name}» revocada`);
+      toast(t('Clave «{name}» revocada', { name: k.name }));
       qc.invalidateQueries({ queryKey: KEYS_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -64,7 +66,7 @@ export default function ApiKeysTab() {
   if (!isAdmin) {
     return (
       <Card>
-        <EmptyState icon={<ShieldAlert className="size-5" />} title="Solo para administradores" description="Pide a un administrador de la organización que gestione las API keys." />
+        <EmptyState icon={<ShieldAlert className="size-5" />} title={t('Solo para administradores')} description={t('Pide a un administrador de la organización que gestione las API keys.')} />
       </Card>
     );
   }
@@ -80,13 +82,13 @@ export default function ApiKeysTab() {
         padded={false}
         title={
           <span className="flex items-center gap-2">
-            API keys {q.data && <Badge>{active.length === 1 ? '1 activa' : `${active.length} activas`}</Badge>}
+            {t('API keys')} {q.data && <Badge>{tp(active.length, '{count} activa', '{count} activas')}</Badge>}
           </span>
         }
-        description="Claves para conectar integraciones y scripts con la API de Cortex CRM."
+        description={t('Claves para conectar integraciones y scripts con la API de Cortex CRM.')}
         actions={
           <Button variant="primary" size="sm" icon={<Plus className="size-3.5" />} onClick={() => setCreating(true)}>
-            Nueva API key
+            {t('Nueva API key')}
           </Button>
         }
       >
@@ -101,11 +103,11 @@ export default function ApiKeysTab() {
         ) : !keys.length ? (
           <EmptyState
             icon={<KeyRound className="size-5" />}
-            title="Todavía no hay API keys"
-            description="Crea una clave para que tus integraciones lean y escriban datos en esta organización."
+            title={t('Todavía no hay API keys')}
+            description={t('Crea una clave para que tus integraciones lean y escriban datos en esta organización.')}
             action={
               <Button variant="primary" size="sm" icon={<Plus className="size-3.5" />} onClick={() => setCreating(true)}>
-                Crear la primera clave
+                {t('Crear la primera clave')}
               </Button>
             }
           />
@@ -116,12 +118,12 @@ export default function ApiKeysTab() {
                 <table className="w-full min-w-[760px] text-sm">
                   <thead className="border-b border-zinc-100 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-800/30">
                     <tr>
-                      <th className={TH}>Nombre</th>
-                      <th className={TH}>Clave</th>
-                      <th className={TH}>Rol</th>
-                      <th className={TH}>Creada</th>
-                      <th className={TH}>Último uso</th>
-                      <th className={cx(TH, 'text-right')}>Estado</th>
+                      <th className={TH}>{t('Nombre')}</th>
+                      <th className={TH}>{t('Clave')}</th>
+                      <th className={TH}>{t('Rol')}</th>
+                      <th className={TH}>{t('Creada')}</th>
+                      <th className={TH}>{t('Último uso')}</th>
+                      <th className={cx(TH, 'text-right')}>{t('Estado')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -138,22 +140,22 @@ export default function ApiKeysTab() {
                           <div className="text-zinc-800 dark:text-zinc-200" title={formatDate(k.created_at, true)}>
                             {formatDate(k.created_at)}
                           </div>
-                          <div className="text-xs text-zinc-500">{k.created_by_name ? `por ${k.created_by_name}` : 'por un usuario eliminado'}</div>
+                          <div className="text-xs text-zinc-500">{k.created_by_name ? t('por {name}', { name: k.created_by_name }) : t('por un usuario eliminado')}</div>
                         </td>
                         <td className={cx(TD, 'text-zinc-600 dark:text-zinc-400')}>
-                          {k.last_used_at ? <span title={formatDate(k.last_used_at, true)}>{relativeTime(k.last_used_at)}</span> : <span className="text-zinc-400">Nunca</span>}
+                          {k.last_used_at ? <span title={formatDate(k.last_used_at, true)}>{relativeTime(k.last_used_at)}</span> : <span className="text-zinc-400">{t('Nunca')}</span>}
                         </td>
                         <td className={TD}>
                           {k.revoked_at ? (
                             <div className="flex justify-end">
-                              <Badge color="red">Revocada el {formatDate(k.revoked_at)}</Badge>
+                              <Badge color="red">{t('Revocada el {date}', { date: formatDate(k.revoked_at) })}</Badge>
                             </div>
                           ) : (
                             <div className="flex items-center justify-end gap-2">
                               <Badge color="emerald" dot>
-                                Activa
+                                {t('Activa')}
                               </Badge>
-                              <IconButton label={`Revocar la clave ${k.name}`} onClick={() => setRevoking(k)}>
+                              <IconButton label={t('Revocar la clave {name}', { name: k.name })} onClick={() => setRevoking(k)}>
                                 <Trash2 className="size-4" />
                               </IconButton>
                             </div>
@@ -165,12 +167,12 @@ export default function ApiKeysTab() {
                 </table>
               </div>
             ) : (
-              <EmptyState icon={<KeyRound className="size-5" />} title="No hay claves activas" description="Todas las claves de la organización están revocadas." />
+              <EmptyState icon={<KeyRound className="size-5" />} title={t('No hay claves activas')} description={t('Todas las claves de la organización están revocadas.')} />
             )}
             {revoked.length > 0 && (
               <div className="border-t border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
                 <button type="button" className="text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100" onClick={() => setShowRevoked((s) => !s)}>
-                  {showRevoked ? 'Ocultar claves revocadas' : `Mostrar claves revocadas (${revoked.length})`}
+                  {showRevoked ? t('Ocultar claves revocadas') : t('Mostrar claves revocadas ({count})', { count: revoked.length })}
                 </button>
               </div>
             )}
@@ -190,9 +192,9 @@ export default function ApiKeysTab() {
         onConfirm={() => revoking && revoke.mutate(revoking)}
         loading={revoke.isPending}
         danger
-        confirmLabel="Revocar clave"
-        title={`¿Revocar «${revoking?.name ?? ''}»?`}
-        description="Las integraciones que usen esta clave dejarán de funcionar de inmediato. Esta acción no se puede deshacer."
+        confirmLabel={t('Revocar clave')}
+        title={t('¿Revocar «{name}»?', { name: revoking?.name ?? '' })}
+        description={t('Las integraciones que usen esta clave dejarán de funcionar de inmediato. Esta acción no se puede deshacer.')}
       />
     </div>
   );
@@ -204,17 +206,17 @@ function UsageCard() {
     <Card
       title={
         <span className="flex items-center gap-2">
-          <Terminal className="size-4 text-zinc-400" /> Cómo usar una clave
+          <Terminal className="size-4 text-zinc-400" /> {t('Cómo usar una clave')}
         </span>
       }
-      description="Envía la clave en la cabecera Authorization de cada petición."
+      description={t('Envía la clave en la cabecera Authorization de cada petición.')}
     >
-      <CopyField multiline value={snippet} label="Ejemplo de petición con curl" />
+      <CopyField multiline value={snippet} label={t('Ejemplo de petición con curl')} />
       <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm text-zinc-600 marker:text-zinc-300 dark:text-zinc-400 dark:marker:text-zinc-600">
-        <li>Cada clave actúa solo en esta organización y con el rol que le asignes.</li>
-        <li>Los cambios en registros hechos con una clave aparecen en el historial como «API».</li>
-        <li>Por seguridad, algunas acciones sensibles (crear claves, exportar datos, conectar canales o aprobar cambios) exigen una sesión de usuario y no están disponibles con API key.</li>
-        <li>El último uso se actualiza cada pocos minutos. Si una clave se filtra, revócala y crea otra: dejará de funcionar al instante.</li>
+        <li>{t('Cada clave actúa solo en esta organización y con el rol que le asignes.')}</li>
+        <li>{t('Los cambios en registros hechos con una clave aparecen en el historial como «API».')}</li>
+        <li>{t('Por seguridad, algunas acciones sensibles (crear claves, exportar datos, conectar canales o aprobar cambios) exigen una sesión de usuario y no están disponibles con API key.')}</li>
+        <li>{t('El último uso se actualiza cada pocos minutos. Si una clave se filtra, revócala y crea otra: dejará de funcionar al instante.')}</li>
       </ul>
     </Card>
   );
@@ -238,25 +240,26 @@ function WebhooksCard() {
       return url;
     }
   };
-  const verifySnippet = `// Node.js: verificar un webhook de Cortex CRM
+  // Ejemplo de código: al traducirlo solo cambian los comentarios y los nombres de ejemplo (SECRETO, cuerpoSinModificar, valido).
+  const verifySnippet = t(`// Node.js: verificar un webhook de Cortex CRM
 const crypto = require('node:crypto');
 const ts = req.headers['x-cortex-timestamp'];
 const expected = 'sha256=' + crypto.createHmac('sha256', SECRETO).update(ts + '.' + cuerpoSinModificar).digest('hex');
 const valido = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-cortex-signature']))
-  && Math.abs(Date.now() / 1000 - Number(ts)) < 300; // rechaza reenvíos antiguos`;
+  && Math.abs(Date.now() / 1000 - Number(ts)) < 300; // rechaza reenvíos antiguos`);
   return (
     <Card
       title={
         <span className="flex items-center gap-2">
-          <Webhook className="size-4 text-zinc-400" /> Webhooks salientes
+          <Webhook className="size-4 text-zinc-400" /> {t('Webhooks salientes')}
         </span>
       }
-      description="Integraciones que envían datos a sistemas externos. Cada envío va firmado: el receptor debe verificar la firma con el secreto de su integración."
+      description={t('Integraciones que envían datos a sistemas externos. Cada envío va firmado: el receptor debe verificar la firma con el secreto de su integración.')}
     >
       {bp.isLoading ? (
         <Skeleton className="h-16" />
       ) : integrations.length === 0 ? (
-        <p className="text-sm text-zinc-500">No hay webhooks salientes. Pídeselos a EVOLVE AI ENGINE (por ejemplo: «cuando ganemos una oportunidad, envíala a nuestra plataforma contable»).</p>
+        <p className="text-sm text-zinc-500">{t('No hay webhooks salientes. Pídeselos a EVOLVE AI ENGINE (por ejemplo: «cuando ganemos una oportunidad, envíala a nuestra plataforma contable»).')}</p>
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {integrations.map((i) => (
@@ -265,22 +268,22 @@ const valido = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.hea
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     {i.name}
-                    <Badge color={i.enabled ? 'emerald' : 'slate'} dot>{i.enabled ? 'Activa' : 'Desactivada'}</Badge>
+                    <Badge color={i.enabled ? 'emerald' : 'slate'} dot>{i.enabled ? t('Activa') : t('Desactivada')}</Badge>
                   </div>
                   <div className="truncate text-xs text-zinc-500">
-                    {host(i.url)} · {i.includeFields?.length ? `${i.includeFields.length} campo(s)` : 'todos los campos'}
+                    {host(i.url)} · {i.includeFields?.length ? tp(i.includeFields.length, '{count} campo', '{count} campos') : t('todos los campos')}
                   </div>
                 </div>
                 {!secrets[i.key] && (
                   <Button size="sm" icon={<ShieldAlert className="size-4" />} loading={reveal.isPending && reveal.variables === i.key} onClick={() => reveal.mutate(i.key)}>
-                    Mostrar secreto de firma
+                    {t('Mostrar secreto de firma')}
                   </Button>
                 )}
               </div>
               {secrets[i.key] && (
                 <div className="mt-2">
-                  <CopyField size="sm" value={secrets[i.key]} label={`Secreto de firma de ${i.name}`} />
-                  <p className="mt-1 text-xs text-zinc-500">Guárdalo solo en el sistema receptor. Consultarlo queda registrado en la auditoría.</p>
+                  <CopyField size="sm" value={secrets[i.key]} label={t('Secreto de firma de {name}', { name: i.name })} />
+                  <p className="mt-1 text-xs text-zinc-500">{t('Guárdalo solo en el sistema receptor. Consultarlo queda registrado en la auditoría.')}</p>
                 </div>
               )}
             </li>
@@ -288,8 +291,8 @@ const valido = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.hea
         </ul>
       )}
       <div className="mt-4">
-        <div className="mb-1.5 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">Cómo verificar la firma (cabeceras X-Cortex-Signature y X-Cortex-Timestamp)</div>
-        <CopyField multiline value={verifySnippet} label="Ejemplo de verificación de la firma" />
+        <div className="mb-1.5 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{t('Cómo verificar la firma (cabeceras X-Cortex-Signature y X-Cortex-Timestamp)')}</div>
+        <CopyField multiline value={verifySnippet} label={t('Ejemplo de verificación de la firma')} />
       </div>
     </Card>
   );
@@ -331,7 +334,7 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
     mutationFn: (v: { name: string; role: Exclude<Role, 'owner'> }) => post<CreatedKey>('/workspace/api-keys', v),
     onSuccess: (k) => {
       setCreated(k);
-      toast('API key creada');
+      toast(t('API key creada'));
       qc.invalidateQueries({ queryKey: KEYS_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -341,7 +344,7 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
     e.preventDefault();
     const n = name.trim();
     if (n.length < 2 || n.length > 60) {
-      setError('El nombre debe tener entre 2 y 60 caracteres');
+      setError(t('El nombre debe tener entre 2 y 60 caracteres'));
       return;
     }
     setError(null);
@@ -352,18 +355,18 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
     <Modal
       open={open}
       onClose={close}
-      title={created ? 'Tu nueva API key' : 'Nueva API key'}
-      description={created ? `«${created.name}» · ${ROLE_LABELS[created.role]}` : 'Ponle un nombre que identifique la integración que la usará.'}
+      title={created ? t('Tu nueva API key') : t('Nueva API key')}
+      description={created ? t('«{name}» · {role}', { name: created.name, role: tk(ROLE_LABELS[created.role]) }) : t('Ponle un nombre que identifique la integración que la usará.')}
       footer={
         created ? (
           <Button variant={warned && !copied ? 'danger' : 'primary'} onClick={close}>
-            {warned && !copied ? 'Cerrar sin copiar' : copied ? 'Listo, la he guardado' : 'Cerrar'}
+            {warned && !copied ? t('Cerrar sin copiar') : copied ? t('Listo, la he guardado') : t('Cerrar')}
           </Button>
         ) : (
           <>
-            <Button onClick={close}>Cancelar</Button>
+            <Button onClick={close}>{t('Cancelar')}</Button>
             <Button type="submit" form={formId} variant="primary" icon={<KeyRound className="size-4" />} loading={create.isPending}>
-              Crear clave
+              {t('Crear clave')}
             </Button>
           </>
         )
@@ -371,15 +374,15 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
     >
       {created ? (
         <div className="space-y-3">
-          <Alert tone="warning" title="Cópiala ahora">
-            Por seguridad, la clave completa no se volverá a mostrar. Si la pierdes, revócala y crea otra.
+          <Alert tone="warning" title={t('Cópiala ahora')}>
+            {t('Por seguridad, la clave completa no se volverá a mostrar. Si la pierdes, revócala y crea otra.')}
           </Alert>
-          <CopyField value={created.key} label="API key completa" onCopied={() => setCopied(true)} />
-          {warned && !copied && <Alert tone="danger">Todavía no has copiado la clave. Si cierras ahora, no podrás recuperarla.</Alert>}
+          <CopyField value={created.key} label={t('API key completa')} onCopied={() => setCopied(true)} />
+          {warned && !copied && <Alert tone="danger">{t('Todavía no has copiado la clave. Si cierras ahora, no podrás recuperarla.')}</Alert>}
         </div>
       ) : (
         <form id={formId} onSubmit={submit} className="space-y-4" noValidate>
-          <Field label="Nombre" required error={error ?? undefined} hint="p. ej. «Zapier», «Web corporativa» o «Script de facturación»">
+          <Field label={t('Nombre')} required error={error ?? undefined} hint={t('p. ej. «Zapier», «Web corporativa» o «Script de facturación»')}>
             <Input
               value={name}
               maxLength={60}
@@ -391,16 +394,16 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
               }}
             />
           </Field>
-          <Field label="Rol de la clave" hint={KEY_ROLE_HINTS[role]}>
+          <Field label={t('Rol de la clave')} hint={tk(KEY_ROLE_HINTS[role])}>
             <Select value={role} onChange={(e) => setRole(e.target.value as Exclude<Role, 'owner'>)}>
               {roles.map((r) => (
                 <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
+                  {tk(ROLE_LABELS[r])}
                 </option>
               ))}
             </Select>
           </Field>
-          {!isOwner && <p className="text-xs text-zinc-500">Solo un propietario puede crear claves con rol de administrador.</p>}
+          {!isOwner && <p className="text-xs text-zinc-500">{t('Solo un propietario puede crear claves con rol de administrador.')}</p>}
         </form>
       )}
     </Modal>

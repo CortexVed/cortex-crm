@@ -6,6 +6,7 @@ import type { AppDeps } from '../deps';
 import { loadWorkspace, makeRecordService } from '../crm/context';
 import { computeWidget } from '../crm/dashboards';
 import type { ToolCall, ToolSpec } from '../ai/types';
+import { t } from '../i18n';
 
 const conditionSchemaJson = {
   type: 'object',
@@ -129,8 +130,8 @@ export function createToolExecutor(deps: AppDeps, ctx: { workspaceId: string; us
     const input = call.input ?? {};
     const moduleOf = (bp: Awaited<ReturnType<typeof loadWorkspace>>['blueprint'], key: unknown) => {
       const m = findModule(bp, String(key));
-      if (!m || m.archived) throw new Error(`Módulo "${String(key)}" no existe. Módulos disponibles: ${activeModules(bp).map((x) => x.key).join(', ')}`);
-      if (!hasRole(ctx.role, m.permissions.read)) throw new Error(`Sin permiso para ver ${m.labelPlural}`);
+      if (!m || m.archived) throw new Error(t('Módulo "{key}" no existe. Módulos disponibles: {available}', { key: String(key), available: activeModules(bp).map((x) => x.key).join(', ') }));
+      if (!hasRole(ctx.role, m.permissions.read)) throw new Error(t('Sin permiso para ver {module}', { module: m.labelPlural }));
       return m;
     };
     try {
@@ -158,7 +159,7 @@ export function createToolExecutor(deps: AppDeps, ctx: { workspaceId: string; us
             const mod = moduleOf(loaded.blueprint, p.module);
             const svc = makeRecordService(q, loaded, { type: 'ai', id: ctx.userId, role: ctx.role });
             const rec = await svc.ctx.store.get(p.id);
-            if (!rec || rec.moduleKey !== mod.key) return { content: 'Registro no encontrado', isError: true };
+            if (!rec || rec.moduleKey !== mod.key) return { content: t('Registro no encontrado'), isError: true };
             const related: Record<string, number> = {};
             for (const m of activeModules(loaded.blueprint).filter((x) => hasRole(ctx.role, x.permissions.read))) {
               for (const f of m.fields.filter((x) => x.type === 'relation' && x.relation?.module === mod.key && !x.archived)) {
@@ -175,7 +176,7 @@ export function createToolExecutor(deps: AppDeps, ctx: { workspaceId: string; us
             moduleOf(loaded.blueprint, p.module);
             const rel = moduleOf(loaded.blueprint, p.related_module);
             const fields = rel.fields.filter((f) => f.type === 'relation' && f.relation?.module === p.module && !f.archived);
-            if (!fields.length) return { content: `"${rel.key}" no tiene relación con "${p.module}"`, isError: true };
+            if (!fields.length) return { content: t('"{module}" no tiene relación con "{other}"', { module: rel.key, other: p.module }), isError: true };
             const svc = makeRecordService(q, loaded, { type: 'ai', id: ctx.userId, role: ctx.role });
             const results = [];
             for (const f of fields) {
@@ -196,26 +197,29 @@ export function createToolExecutor(deps: AppDeps, ctx: { workspaceId: string; us
         }
         case 'propose_record_change': {
           const p = z.object({ action: z.enum(['create', 'update']), module: z.string().max(40), id: z.string().uuid().optional(), values: z.record(z.string(), z.unknown()), summary: z.string().max(500) }).parse(input);
-          if (p.action === 'update' && !p.id) return { content: 'Falta el id para actualizar', isError: true };
+          if (p.action === 'update' && !p.id) return { content: t('Falta el id para actualizar'), isError: true };
           const loaded = await tenant((q) => loadWorkspace(q, ws));
           const mod = moduleOf(loaded.blueprint, p.module);
           const perm = p.action === 'create' ? mod.permissions.create : mod.permissions.update;
-          if (!hasRole(ctx.role, perm)) return { content: `El usuario no tiene permiso para ${p.action === 'create' ? 'crear' : 'editar'} ${mod.labelPlural}`, isError: true };
+          if (!hasRole(ctx.role, perm)) {
+            const content = p.action === 'create' ? t('El usuario no tiene permiso para crear {module}', { module: mod.labelPlural }) : t('El usuario no tiene permiso para editar {module}', { module: mod.labelPlural });
+            return { content, isError: true };
+          }
           pending.push({ type: 'record_change', summary: p.summary, payload: { action: p.action, module: mod.key, moduleLabel: mod.label, id: p.id, values: p.values } });
           return { content: 'Propuesta preparada. El usuario debe confirmarla en la interfaz; no digas que ya está hecho.' };
         }
         case 'propose_evolution': {
           const p = z.object({ prompt: z.string().min(8).max(4000), reason: z.string().max(500).optional() }).parse(input);
-          if (!hasRole(ctx.role, 'builder')) return { content: 'El usuario no tiene permiso para proponer cambios de estructura (requiere rol Constructor o superior).', isError: true };
-          pending.push({ type: 'evolution', summary: p.reason ?? 'Enviar a EVOLVE AI ENGINE', payload: { prompt: p.prompt } });
+          if (!hasRole(ctx.role, 'builder')) return { content: t('El usuario no tiene permiso para proponer cambios de estructura (requiere rol Constructor o superior).'), isError: true };
+          pending.push({ type: 'evolution', summary: p.reason ?? t('Enviar a EVOLVE AI ENGINE'), payload: { prompt: p.prompt } });
           return { content: 'Propuesta preparada para EVOLVE AI ENGINE. El usuario debe confirmarla.' };
         }
         case 'remember': {
           // Nunca se escribe memoria directamente: un texto malicioso en los datos del CRM podría
           // inducir al modelo a "recordar" instrucciones. El usuario confirma cada elemento.
           const p = z.object({ content: z.string().min(3).max(1000), scope: z.enum(['user', 'org']) }).parse(input);
-          if (p.scope === 'org' && !hasRole(ctx.role, 'admin')) return { content: 'Solo administradores pueden guardar memoria de organización; propónlo como preferencia personal (user).', isError: true };
-          pending.push({ type: 'memory', summary: p.scope === 'org' ? 'Guardar en la memoria de la organización' : 'Guardar como preferencia personal', payload: { scope: p.scope, kind: p.scope === 'org' ? 'decision' : 'preference', content: p.content } });
+          if (p.scope === 'org' && !hasRole(ctx.role, 'admin')) return { content: t('Solo administradores pueden guardar memoria de organización; propónlo como preferencia personal (user).'), isError: true };
+          pending.push({ type: 'memory', summary: p.scope === 'org' ? t('Guardar en la memoria de la organización') : t('Guardar como preferencia personal'), payload: { scope: p.scope, kind: p.scope === 'org' ? 'decision' : 'preference', content: p.content } });
           return { content: 'Propuesta de memoria preparada. El usuario debe confirmarla; no digas que ya está guardada.' };
         }
         default:

@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Field, Input } from '../../components/ui';
 import { ApiError, get, post } from '../../lib/api';
+import { t, tx } from '../../lib/i18n';
 import { useSession } from '../../lib/session';
 import type { Me } from '../../lib/types';
 
@@ -29,7 +30,7 @@ export default function Login() {
       setMe(res);
       navigate(safeNext, { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo iniciar sesión');
+      setError(err instanceof ApiError ? err.message : t('No se pudo iniciar sesión'));
     } finally {
       setLoading(false);
     }
@@ -38,25 +39,31 @@ export default function Login() {
   return (
     <form onSubmit={submit} className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Inicia sesión</h1>
-        <p className="mt-1 text-sm text-zinc-500">Bienvenido de nuevo a tu CRM.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('Inicia sesión')}</h1>
+        <p className="mt-1 text-sm text-zinc-500">{t('Bienvenido de nuevo a tu CRM.')}</p>
       </div>
       {error && <Alert tone="danger">{error}</Alert>}
-      <Field label="Email">
+      <Field label={t('Email')}>
         <Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       </Field>
-      <Field label="Contraseña">
+      <Field label={t('Contraseña')}>
         <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
       </Field>
       <div className="flex justify-end">
-        <Link to="/forgot-password" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">¿Has olvidado la contraseña?</Link>
+        <Link to="/forgot-password" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">{t('¿Has olvidado la contraseña?')}</Link>
       </div>
       <Button type="submit" variant="primary" className="w-full" loading={loading}>
-        Entrar
+        {t('Entrar')}
       </Button>
       {cfg.data?.signupEnabled && (
         <p className="text-center text-sm text-zinc-500">
-          ¿No tienes cuenta? <Link to="/register" className="font-medium text-brand-600 hover:underline dark:text-brand-400">Crea tu organización</Link>
+          {tx('¿No tienes cuenta? <link>Crea tu organización</link>', {
+            link: (c) => (
+              <Link to="/register" className="font-medium text-brand-600 hover:underline dark:text-brand-400">
+                {c}
+              </Link>
+            ),
+          })}
         </p>
       )}
     </form>

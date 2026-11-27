@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, Inbox, Loader2, RefreshCw, X } from 'lucide-react';
 import { BADGE, DOT } from '../lib/colors';
 import { initials } from '../lib/format';
+import { t } from '../lib/i18n';
 import type { Color } from '../../../shared/constants';
 
 export function cx(...c: (string | false | null | undefined)[]) {
@@ -141,7 +142,7 @@ export function Card({ title, description, actions, children, className, padded 
 }
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cx('size-5 animate-spin text-zinc-400', className)} aria-label="Cargando" />;
+  return <Loader2 className={cx('size-5 animate-spin text-zinc-400', className)} aria-label={t('Cargando')} />;
 }
 
 export function Skeleton({ className }: { className?: string }) {
@@ -175,17 +176,17 @@ export function EmptyState({ icon, title, description, action, className }: { ic
 }
 
 export function ErrorState({ error, onRetry, className }: { error: unknown; onRetry?: () => void; className?: string }) {
-  const msg = (error as Error)?.message ?? 'Error inesperado';
+  const message = (error as Error)?.message ?? t('Error inesperado');
   return (
     <div className={cx('flex flex-col items-center justify-center px-6 py-12 text-center', className)}>
       <div className="mb-3 flex size-11 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
         <AlertTriangle className="size-5" />
       </div>
-      <h3 className="text-sm font-semibold">No se ha podido cargar</h3>
-      <p className="mt-1 max-w-md text-sm text-zinc-500">{msg}</p>
+      <h3 className="text-sm font-semibold">{t('No se ha podido cargar')}</h3>
+      <p className="mt-1 max-w-md text-sm text-zinc-500">{message}</p>
       {onRetry && (
         <Button className="mt-4" size="sm" icon={<RefreshCw className="size-3.5" />} onClick={onRetry}>
-          Reintentar
+          {t('Reintentar')}
         </Button>
       )}
     </div>
@@ -254,13 +255,13 @@ function useLayerFocus(open: boolean, ref: { current: HTMLElement | null }) {
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const el = ref.current;
       if (!el || el.contains(document.activeElement)) return;
       (el.querySelector<HTMLElement>('[data-autofocus]') ?? el.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select') ?? el.querySelector<HTMLElement>(FOCUSABLE))?.focus();
     }, 30);
     return () => {
-      clearTimeout(t);
+      clearTimeout(timer);
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [open, ref]);
@@ -303,7 +304,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             <h2 className="text-base font-semibold">{title}</h2>
             {description && <p className="mt-1 text-sm text-zinc-500">{description}</p>}
           </div>
-          <IconButton label="Cerrar" onClick={onClose}>
+          <IconButton label={t('Cerrar')} onClick={onClose}>
             <X className="size-4" />
           </IconButton>
         </div>
@@ -325,7 +326,7 @@ export function Drawer({ open, onClose, title, children, width = 'max-w-xl' }: {
       <div ref={ref} role="dialog" aria-modal="true" onKeyDown={(e) => trapTab(e, ref.current)} className={cx('flex h-full w-full flex-col bg-white shadow-2xl animate-slide-in dark:bg-zinc-900', width)}>
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3.5 dark:border-zinc-800">
           <h2 className="text-base font-semibold">{title}</h2>
-          <IconButton label="Cerrar" onClick={onClose}>
+          <IconButton label={t('Cerrar')} onClick={onClose}>
             <X className="size-4" />
           </IconButton>
         </div>
@@ -339,19 +340,19 @@ export function Drawer({ open, onClose, title, children, width = 'max-w-xl' }: {
 export function Tabs<T extends string>({ tabs, value, onChange, className }: { tabs: { key: T; label: ReactNode; count?: number }[]; value: T; onChange: (k: T) => void; className?: string }) {
   return (
     <div role="tablist" className={cx('flex gap-1 overflow-x-auto border-b border-zinc-200 scrollbar-thin dark:border-zinc-800', className)}>
-      {tabs.map((t) => (
+      {tabs.map((tab) => (
         <button
-          key={t.key}
+          key={tab.key}
           role="tab"
-          aria-selected={value === t.key}
-          onClick={() => onChange(t.key)}
+          aria-selected={value === tab.key}
+          onClick={() => onChange(tab.key)}
           className={cx(
             '-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition',
-            value === t.key ? 'border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-300' : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200',
+            value === tab.key ? 'border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-300' : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200',
           )}
         >
-          {t.label}
-          {t.count !== undefined && <span className="rounded-full bg-zinc-100 px-1.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t.count}</span>}
+          {tab.label}
+          {tab.count !== undefined && <span className="rounded-full bg-zinc-100 px-1.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{tab.count}</span>}
         </button>
       ))}
     </div>
@@ -409,7 +410,7 @@ export function PageHeader({ title, description, actions, icon }: { title: React
 }
 
 /** Diálogo de confirmación; con `typed` exige escribir una palabra (operaciones de riesgo). */
-export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', danger, typed, loading, children }: { open: boolean; onClose: () => void; onConfirm: (typedValue: string) => void; title: string; description?: ReactNode; confirmLabel?: string; cancelLabel?: string; danger?: boolean; typed?: string; loading?: boolean; children?: ReactNode }) {
+export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = t('Confirmar'), cancelLabel = t('Cancelar'), danger, typed, loading, children }: { open: boolean; onClose: () => void; onConfirm: (typedValue: string) => void; title: string; description?: ReactNode; confirmLabel?: string; cancelLabel?: string; danger?: boolean; typed?: string; loading?: boolean; children?: ReactNode }) {
   const [value, setValue] = useState('');
   useEffect(() => {
     if (open) setValue('');
@@ -433,7 +434,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
     >
       {children}
       {typed && (
-        <Field label={`Escribe ${typed} para confirmar`} className="mt-2">
+        <Field label={t('Escribe {word} para confirmar', { word: typed })} className="mt-2">
           <Input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" />
         </Field>
       )}

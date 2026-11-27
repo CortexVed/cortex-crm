@@ -11,6 +11,7 @@ import { ApiError, errorMessage, get, post } from '../lib/api';
 import { useBlueprint } from '../lib/hooks';
 import { useSession } from '../lib/session';
 import { formatValue } from '../lib/format';
+import { getIntlTag, msg, t, tk } from '../lib/i18n';
 import type { SeriesPoint } from '../lib/types';
 
 type ReportType = 'sales' | 'conversion' | 'activity' | 'performance' | 'customers';
@@ -53,24 +54,26 @@ interface Prediction {
   costUsd?: number | null;
 }
 
+// Etiquetas marcadas con msg(): se traducen al mostrarlas (tk).
 const TABS: { key: ReportType; label: string; icon: LucideIcon }[] = [
-  { key: 'sales', label: 'Ventas', icon: TrendingUp },
-  { key: 'conversion', label: 'Conversión', icon: Funnel },
-  { key: 'activity', label: 'Actividad comercial', icon: Activity },
-  { key: 'performance', label: 'Rendimiento del equipo', icon: Users },
-  { key: 'customers', label: 'Evolución de clientes', icon: UserPlus },
+  { key: 'sales', label: msg('Ventas'), icon: TrendingUp },
+  { key: 'conversion', label: msg('Conversión'), icon: Funnel },
+  { key: 'activity', label: msg('Actividad comercial'), icon: Activity },
+  { key: 'performance', label: msg('Rendimiento del equipo'), icon: Users },
+  { key: 'customers', label: msg('Evolución de clientes'), icon: UserPlus },
 ];
 
 const KPI_ICON: Record<Fmt, LucideIcon> = { currency: Coins, percent: Percent, number: Hash };
 // Clases literales: Tailwind solo genera las que aparecen tal cual en el código.
 const KPI_COLS: Record<number, string> = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' };
 
-const usd = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+// Al pintar (no al cargar el módulo): con el formato del idioma activo.
+const usd = (n: number) => new Intl.NumberFormat(getIntlTag(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n);
 
 export default function Reports() {
   const [params, setParams] = useSearchParams();
   const raw = params.get('tipo');
-  const type: ReportType = TABS.find((t) => t.key === raw)?.key ?? 'sales';
+  const type: ReportType = TABS.find((tab) => tab.key === raw)?.key ?? 'sales';
   const { data: bp } = useBlueprint();
   const currency = bp?.settings.currency ?? 'EUR';
   const q = useQuery({ queryKey: ['report', type], queryFn: () => get<Report>(`/reports/${type}`) });
@@ -94,24 +97,24 @@ export default function Reports() {
             <BarChart3 className="size-5" />
           </span>
         }
-        title="Informes"
-        description="Indicadores clave calculados en tiempo real con los datos de tu CRM."
+        title={t('Informes')}
+        description={t('Indicadores clave calculados en tiempo real con los datos de tu CRM.')}
         actions={
           <Button size="sm" icon={<RefreshCw className={cx('size-3.5', q.isFetching && 'animate-spin')} />} disabled={q.isFetching} onClick={() => q.refetch()}>
-            Actualizar
+            {t('Actualizar')}
           </Button>
         }
       />
 
       <Tabs
-        tabs={TABS.map((t) => {
-          const Icon = t.icon;
+        tabs={TABS.map((tab) => {
+          const Icon = tab.icon;
           return {
-            key: t.key,
+            key: tab.key,
             label: (
               <>
                 <Icon className="size-4" />
-                {t.label}
+                {tk(tab.label)}
               </>
             ),
           };
@@ -141,7 +144,7 @@ export default function Reports() {
 
 function ReportSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Cargando informe">
+    <div className="space-y-5" aria-busy="true" aria-label={t('Cargando informe')}>
       <Skeleton className="h-4 w-72 max-w-full" />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
@@ -204,7 +207,7 @@ function ReportContent({ report, currency }: { report: Report; currency: string 
 
       {report.available && !hasContent && (
         <Card>
-          <EmptyState icon={<BarChart3 className="size-5" />} title="Todavía no hay datos para este informe" description="Cuando registres actividad en el CRM, los indicadores aparecerán aquí automáticamente." />
+          <EmptyState icon={<BarChart3 className="size-5" />} title={t('Todavía no hay datos para este informe')} description={t('Cuando registres actividad en el CRM, los indicadores aparecerán aquí automáticamente.')} />
         </Card>
       )}
     </div>
@@ -213,8 +216,11 @@ function ReportContent({ report, currency }: { report: Report; currency: string 
 
 function UnavailableNotice({ missing }: { missing: string[] }) {
   return (
-    <Alert tone="warning" title="Este informe no está disponible con la configuración actual de tu CRM">
-      <p>Se calcula a partir de módulos y campos predeterminados que se han personalizado, archivado o eliminado.{missing.length > 0 && ' Falta:'}</p>
+    <Alert tone="warning" title={t('Este informe no está disponible con la configuración actual de tu CRM')}>
+      <p>
+        {t('Se calcula a partir de módulos y campos predeterminados que se han personalizado, archivado o eliminado.')}
+        {missing.length > 0 && ` ${t('Falta:')}`}
+      </p>
       {missing.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {missing.map((m) => (
@@ -224,9 +230,9 @@ function UnavailableNotice({ missing }: { missing: string[] }) {
           ))}
         </ul>
       )}
-      <p className="mt-2">Pide a EVOLVE AI ENGINE que adapte tu configuración para recuperar estos campos o que cree un panel equivalente con tus campos actuales. El cambio pasará por pruebas automáticas y tu aprobación.</p>
+      <p className="mt-2">{t('Pide a EVOLVE AI ENGINE que adapte tu configuración para recuperar estos campos o que cree un panel equivalente con tus campos actuales. El cambio pasará por pruebas automáticas y tu aprobación.')}</p>
       <Link to="/evolve" className="mt-2 inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline">
-        <Sparkles className="size-3.5" /> Abrir EVOLVE AI ENGINE
+        <Sparkles className="size-3.5" /> {t('Abrir EVOLVE AI ENGINE')}
       </Link>
     </Alert>
   );
@@ -257,7 +263,7 @@ function ReportTable({ table, currency }: { table: ReportTableData; currency: st
       const x = a[sort.key];
       const y = b[sort.key];
       if (col?.format) return ((Number(x) || 0) - (Number(y) || 0)) * factor;
-      return String(x ?? '').localeCompare(String(y ?? ''), 'es') * factor;
+      return String(x ?? '').localeCompare(String(y ?? ''), getIntlTag()) * factor;
     });
   }, [table, sort]);
 
@@ -272,9 +278,9 @@ function ReportTable({ table, currency }: { table: ReportTableData; currency: st
   };
 
   return (
-    <Card title="Detalle por comercial" description="Resultados de cada miembro del equipo. Pulsa en una columna para ordenar." padded={false}>
+    <Card title={t('Detalle por comercial')} description={t('Resultados de cada miembro del equipo. Pulsa en una columna para ordenar.')} padded={false}>
       {table.rows.length === 0 ? (
-        <EmptyState icon={<Users className="size-5" />} title="Sin miembros que mostrar" description="Invita a tu equipo y asígnales oportunidades para comparar su rendimiento." />
+        <EmptyState icon={<Users className="size-5" />} title={t('Sin miembros que mostrar')} description={t('Invita a tu equipo y asígnales oportunidades para comparar su rendimiento.')} />
       ) : (
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full min-w-[760px] text-sm">
@@ -333,7 +339,7 @@ function PredictionsCard() {
   const m = useMutation({
     mutationFn: () => post<Prediction>('/reports/predictions'),
     onSuccess: (p) => {
-      if (p.provider) toast('Predicción generada');
+      if (p.provider) toast(t('Predicción generada'));
     },
     onError: (e) => {
       // La falta de proveedor se explica dentro de la tarjeta, no como error genérico.
@@ -348,14 +354,14 @@ function PredictionsCard() {
       title={
         <span className="inline-flex items-center gap-1.5">
           <Sparkles className="size-4 text-fuchsia-500" />
-          Predicciones con IA
+          {t('Predicciones con IA')}
         </span>
       }
-      description="Previsión de ingresos, oportunidades en riesgo y recomendaciones a partir de tu pipeline."
+      description={t('Previsión de ingresos, oportunidades en riesgo y recomendaciones a partir de tu pipeline.')}
       actions={
         canRun ? (
           <Button variant="ai" size="sm" icon={<WandSparkles className="size-3.5" />} loading={m.isPending} onClick={() => m.mutate()}>
-            {m.data ? 'Regenerar' : 'Generar predicción'}
+            {m.data ? t('Regenerar') : t('Generar predicción')}
           </Button>
         ) : undefined
       }
@@ -363,7 +369,7 @@ function PredictionsCard() {
       {m.isPending ? (
         <div className="space-y-2.5" aria-busy="true">
           <p className="flex items-center gap-2 text-sm text-zinc-500">
-            <Sparkles className="size-4 animate-pulse text-fuchsia-500" /> Analizando tu pipeline…
+            <Sparkles className="size-4 animate-pulse text-fuchsia-500" /> {t('Analizando tu pipeline…')}
           </p>
           <Skeleton className="h-4 w-11/12" />
           <Skeleton className="h-4 w-4/5" />
@@ -380,12 +386,12 @@ function PredictionsCard() {
             <WandSparkles className="size-5" />
           </span>
           <div className="space-y-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-            <p>La IA estima los ingresos de los próximos 30 y 90 días, detecta oportunidades en riesgo por inactividad o antigüedad y te propone tres acciones concretas.</p>
+            <p>{t('La IA estima los ingresos de los próximos 30 y 90 días, detecta oportunidades en riesgo por inactividad o antigüedad y te propone tres acciones concretas.')}</p>
             <p className="flex items-start gap-1.5 text-xs text-zinc-500">
               <Lock className="mt-0.5 size-3 shrink-0" />
-              Solo se envían datos agregados y anónimos (etapa, importe, probabilidad, cierre previsto y antigüedad). Nunca nombres ni datos de contacto.
+              {t('Solo se envían datos agregados y anónimos (etapa, importe, probabilidad, cierre previsto y antigüedad). Nunca nombres ni datos de contacto.')}
             </p>
-            {!canRun && <p className="text-xs text-zinc-500">Tu rol es de solo lectura: pide a un miembro del equipo que genere la predicción.</p>}
+            {!canRun && <p className="text-xs text-zinc-500">{t('Tu rol es de solo lectura: pide a un miembro del equipo que genere la predicción.')}</p>}
           </div>
         </div>
       )}
@@ -396,14 +402,14 @@ function PredictionsCard() {
 function AiNotConfigured() {
   const { can } = useSession();
   return (
-    <Alert tone="warning" title="Configura un proveedor de IA para generar predicciones">
-      <p>Las predicciones usan el proveedor de IA de tu organización (Claude, OpenAI, DeepSeek u OpenRouter) y todavía no hay ninguno configurado.</p>
+    <Alert tone="warning" title={t('Configura un proveedor de IA para generar predicciones')}>
+      <p>{t('Las predicciones usan el proveedor de IA de tu organización (Claude, OpenAI, DeepSeek u OpenRouter) y todavía no hay ninguno configurado.')}</p>
       {can('admin') ? (
         <Link to="/settings/ai" className="mt-2 inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline">
-          <Settings className="size-3.5" /> Configurar proveedores de IA
+          <Settings className="size-3.5" /> {t('Configurar proveedores de IA')}
         </Link>
       ) : (
-        <p className="mt-1">Pide a un administrador que añada una API key en Ajustes › Proveedores de IA.</p>
+        <p className="mt-1">{t('Pide a un administrador que añada una API key en Ajustes › Proveedores de IA.')}</p>
       )}
     </Alert>
   );
@@ -421,8 +427,8 @@ function PredictionResult({ p }: { p: Prediction }) {
           {p.provider}
           {p.model ? ` · ${p.model}` : ''}
         </span>
-        {typeof p.costUsd === 'number' && <span>Coste estimado: {usd.format(p.costUsd)}</span>}
-        <span>Estimación orientativa: revísala antes de tomar decisiones.</span>
+        {typeof p.costUsd === 'number' && <span>{t('Coste estimado: {cost}', { cost: usd(p.costUsd) })}</span>}
+        <span>{t('Estimación orientativa: revísala antes de tomar decisiones.')}</span>
       </div>
     </div>
   );

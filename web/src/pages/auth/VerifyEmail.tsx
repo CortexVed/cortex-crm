@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Alert, Button } from '../../components/ui';
 import { errorMessage, post } from '../../lib/api';
+import { t } from '../../lib/i18n';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
@@ -15,7 +16,7 @@ export default function VerifyEmail() {
   const raw = params.get('token') ?? '';
   const token = TOKEN_RE.test(raw) ? raw : '';
   const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'error'>(token ? 'idle' : 'error');
-  const [error, setError] = useState(token ? '' : 'Enlace incompleto o mal copiado');
+  const [error, setError] = useState(token ? '' : t('Enlace incompleto o mal copiado'));
   const qc = useQueryClient();
   const verify = () => {
     setState('loading');
@@ -31,18 +32,18 @@ export default function VerifyEmail() {
   };
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-semibold tracking-tight">Verificación de email</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">{t('Verificación de email')}</h1>
       {(state === 'idle' || state === 'loading') && (
         <>
-          <p className="text-sm text-zinc-500">Confirma que esta dirección de email es tuya para terminar de proteger tu cuenta.</p>
+          <p className="text-sm text-zinc-500">{t('Confirma que esta dirección de email es tuya para terminar de proteger tu cuenta.')}</p>
           <Button variant="primary" className="w-full" loading={state === 'loading'} onClick={verify}>
-            Verificar mi email
+            {t('Verificar mi email')}
           </Button>
         </>
       )}
-      {state === 'ok' && <Alert tone="success" title="¡Email verificado!">Gracias, tu cuenta está protegida.</Alert>}
-      {state === 'error' && <Alert tone="danger" title="No se pudo verificar">{error}</Alert>}
-      <Link to="/" className="block text-center text-sm font-medium text-brand-600 hover:underline">Ir al CRM</Link>
+      {state === 'ok' && <Alert tone="success" title={t('¡Email verificado!')}>{t('Gracias, tu cuenta está protegida.')}</Alert>}
+      {state === 'error' && <Alert tone="danger" title={t('No se pudo verificar')}>{error}</Alert>}
+      <Link to="/" className="block text-center text-sm font-medium text-brand-600 hover:underline">{t('Ir al CRM')}</Link>
     </div>
   );
 }

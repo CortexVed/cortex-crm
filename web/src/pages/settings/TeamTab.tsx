@@ -2,6 +2,7 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, KeyRound, Mail, Trash2, UserMinus, UserPlus, Users } from 'lucide-react';
 import { ApiError, del, errorMessage, get, patch, post } from '../../lib/api';
+import { msg, t, tk, tp } from '../../lib/i18n';
 import { useSession } from '../../lib/session';
 import { formatDate, relativeTime } from '../../lib/format';
 import { useToast } from '../../components/toast';
@@ -14,7 +15,7 @@ const ROLE_COLORS: Record<Role, Color> = { owner: 'amber', admin: 'violet', buil
 
 /** Insignia de rol con el mismo color en todos los ajustes. */
 export function RoleBadge({ role }: { role: string }) {
-  return <Badge color={ROLE_COLORS[role as Role] ?? 'slate'}>{ROLE_LABELS[role as Role] ?? role}</Badge>;
+  return <Badge color={ROLE_COLORS[role as Role] ?? 'slate'}>{tk(ROLE_LABELS[role as Role] ?? role)}</Badge>;
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -49,7 +50,7 @@ export function CopyField({ value, label, multiline, size = 'md', onCopied, clas
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const copy = async () => {
     if (!(await copyToClipboard(value))) {
-      toast('No se ha podido copiar. Selecciona el texto y cópialo manualmente.', 'error');
+      toast(t('No se ha podido copiar. Selecciona el texto y cópialo manualmente.'), 'error');
       return;
     }
     setCopied(true);
@@ -59,7 +60,7 @@ export function CopyField({ value, label, multiline, size = 'md', onCopied, clas
   };
   const button = (s: 'sm' | 'md') => (
     <Button type="button" size={s} className="shrink-0" icon={copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />} onClick={copy}>
-      {copied ? 'Copiado' : 'Copiar'}
+      {copied ? t('Copiado') : t('Copiar')}
     </Button>
   );
   const surface = 'rounded-lg bg-zinc-50 font-mono text-zinc-800 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950 dark:text-zinc-200 dark:ring-zinc-700';
@@ -107,11 +108,11 @@ interface InviteRow {
 }
 
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  owner: 'Control total. Además, gestiona a otros propietarios, la política de aprobación y aprueba los cambios de riesgo alto.',
-  admin: 'Gestiona el equipo, las invitaciones, las API keys, los canales y la IA, y aprueba los cambios de riesgo bajo y medio.',
-  builder: 'Puede pedir cambios a EVOLVE AI ENGINE (campos, módulos, vistas o automatizaciones) además de gestionar registros.',
-  member: 'Gestiona registros: crea, edita y elimina contactos, oportunidades, tareas y demás fichas de la organización.',
-  viewer: 'Solo lectura: consulta registros, paneles e informes sin poder modificarlos.',
+  owner: msg('Control total. Además, gestiona a otros propietarios, la política de aprobación y aprueba los cambios de riesgo alto.'),
+  admin: msg('Gestiona el equipo, las invitaciones, las API keys, los canales y la IA, y aprueba los cambios de riesgo bajo y medio.'),
+  builder: msg('Puede pedir cambios a EVOLVE AI ENGINE (campos, módulos, vistas o automatizaciones) además de gestionar registros.'),
+  member: msg('Gestiona registros: crea, edita y elimina contactos, oportunidades, tareas y demás fichas de la organización.'),
+  viewer: msg('Solo lectura: consulta registros, paneles e informes sin poder modificarlos.'),
 };
 
 const MEMBERS_KEY = ['workspace-members'];
@@ -189,7 +190,7 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
     onSuccess: async (_r, v) => {
       qc.setQueryData<MemberRow[]>(MEMBERS_KEY, (list) => list?.map((m) => (m.id === v.member.id ? { ...m, role: v.role } : m)));
       setConfirmRole(null);
-      toast(v.member.id === myId ? `Ahora eres ${ROLE_LABELS[v.role]}` : `${v.member.name} ahora es ${ROLE_LABELS[v.role]}`);
+      toast(v.member.id === myId ? t('Ahora eres {role}', { role: tk(ROLE_LABELS[v.role]) }) : t('{name} ahora es {role}', { name: v.member.name, role: tk(ROLE_LABELS[v.role]) }));
       invalidateMembers();
       if (v.member.id === myId) await refresh();
     },
@@ -200,7 +201,7 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
     mutationFn: (m: MemberRow) => del(`/workspace/members/${m.id}`),
     onSuccess: (_r, m) => {
       setRemoving(null);
-      toast(`${m.name} ya no forma parte de la organización`);
+      toast(t('{name} ya no forma parte de la organización', { name: m.name }));
       invalidateMembers();
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -238,14 +239,14 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
       padded={false}
       title={
         <span className="flex items-center gap-2">
-          Miembros {q.data && <Badge>{members.length}</Badge>}
+          {t('Miembros')} {q.data && <Badge>{members.length}</Badge>}
         </span>
       }
-      description="Personas con acceso a esta organización y su rol."
+      description={t('Personas con acceso a esta organización y su rol.')}
       actions={
         isAdmin && (
           <Button variant="primary" size="sm" icon={<UserPlus className="size-3.5" />} onClick={onInvite}>
-            Invitar
+            {t('Invitar')}
           </Button>
         )
       }
@@ -255,7 +256,7 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !members.length ? (
-        <EmptyState icon={<Users className="size-5" />} title="Sin miembros" description="Invita a tu equipo para empezar a colaborar." />
+        <EmptyState icon={<Users className="size-5" />} title={t('Sin miembros')} description={t('Invita a tu equipo para empezar a colaborar.')} />
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {members.map((m) => {
@@ -273,27 +274,27 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{m.name}</span>
-                      {isMe && <Badge color="violet">Tú</Badge>}
+                      {isMe && <Badge color="violet">{t('Tú')}</Badge>}
                     </div>
                     <div className="truncate text-xs text-zinc-500">{m.email}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 pl-11 sm:pl-0">
                   <span className="hidden w-32 text-xs text-zinc-500 md:block" title={formatDate(m.joinedAt, true)}>
-                    Desde {formatDate(m.joinedAt)}
+                    {t('Desde {date}', { date: formatDate(m.joinedAt) })}
                   </span>
                   {editable ? (
                     <div className="w-40">
                       <Select
-                        aria-label={`Rol de ${m.name}`}
+                        aria-label={t('Rol de {name}', { name: m.name })}
                         value={shownRole}
                         disabled={pending || lastOwner}
-                        title={lastOwner ? 'La organización necesita al menos un propietario' : undefined}
+                        title={lastOwner ? t('La organización necesita al menos un propietario') : undefined}
                         onChange={(e) => onRoleChange(m, e.target.value as Role)}
                       >
                         {roleOptions.map((r) => (
                           <option key={r} value={r}>
-                            {ROLE_LABELS[r]}
+                            {tk(ROLE_LABELS[r])}
                           </option>
                         ))}
                       </Select>
@@ -304,12 +305,12 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
                   {isAdmin && (
                     <div className="ml-auto flex w-[4.25rem] shrink-0 justify-end gap-0.5 sm:ml-0">
                       {canReset && (
-                        <IconButton label={`Generar enlace de recuperación para ${m.name}`} onClick={() => setResetFor(m)}>
+                        <IconButton label={t('Generar enlace de recuperación para {name}', { name: m.name })} onClick={() => setResetFor(m)}>
                           <KeyRound className="size-4" />
                         </IconButton>
                       )}
                       {canRemove && (
-                        <IconButton label={`Quitar a ${m.name} de la organización`} onClick={() => setRemoving(m)}>
+                        <IconButton label={t('Quitar a {name} de la organización', { name: m.name })} onClick={() => setRemoving(m)}>
                           <UserMinus className="size-4" />
                         </IconButton>
                       )}
@@ -328,13 +329,13 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
         onConfirm={() => confirmRole && changeRole.mutate(confirmRole)}
         loading={changeRole.isPending}
         danger={confirmingSelf}
-        confirmLabel="Cambiar rol"
-        title={confirmingSelf ? 'Cambiar tu propio rol' : `Hacer propietario a ${confirmRole?.member.name ?? ''}`}
+        confirmLabel={t('Cambiar rol')}
+        title={confirmingSelf ? t('Cambiar tu propio rol') : t('Hacer propietario a {name}', { name: confirmRole?.member.name ?? '' })}
         description={
           confirmRole &&
           (confirmingSelf
-            ? `Pasarás a ser ${ROLE_LABELS[confirmRole.role]}. Perderás los permisos que no incluya ese rol y no podrás recuperarlos por tu cuenta.`
-            : `${confirmRole.member.name} tendrá control total de la organización, incluida la gestión de otros propietarios y de la política de aprobación.`)
+            ? t('Pasarás a ser {role}. Perderás los permisos que no incluya ese rol y no podrás recuperarlos por tu cuenta.', { role: tk(ROLE_LABELS[confirmRole.role]) })
+            : t('{name} tendrá control total de la organización, incluida la gestión de otros propietarios y de la política de aprobación.', { name: confirmRole.member.name }))
         }
       />
 
@@ -344,9 +345,9 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
         onConfirm={() => removing && remove.mutate(removing)}
         loading={remove.isPending}
         danger
-        confirmLabel="Quitar acceso"
-        title={`¿Quitar a ${removing?.name ?? ''} de la organización?`}
-        description="Perderá el acceso de inmediato y se cerrarán sus sesiones en esta organización. Sus registros, notas e historial se conservan."
+        confirmLabel={t('Quitar acceso')}
+        title={t('¿Quitar a {name} de la organización?', { name: removing?.name ?? '' })}
+        description={t('Perderá el acceso de inmediato y se cerrarán sus sesiones en esta organización. Sus registros, notas e historial se conservan.')}
       />
 
       <ConfirmDialog
@@ -354,31 +355,35 @@ function MembersCard({ onInvite }: { onInvite: () => void }) {
         onClose={() => setResetFor(null)}
         onConfirm={() => resetFor && createResetLink.mutate(resetFor)}
         loading={createResetLink.isPending}
-        confirmLabel="Generar enlace"
-        title="Generar enlace de recuperación"
-        description={`Crearás un enlace de un solo uso para que ${resetFor?.name ?? ''} elija una contraseña nueva. La acción queda registrada en la auditoría.`}
+        confirmLabel={t('Generar enlace')}
+        title={t('Generar enlace de recuperación')}
+        description={t('Crearás un enlace de un solo uso para que {name} elija una contraseña nueva. La acción queda registrada en la auditoría.', { name: resetFor?.name ?? '' })}
       />
 
       <Modal
         open={!!resetLink}
         onClose={() => setResetLink(null)}
-        title="Enlace de recuperación"
-        description={resetLink ? `Para ${resetLink.member.name} (${resetLink.member.email})` : undefined}
+        title={t('Enlace de recuperación')}
+        description={resetLink ? t('Para {name} ({email})', { name: resetLink.member.name, email: resetLink.member.email }) : undefined}
         footer={
           <Button variant="primary" onClick={() => setResetLink(null)}>
-            Listo
+            {t('Listo')}
           </Button>
         }
       >
         {resetLink && (
           <div className="space-y-3">
-            <CopyField value={resetLink.link} label="Enlace de recuperación de contraseña" />
-            <Alert tone="warning" title="Solo se muestra ahora">
-              Caduca en {resetLink.minutes} minutos y solo puede usarse una vez. Compártelo por un canal privado y seguro.
+            <CopyField value={resetLink.link} label={t('Enlace de recuperación de contraseña')} />
+            <Alert tone="warning" title={t('Solo se muestra ahora')}>
+              {tp(
+                resetLink.minutes,
+                'Caduca en {count} minuto y solo puede usarse una vez. Compártelo por un canal privado y seguro.',
+                'Caduca en {count} minutos y solo puede usarse una vez. Compártelo por un canal privado y seguro.',
+              )}
             </Alert>
             <p className="text-sm text-zinc-500">
-              Es útil cuando el envío de correo no está configurado: la persona abre el enlace, elige una contraseña nueva y se cierran todas sus sesiones abiertas.
-              {me?.features.emailEnabled && ' Como el correo está activo, también puede usar «¿Has olvidado tu contraseña?» en la pantalla de acceso.'}
+              {t('Es útil cuando el envío de correo no está configurado: la persona abre el enlace, elige una contraseña nueva y se cierran todas sus sesiones abiertas.')}
+              {me?.features.emailEnabled && ` ${t('Como el correo está activo, también puede usar «¿Has olvidado la contraseña?» en la pantalla de acceso.')}`}
             </p>
           </div>
         )}
@@ -396,7 +401,7 @@ function InvitesCard({ className }: { className?: string }) {
     mutationFn: (i: InviteRow) => del(`/workspace/invites/${i.id}`),
     onSuccess: (_r, i) => {
       setRevoking(null);
-      toast(`Invitación a ${i.email} revocada`);
+      toast(t('Invitación a {email} revocada', { email: i.email }));
       qc.invalidateQueries({ queryKey: INVITES_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -408,17 +413,17 @@ function InvitesCard({ className }: { className?: string }) {
       padded={false}
       title={
         <span className="flex items-center gap-2">
-          Invitaciones pendientes {q.data && <Badge>{invites.length}</Badge>}
+          {t('Invitaciones pendientes')} {q.data && <Badge>{invites.length}</Badge>}
         </span>
       }
-      description="Caducan a los 7 días. El enlace de cada invitación solo se muestra al crearla."
+      description={t('Caducan a los 7 días. El enlace de cada invitación solo se muestra al crearla.')}
     >
       {q.isLoading ? (
         <RowsSkeleton rows={2} />
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !invites.length ? (
-        <EmptyState icon={<Mail className="size-5" />} title="No hay invitaciones pendientes" description="Usa «Invitar» en la lista de miembros para sumar a alguien al equipo." />
+        <EmptyState icon={<Mail className="size-5" />} title={t('No hay invitaciones pendientes')} description={t('Usa «Invitar» en la lista de miembros para sumar a alguien al equipo.')} />
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {invites.map((i) => (
@@ -432,10 +437,10 @@ function InvitesCard({ className }: { className?: string }) {
                   <RoleBadge role={i.role} />
                 </div>
                 <div className="mt-0.5 text-xs text-zinc-500">
-                  Creada {relativeTime(i.created_at)} · caduca el {formatDate(i.expires_at)}
+                  {t('Creada {when} · caduca el {date}', { when: relativeTime(i.created_at), date: formatDate(i.expires_at) })}
                 </div>
               </div>
-              <IconButton label={`Revocar la invitación a ${i.email}`} onClick={() => setRevoking(i)}>
+              <IconButton label={t('Revocar la invitación a {email}', { email: i.email })} onClick={() => setRevoking(i)}>
                 <Trash2 className="size-4" />
               </IconButton>
             </li>
@@ -448,9 +453,9 @@ function InvitesCard({ className }: { className?: string }) {
         onConfirm={() => revoking && revoke.mutate(revoking)}
         loading={revoke.isPending}
         danger
-        confirmLabel="Revocar invitación"
-        title="¿Revocar la invitación?"
-        description={`El enlace enviado a ${revoking?.email ?? ''} dejará de funcionar. Podrás invitar de nuevo cuando quieras.`}
+        confirmLabel={t('Revocar invitación')}
+        title={t('¿Revocar la invitación?')}
+        description={t('El enlace enviado a {email} dejará de funcionar. Podrás invitar de nuevo cuando quieras.', { email: revoking?.email ?? '' })}
       />
     </Card>
   );
@@ -483,7 +488,7 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     mutationFn: (v: { email: string; role: Role }) => post<{ link: string | null; emailSent: boolean }>('/workspace/invites', v),
     onSuccess: (r, v) => {
       setResult({ email: v.email, link: r.link, emailSent: r.emailSent });
-      toast(r.emailSent ? `Invitación enviada a ${v.email}` : 'Invitación creada');
+      toast(r.emailSent ? t('Invitación enviada a {email}', { email: v.email }) : t('Invitación creada'));
       qc.invalidateQueries({ queryKey: INVITES_KEY });
     },
     onError: (e) => {
@@ -498,7 +503,7 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     e.preventDefault();
     const value = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-      setErrors({ email: 'Introduce un email válido' });
+      setErrors({ email: t('Introduce un email válido') });
       return;
     }
     setErrors({});
@@ -509,21 +514,21 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     <Modal
       open={open}
       onClose={close}
-      title={result ? 'Invitación lista' : 'Invitar a una persona'}
-      description={result ? undefined : 'Recibirá un enlace para unirse a la organización con el rol que elijas.'}
+      title={result ? t('Invitación lista') : t('Invitar a una persona')}
+      description={result ? undefined : t('Recibirá un enlace para unirse a la organización con el rol que elijas.')}
       footer={
         result ? (
           <>
-            <Button onClick={reset}>Invitar a otra persona</Button>
+            <Button onClick={reset}>{t('Invitar a otra persona')}</Button>
             <Button variant="primary" onClick={close}>
-              Listo
+              {t('Listo')}
             </Button>
           </>
         ) : (
           <>
-            <Button onClick={close}>Cancelar</Button>
+            <Button onClick={close}>{t('Cancelar')}</Button>
             <Button type="submit" form={formId} variant="primary" icon={<UserPlus className="size-4" />} loading={create.isPending}>
-              Crear invitación
+              {t('Crear invitación')}
             </Button>
           </>
         )
@@ -532,30 +537,34 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
       {result ? (
         <div className="space-y-3">
           {result.emailSent ? (
-            <Alert tone="success" title="Correo enviado">
-              Hemos enviado la invitación a {result.email}. Por seguridad, el enlace solo llega a su buzón (así se comprueba que el email es suyo).
+            <Alert tone="success" title={t('Correo enviado')}>
+              {t('Hemos enviado la invitación a {email}. Por seguridad, el enlace solo llega a su buzón (así se comprueba que el email es suyo).', { email: result.email })}
             </Alert>
           ) : (
-            <Alert tone="warning" title="No se ha enviado ningún correo">
-              {me?.features.emailEnabled ? 'El envío del correo ha fallado.' : 'El envío de correo no está configurado en este servidor.'} Comparte tú este enlace con {result.email}. Su email quedará pendiente de verificar.
+            <Alert tone="warning" title={t('No se ha enviado ningún correo')}>
+              {me?.features.emailEnabled ? t('El envío del correo ha fallado.') : t('El envío de correo no está configurado en este servidor.')}{' '}
+              {t('Comparte tú este enlace con {email}. Su email quedará pendiente de verificar.', { email: result.email })}
             </Alert>
           )}
           {result.link && (
             <div>
-              <div className="mb-1.5 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">Enlace de invitación</div>
-              <CopyField value={result.link} label="Enlace de invitación" />
+              <div className="mb-1.5 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{t('Enlace de invitación')}</div>
+              <CopyField value={result.link} label={t('Enlace de invitación')} />
             </div>
           )}
-          <p className="text-xs text-zinc-500">Caduca en 7 días y solo puede aceptarse con la cuenta de ese email.{result.link ? ' No se volverá a mostrar.' : ''}</p>
+          <p className="text-xs text-zinc-500">
+            {t('Caduca en 7 días y solo puede aceptarse con la cuenta de ese email.')}
+            {result.link ? ` ${t('No se volverá a mostrar.')}` : ''}
+          </p>
         </div>
       ) : (
         <form id={formId} onSubmit={submit} className="space-y-4" noValidate>
-          <Field label="Email" required error={errors.email}>
+          <Field label={t('Email')} required error={errors.email}>
             <Input
               type="email"
               value={email}
               invalid={!!errors.email}
-              placeholder="nombre@empresa.com"
+              placeholder={t('nombre@empresa.com')}
               autoComplete="off"
               maxLength={254}
               onChange={(e) => {
@@ -564,18 +573,18 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
               }}
             />
           </Field>
-          <Field label="Rol" error={errors.role} hint={ROLE_DESCRIPTIONS[role]}>
+          <Field label={t('Rol')} error={errors.role} hint={tk(ROLE_DESCRIPTIONS[role])}>
             <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
               {roles.map((r) => (
                 <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
+                  {tk(ROLE_LABELS[r])}
                 </option>
               ))}
             </Select>
           </Field>
-          {!isOwner && <p className="text-xs text-zinc-500">Solo un propietario puede invitar a administradores.</p>}
+          {!isOwner && <p className="text-xs text-zinc-500">{t('Solo un propietario puede invitar a administradores.')}</p>}
           {!me?.features.emailEnabled && (
-            <Alert tone="info">El envío de correo no está configurado: al crear la invitación obtendrás un enlace para compartirlo tú mismo.</Alert>
+            <Alert tone="info">{t('El envío de correo no está configurado: al crear la invitación obtendrás un enlace para compartirlo tú mismo.')}</Alert>
           )}
         </form>
       )}
@@ -585,14 +594,14 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 
 function RolesCard({ className }: { className?: string }) {
   return (
-    <Card className={className} title="Roles y permisos" description="Cada rol incluye todos los permisos de los roles inferiores.">
+    <Card className={className} title={t('Roles y permisos')} description={t('Cada rol incluye todos los permisos de los roles inferiores.')}>
       <ul className="space-y-3.5">
         {ROLES.map((r) => (
           <li key={r} className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <div className="w-28 shrink-0">
               <RoleBadge role={r} />
             </div>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">{ROLE_DESCRIPTIONS[r]}</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">{tk(ROLE_DESCRIPTIONS[r])}</p>
           </li>
         ))}
       </ul>

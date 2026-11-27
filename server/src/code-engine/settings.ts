@@ -2,6 +2,7 @@ import type { AppConfig } from '../config';
 import type { Queryable } from '../db/db';
 import type { AppDeps } from '../deps';
 import { maskSecret } from '../lib/crypto';
+import { msg, t, tk } from '../i18n';
 import { sourceRoot } from './options';
 import { isRailwayId, RailwayClient, type ServiceTarget } from './railway';
 import { loadSourceTree } from './source';
@@ -40,12 +41,12 @@ export interface DeployTargets {
 /** Falta configuración: el mensaje dice exactamente qué. */
 export class ConfigMissingError extends Error {
   constructor(readonly missing: string[]) {
-    super(`Falta configuración del motor de código: ${missing.join(' · ')}`);
+    super(t('Falta configuración del motor de código: {missing}', { missing: missing.join(' · ') }));
     this.name = 'ConfigMissingError';
   }
 }
 
-const NO_RAILWAY = 'No se detecta Railway (faltan RAILWAY_PROJECT_ID y RAILWAY_ENVIRONMENT_ID): el motor de código solo funciona en una instalación desplegada en Railway';
+const NO_RAILWAY = msg('No se detecta Railway (faltan RAILWAY_PROJECT_ID y RAILWAY_ENVIRONMENT_ID): el motor de código solo funciona en una instalación desplegada en Railway');
 
 async function readSetting(q: Queryable, key: string) {
   return (await q.query<{ value: any; secret_ciphertext: string | null; secret_hint: string | null; updated_at: string; updated_by: string | null }>(
@@ -110,15 +111,15 @@ export async function readWorkerReport(db: Queryable): Promise<WorkerReport | nu
 /** Problemas de una vista de servicios (la del worker, que es quien despliega). */
 function serviceProblems(v: { projectId: string | null; environmentId: string | null; serviceId: string | null; webServiceId: string | null; ciServiceId: string | null }): string[] {
   const missing: string[] = [];
-  if (!v.projectId || !v.environmentId) return [NO_RAILWAY];
-  if (!isRailwayId(v.projectId) || !isRailwayId(v.environmentId)) missing.push('RAILWAY_PROJECT_ID o RAILWAY_ENVIRONMENT_ID no tienen el formato de un id de Railway');
-  if (!isRailwayId(v.serviceId)) missing.push('El worker no conoce su propio servicio (RAILWAY_SERVICE_ID)');
-  if (!v.webServiceId) missing.push('Falta CORTEX_SERVICE_ID en el servicio Worker (valor: ${{Cortex.RAILWAY_SERVICE_ID}})');
-  else if (!isRailwayId(v.webServiceId)) missing.push('CORTEX_SERVICE_ID no tiene el formato de un id de Railway');
-  if (!v.ciServiceId) missing.push('Falta el servicio CI: créalo vacío (sin variables, sin dominio y sin repositorio) y añade al Worker CI_SERVICE_ID=${{CI.RAILWAY_SERVICE_ID}}');
-  else if (!isRailwayId(v.ciServiceId)) missing.push('CI_SERVICE_ID no tiene el formato de un id de Railway');
+  if (!v.projectId || !v.environmentId) return [tk(NO_RAILWAY)];
+  if (!isRailwayId(v.projectId) || !isRailwayId(v.environmentId)) missing.push(t('RAILWAY_PROJECT_ID o RAILWAY_ENVIRONMENT_ID no tienen el formato de un id de Railway'));
+  if (!isRailwayId(v.serviceId)) missing.push(t('El worker no conoce su propio servicio (RAILWAY_SERVICE_ID)'));
+  if (!v.webServiceId) missing.push(t('Falta CORTEX_SERVICE_ID en el servicio Worker (valor: ${{Cortex.RAILWAY_SERVICE_ID}})'));
+  else if (!isRailwayId(v.webServiceId)) missing.push(t('CORTEX_SERVICE_ID no tiene el formato de un id de Railway'));
+  if (!v.ciServiceId) missing.push(t('Falta el servicio CI: créalo vacío (sin variables, sin dominio y sin repositorio) y añade al Worker CI_SERVICE_ID=${{CI.RAILWAY_SERVICE_ID}}'));
+  else if (!isRailwayId(v.ciServiceId)) missing.push(t('CI_SERVICE_ID no tiene el formato de un id de Railway'));
   const ids = [v.serviceId, v.webServiceId, v.ciServiceId].filter(Boolean);
-  if (new Set(ids).size !== ids.length) missing.push('Los servicios web, worker y CI deben ser distintos (CI_SERVICE_ID nunca puede ser el web ni el worker)');
+  if (new Set(ids).size !== ids.length) missing.push(t('Los servicios web, worker y CI deben ser distintos (CI_SERVICE_ID nunca puede ser el web ni el worker)'));
   return missing;
 }
 
@@ -135,7 +136,7 @@ export function targetsFromConfig(config: AppConfig): { targets: DeployTargets |
 export async function railwayForJob(deps: AppDeps, signal?: AbortSignal): Promise<{ client: RailwayClient; targets: DeployTargets }> {
   const { targets, missing } = targetsFromConfig(deps.config);
   const token = await loadRailwayToken(deps);
-  if (!token) missing.push('Falta el token de proyecto de Railway');
+  if (!token) missing.push(t('Falta el token de proyecto de Railway'));
   if (!targets || !token) throw new ConfigMissingError(missing);
   return { client: new RailwayClient(token, deps.fetchImpl, { signal }), targets };
 }
@@ -166,21 +167,22 @@ export async function settingsView(deps: AppDeps): Promise<SettingsView> {
   const missing: string[] = [];
   const warnings: string[] = [];
   const detected = !!(cfg.projectId && cfg.environmentId);
-  if (!detected) missing.push(NO_RAILWAY);
+  if (!detected) missing.push(tk(NO_RAILWAY));
   const tokenScope = (tokenRow?.value ?? {}) as { projectId?: string; environmentId?: string };
-  if (!tokenRow?.secret_ciphertext) missing.push('Falta el token de proyecto de Railway (Railway › proyecto › Settings › Tokens, del mismo entorno)');
-  else if (detected && (tokenScope.projectId !== cfg.projectId || tokenScope.environmentId !== cfg.environmentId)) missing.push('El token guardado es de otro proyecto o de otro entorno: guarda uno de este');
+  if (!tokenRow?.secret_ciphertext) missing.push(t('Falta el token de proyecto de Railway (Railway › proyecto › Settings › Tokens, del mismo entorno)'));
+  else if (detected && (tokenScope.projectId !== cfg.projectId || tokenScope.environmentId !== cfg.environmentId)) missing.push(t('El token guardado es de otro proyecto o de otro entorno: guarda uno de este'));
   if (detected) {
-    if (!worker) missing.push('El worker todavía no ha informado de su configuración: guarda el token o pulsa «Comprobar de nuevo» y espera unos segundos (el servicio Worker debe estar en marcha)');
+    if (!worker) missing.push(t('El worker todavía no ha informado de su configuración: guarda el token o pulsa «Comprobar de nuevo» y espera unos segundos (el servicio Worker debe estar en marcha)'));
     else {
-      for (const m of serviceProblems(worker)) if (m !== NO_RAILWAY) missing.push(m);
-      if (!worker.projectId || worker.projectId !== cfg.projectId || worker.environmentId !== cfg.environmentId) missing.push('El worker está en otro proyecto o entorno de Railway');
+      // (serviceProblems devuelve el aviso de Railway ya traducido)
+      for (const m of serviceProblems(worker)) if (m !== tk(NO_RAILWAY)) missing.push(m);
+      if (!worker.projectId || worker.projectId !== cfg.projectId || worker.environmentId !== cfg.environmentId) missing.push(t('El worker está en otro proyecto o entorno de Railway'));
       // Solo con servicios separados (en «all», desarrollo, web y worker son el mismo proceso).
       if (deps.config.role === 'web' && worker.webServiceId && cfg.serviceId && worker.webServiceId !== cfg.serviceId) {
-        missing.push('CORTEX_SERVICE_ID del Worker no coincide con este servicio web (RAILWAY_SERVICE_ID)');
+        missing.push(t('CORTEX_SERVICE_ID del Worker no coincide con este servicio web (RAILWAY_SERVICE_ID)'));
       }
-      if (worker.treeHash && worker.treeHash !== tree.hash) warnings.push('El worker y el servicio web ejecutan versiones distintas del código: espera a que terminen los despliegues en curso');
-      if (Date.now() - new Date(worker.reportedAt).getTime() > 7 * 86_400_000) warnings.push('El último informe del worker tiene más de una semana: pulsa «Comprobar de nuevo»');
+      if (worker.treeHash && worker.treeHash !== tree.hash) warnings.push(t('El worker y el servicio web ejecutan versiones distintas del código: espera a que terminen los despliegues en curso'));
+      if (Date.now() - new Date(worker.reportedAt).getTime() > 7 * 86_400_000) warnings.push(t('El último informe del worker tiene más de una semana: pulsa «Comprobar de nuevo»'));
     }
   }
   return {

@@ -5,6 +5,7 @@
  * lados: el servidor no deja publicar nada que no las cumpla y el navegador lo vuelve a comprobar antes de
  * inyectarlo.
  */
+import { msg, t, tk } from './i18n';
 
 export const APPEARANCE_FONTS = ['inter', 'system', 'serif', 'mono', 'rounded'] as const;
 export type AppearanceFont = (typeof APPEARANCE_FONTS)[number];
@@ -38,12 +39,12 @@ export const APPEARANCE_DEFAULTS = {
   defaultTheme: 'system',
 } as const satisfies { brandColor: string; font: AppearanceFont; radius: AppearanceRadius; density: AppearanceDensity; sidebar: SidebarStyle; defaultTheme: ThemeMode };
 
-export const FONT_LABELS: Record<AppearanceFont, string> = { inter: 'Inter', system: 'Del sistema', serif: 'Serif', mono: 'Monoespaciada', rounded: 'Redondeada' };
-export const RADIUS_LABELS: Record<AppearanceRadius, string> = { none: 'Sin redondeo', sm: 'Pequeño', md: 'Medio', lg: 'Grande', xl: 'Muy grande' };
-export const DENSITY_LABELS: Record<AppearanceDensity, string> = { compact: 'Compacta', comfortable: 'Normal', spacious: 'Amplia' };
-export const SIDEBAR_LABELS: Record<SidebarStyle, string> = { light: 'Claro', dark: 'Oscuro', brand: 'Color de marca' };
-export const THEME_LABELS: Record<ThemeMode, string> = { system: 'Según el sistema', light: 'Claro', dark: 'Oscuro' };
-export const BLOCK_WIDTH_LABELS: Record<BlockWidth, string> = { full: 'Ancho completo', half: 'Mitad', third: 'Un tercio', two_thirds: 'Dos tercios' };
+export const FONT_LABELS: Record<AppearanceFont, string> = { inter: 'Inter', system: msg('Del sistema'), serif: 'Serif', mono: msg('Monoespaciada'), rounded: msg('Redondeada') };
+export const RADIUS_LABELS: Record<AppearanceRadius, string> = { none: msg('Sin redondeo'), sm: msg('Pequeño'), md: msg('Medio'), lg: msg('Grande'), xl: msg('Muy grande') };
+export const DENSITY_LABELS: Record<AppearanceDensity, string> = { compact: msg('Compacta'), comfortable: msg('Normal'), spacious: msg('Amplia') };
+export const SIDEBAR_LABELS: Record<SidebarStyle, string> = { light: msg('Claro'), dark: msg('Oscuro'), brand: msg('Color de marca') };
+export const THEME_LABELS: Record<ThemeMode, string> = { system: msg('Según el sistema'), light: msg('Claro'), dark: msg('Oscuro') };
+export const BLOCK_WIDTH_LABELS: Record<BlockWidth, string> = { full: msg('Ancho completo'), half: msg('Mitad'), third: msg('Un tercio'), two_thirds: msg('Dos tercios') };
 
 // ---------------------------------------------------------------- contraste (WCAG 2.x)
 
@@ -102,21 +103,21 @@ const MAX_CSS_DEPTH = 5;
  * propio origen: no hay url() ni ninguna otra forma de pedir recursos.
  */
 const FORBIDDEN: [RegExp, string][] = [
-  [/@import/i, '@import no está permitido: el CSS personalizado no puede cargar otras hojas de estilo'],
-  [/@charset/i, '@charset no está permitido'],
-  [/url\s*\(/i, 'url() no está permitido: el CSS personalizado no puede cargar imágenes, fuentes ni otros recursos'],
-  [/(?:image-set|image|cross-fade|element|paint)\s*\(/i, 'Las funciones de imagen (image-set, image, cross-fade, element, paint) no están permitidas'],
-  [/expression\s*\(/i, 'expression() no está permitido'],
-  [/javascript\s*:/i, 'javascript: no está permitido'],
-  [/vbscript\s*:/i, 'vbscript: no está permitido'],
-  [/behavior/i, 'behavior no está permitido'],
-  [/-moz-binding/i, '-moz-binding no está permitido'],
-  [/<\s*\/?\s*style/i, 'No se pueden abrir ni cerrar etiquetas <style>'],
+  [/@import/i, msg('@import no está permitido: el CSS personalizado no puede cargar otras hojas de estilo')],
+  [/@charset/i, msg('@charset no está permitido')],
+  [/url\s*\(/i, msg('url() no está permitido: el CSS personalizado no puede cargar imágenes, fuentes ni otros recursos')],
+  [/(?:image-set|image|cross-fade|element|paint)\s*\(/i, msg('Las funciones de imagen (image-set, image, cross-fade, element, paint) no están permitidas')],
+  [/expression\s*\(/i, msg('expression() no está permitido')],
+  [/javascript\s*:/i, msg('javascript: no está permitido')],
+  [/vbscript\s*:/i, msg('vbscript: no está permitido')],
+  [/behavior/i, msg('behavior no está permitido')],
+  [/-moz-binding/i, msg('-moz-binding no está permitido')],
+  [/<\s*\/?\s*style/i, msg('No se pueden abrir ni cerrar etiquetas <style>')],
   // HTML (etiquetas, cierres y comentarios). Se admite «<» en las consultas de rango: @media (width < 640px).
-  [/<\s*[a-z!/?]/i, 'El CSS personalizado no puede contener HTML'],
-  [/\\/, 'No se admiten secuencias de escape (\\) en el CSS personalizado'],
+  [/<\s*[a-z!/?]/i, msg('El CSS personalizado no puede contener HTML')],
+  [/\\/, msg('No se admiten secuencias de escape (\\) en el CSS personalizado')],
   // eslint-disable-next-line no-control-regex
-  [/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/, 'El CSS contiene caracteres de control no permitidos'],
+  [/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/, msg('El CSS contiene caracteres de control no permitidos')],
 ];
 
 export interface CssCheck {
@@ -134,7 +135,8 @@ export interface CssCheck {
 export function sanitizeCustomCss(input: string): CssCheck {
   const errors = new Set<string>();
   const src = typeof input === 'string' ? input : '';
-  if (src.length > MAX_CUSTOM_CSS) errors.add(`El CSS personalizado no puede superar ${MAX_CUSTOM_CSS} caracteres`);
+  // El límite va como texto («20000»): como número saldría con separador de miles («20.000»).
+  if (src.length > MAX_CUSTOM_CSS) errors.add(t('El CSS personalizado no puede superar {max} caracteres', { max: String(MAX_CUSTOM_CSS) }));
   let out = '';
   let depth = 0;
   let i = 0;
@@ -143,7 +145,7 @@ export function sanitizeCustomCss(input: string): CssCheck {
     if (c === '/' && src[i + 1] === '*') {
       const end = src.indexOf('*/', i + 2);
       if (end < 0) {
-        errors.add('Hay un comentario /* sin cerrar');
+        errors.add(t('Hay un comentario /* sin cerrar'));
         break;
       }
       out += ' ';
@@ -154,7 +156,7 @@ export function sanitizeCustomCss(input: string): CssCheck {
       let j = i + 1;
       while (j < src.length && src[j] !== c && src[j] !== '\n' && src[j] !== '\r') j++;
       if (src[j] !== c) {
-        errors.add('Hay una cadena de texto sin cerrar');
+        errors.add(t('Hay una cadena de texto sin cerrar'));
         break;
       }
       out += src.slice(i, j + 1);
@@ -163,23 +165,23 @@ export function sanitizeCustomCss(input: string): CssCheck {
     }
     if (c === '{') {
       depth++;
-      if (depth > MAX_CSS_DEPTH) errors.add(`Demasiados niveles de anidamiento (máximo ${MAX_CSS_DEPTH})`);
+      if (depth > MAX_CSS_DEPTH) errors.add(t('Demasiados niveles de anidamiento (máximo {max})', { max: MAX_CSS_DEPTH }));
     } else if (c === '}') {
       depth--;
       if (depth < 0) {
-        errors.add('Hay una llave «}» sin abrir');
+        errors.add(t('Hay una llave «}» sin abrir'));
         break;
       }
     } else if (c === '@') {
       const m = /^@(-?[a-z][a-z0-9-]*)/i.exec(src.slice(i, i + 64));
-      if (!m) errors.add('Hay una «@» que no inicia ninguna regla válida');
-      else if (!ALLOWED_AT_RULES.has(m[1].toLowerCase())) errors.add(`La regla @${m[1]} no está permitida (solo @media, @supports, @keyframes, @layer y @container)`);
+      if (!m) errors.add(t('Hay una «@» que no inicia ninguna regla válida'));
+      else if (!ALLOWED_AT_RULES.has(m[1].toLowerCase())) errors.add(t('La regla @{rule} no está permitida (solo @media, @supports, @keyframes, @layer y @container)', { rule: m[1] }));
     }
     out += c;
     i++;
   }
-  if (depth > 0 && !errors.size) errors.add('Hay llaves «{» sin cerrar');
-  for (const [re, message] of FORBIDDEN) if (re.test(out)) errors.add(message);
+  if (depth > 0 && !errors.size) errors.add(t('Hay llaves «{» sin cerrar'));
+  for (const [re, message] of FORBIDDEN) if (re.test(out)) errors.add(tk(message));
   const list = [...errors];
   return list.length ? { ok: false, css: '', errors: list } : { ok: true, css: out.trim(), errors: [] };
 }

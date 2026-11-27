@@ -3,6 +3,7 @@ import type { Automation, Blueprint, Field } from '../../../shared/blueprint';
 import type { Operation } from '../../../shared/changeset';
 import { collectRelatedCalls, parseFormula } from '../../../shared/formula';
 import { applyOperations } from './apply';
+import { listFormat, t, tp } from '../i18n';
 
 /** ¿Copia la plantilla datos del registro que dispara ({{record.campo}}, no solo su id)? */
 function copiesRecordData(values: unknown): boolean {
@@ -117,9 +118,9 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
       case 'create_module': {
         const leaks = op.module.fields.flatMap((f) => formulaLeaks(after, op.module.permissions?.read ?? 'viewer', f));
         const orphans = before.modules.some((m) => m.key === op.module.key) ? 0 : (opts.counts?.[op.module.key] ?? 0);
-        if (orphans > 0) add('high', `La clave "${op.module.key}" ya tiene ${orphans} registro(s) de un módulo retirado: el nuevo módulo los heredaría con sus permisos`, i);
-        else if (leaks.length) add('high', `Fórmulas del nuevo módulo exponen datos de módulos más restringidos (${[...new Set(leaks)].join(', ')})`, i);
-        else add('low', `Nuevo módulo "${op.module.labelPlural}"`, i);
+        if (orphans > 0) add('high', tp(orphans, 'La clave "{key}" ya tiene {count} registro de un módulo retirado: el nuevo módulo lo heredaría con sus permisos', 'La clave "{key}" ya tiene {count} registros de un módulo retirado: el nuevo módulo los heredaría con sus permisos', { key: op.module.key }), i);
+        else if (leaks.length) add('high', t('Fórmulas del nuevo módulo exponen datos de módulos más restringidos ({modules})', { modules: [...new Set(leaks)].join(', ') }), i);
+        else add('low', t('Nuevo módulo "{module}"', { module: op.module.labelPlural }), i);
         break;
       }
       case 'update_module': {
@@ -130,24 +131,24 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
           });
           // Restringir la lectura deja expuestos sus datos si otros módulos (más abiertos) los agregan con fórmulas.
           const exposedBy = after.modules.filter((m) => m.key !== mod.key && m.fields.some((f) => formulaLeaks(after, m.permissions.read, f).includes(modAfter?.labelPlural ?? mod.labelPlural))).map((m) => m.labelPlural);
-          if (loosened) add('high', `Se amplían los permisos de "${mod.labelPlural}"`, i);
-          else if (exposedBy.length) add('high', `Se restringe "${mod.labelPlural}", pero fórmulas de ${exposedBy.join(', ')} seguirían mostrando sus datos`, i);
-          else add('medium', `Se restringen los permisos de "${mod.labelPlural}"`, i);
-        } else add('low', `Cambios de presentación en "${mod?.labelPlural ?? op.module}"`, i);
+          if (loosened) add('high', t('Se amplían los permisos de "{module}"', { module: mod.labelPlural }), i);
+          else if (exposedBy.length) add('high', t('Se restringe "{module}", pero fórmulas de {modules} seguirían mostrando sus datos', { module: mod.labelPlural, modules: exposedBy.join(', ') }), i);
+          else add('medium', t('Se restringen los permisos de "{module}"', { module: mod.labelPlural }), i);
+        } else add('low', t('Cambios de presentación en "{module}"', { module: mod?.labelPlural ?? op.module }), i);
         break;
       }
       case 'archive_module':
         destructive = true;
-        add('high', `Se archiva el módulo "${mod?.labelPlural ?? op.module}" (los datos se conservan)`, i);
+        add('high', t('Se archiva el módulo "{module}" (los datos se conservan)', { module: mod?.labelPlural ?? op.module }), i);
         break;
       case 'restore_module':
       case 'restore_field':
-        add('low', 'Restauración de elementos archivados', i);
+        add('low', t('Restauración de elementos archivados'), i);
         break;
       case 'add_field': {
         const leaks = modAfter ? formulaLeaks(after, modAfter.permissions.read, op.field) : [];
-        if (leaks.length) add('high', `La fórmula "${op.field.label}" expone datos de módulos más restringidos (${leaks.join(', ')})`, i);
-        else add(op.field.required ? 'medium' : 'low', op.field.required ? `Nuevo campo obligatorio "${op.field.label}": los registros existentes no lo tendrán` : `Nuevo campo "${op.field.label}"`, i);
+        if (leaks.length) add('high', t('La fórmula "{field}" expone datos de módulos más restringidos ({modules})', { field: op.field.label, modules: leaks.join(', ') }), i);
+        else add(op.field.required ? 'medium' : 'low', op.field.required ? t('Nuevo campo obligatorio "{field}": los registros existentes no lo tendrán', { field: op.field.label }) : t('Nuevo campo "{field}"', { field: op.field.label }), i);
         break;
       }
       case 'update_field': {
@@ -155,36 +156,36 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
         const c = op.changes;
         if (c.type && f && c.type !== f.type) {
           destructive = true;
-          add('high', `Cambio de tipo de "${f.label}" (${f.type} → ${c.type})`, i);
+          add('high', t('Cambio de tipo de "{field}" ({from} → {to})', { field: f.label, from: f.type, to: c.type }), i);
         }
         if (c.options && f?.options) {
           const removed = f.options.filter((o) => !c.options!.some((n) => n.value === o.value));
           if (removed.length) {
             destructive = true;
-            add('high', `Se eliminan opciones de "${f.label}": ${removed.map((r) => r.label).join(', ')}`, i);
+            add('high', t('Se eliminan opciones de "{field}": {options}', { field: f.label, options: removed.map((r) => r.label).join(', ') }), i);
           }
         }
         if (c.formula && modAfter) {
           const leaks = formulaLeaks(after, modAfter.permissions.read, c as Pick<Field, 'formula'>);
-          if (leaks.length) add('high', `La fórmula de "${f?.label ?? op.field}" expone datos de módulos más restringidos (${leaks.join(', ')})`, i);
+          if (leaks.length) add('high', t('La fórmula de "{field}" expone datos de módulos más restringidos ({modules})', { field: f?.label ?? op.field, modules: leaks.join(', ') }), i);
         }
-        if (c.required && f && !f.required) add('medium', `"${f.label}" pasa a ser obligatorio`, i);
-        if (c.unique && f && !f.unique) add('medium', `"${f.label}" pasa a ser único`, i);
-        if (!items.some((x) => x.op === i)) add('low', `Ajustes del campo "${f?.label ?? op.field}"`, i);
+        if (c.required && f && !f.required) add('medium', t('"{field}" pasa a ser obligatorio', { field: f.label }), i);
+        if (c.unique && f && !f.unique) add('medium', t('"{field}" pasa a ser único', { field: f.label }), i);
+        if (!items.some((x) => x.op === i)) add('low', t('Ajustes del campo "{field}"', { field: f?.label ?? op.field }), i);
         break;
       }
       case 'archive_field':
         destructive = true;
-        add('high', `Se archiva el campo "${op.module}.${op.field}" (los datos se conservan)`, i);
+        add('high', t('Se archiva el campo "{module}.{field}" (los datos se conservan)', { module: op.module, field: op.field }), i);
         break;
       case 'add_select_options':
-        add('low', `Nuevas opciones en "${op.module}.${op.field}"`, i);
+        add('low', t('Nuevas opciones en "{module}.{field}"', { module: op.module, field: op.field }), i);
         break;
       case 'upsert_view':
-        add('low', `Vista "${op.view.label}"`, i);
+        add('low', t('Vista "{view}"', { view: op.view.label }), i);
         break;
       case 'remove_view':
-        add('low', `Se elimina la vista "${op.view}"`, i);
+        add('low', t('Se elimina la vista "{view}"', { view: op.view }), i);
         break;
       case 'upsert_automation': {
         const kinds = new Set<string>(op.automation.actions.map((a) => a.type));
@@ -195,43 +196,43 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
         const auto = after.automations.find((x) => x.key === op.automation.key) ?? op.automation;
         const flows = restrictedFlows(after, auto);
         if (unknownKinds.length) {
-          add('high', `La automatización "${op.automation.name}" usa una acción nueva de la plataforma (${unknownKinds.join(', ')}): revisa qué hace con los datos`, i);
+          add('high', t('La automatización "{name}" usa una acción nueva de la plataforma ({actions}): revisa qué hace con los datos', { name: op.automation.name, actions: unknownKinds.join(', ') }), i);
         } else if (kinds.has('send_webhook')) {
           dataEgress = true;
-          add('high', `La automatización "${op.automation.name}" envía datos a un servicio externo`, i);
+          add('high', t('La automatización "{name}" envía datos a un servicio externo', { name: op.automation.name }), i);
         } else if (kinds.has('run_script')) {
-          add('high', `La automatización "${op.automation.name}" ejecuta código a medida sobre tus datos`, i);
+          add('high', t('La automatización "{name}" ejecuta código a medida sobre tus datos', { name: op.automation.name }), i);
         } else if (flows.length) {
           // Copiar datos de un módulo restringido hacia un público más amplio es una fuga: lo aprueba un propietario.
-          add('high', `La automatización "${op.automation.name}" copia datos de un módulo restringido a ${flows.join(' y ')}`, i);
+          add('high', t('La automatización "{name}" copia datos de un módulo restringido a {modules}', { name: op.automation.name, modules: listFormat(flows) }), i);
         } else if (feedsItself(after, auto)) {
-          add('high', `La automatización "${op.automation.name}" crea registros que la vuelven a disparar (bucle)`, i);
+          add('high', t('La automatización "{name}" crea registros que la vuelven a disparar (bucle)', { name: op.automation.name }), i);
         } else if (kinds.has('update_field') || kinds.has('create_record')) {
-          add('medium', `La automatización "${op.automation.name}" modifica datos automáticamente`, i);
-        } else add('low', `Automatización de avisos "${op.automation.name}"`, i);
+          add('medium', t('La automatización "{name}" modifica datos automáticamente', { name: op.automation.name }), i);
+        } else add('low', t('Automatización de avisos "{name}"', { name: op.automation.name }), i);
         break;
       }
       case 'remove_automation':
-        add('medium', `Se elimina la automatización "${op.automation}"`, i);
+        add('medium', t('Se elimina la automatización "{name}"', { name: op.automation }), i);
         break;
       case 'upsert_dashboard':
-        add('low', `Panel "${op.dashboard.label}"`, i);
+        add('low', t('Panel "{dashboard}"', { dashboard: op.dashboard.label }), i);
         break;
       case 'remove_dashboard':
-        add('low', `Se elimina el panel "${op.dashboard}"`, i);
+        add('low', t('Se elimina el panel "{dashboard}"', { dashboard: op.dashboard }), i);
         break;
       case 'upsert_integration':
         dataEgress = true;
-        add('high', `Integración externa "${op.integration.name}" (${safeHost(op.integration.url)})`, i);
+        add('high', t('Integración externa "{name}" ({host})', { name: op.integration.name, host: safeHost(op.integration.url) }), i);
         break;
       case 'remove_integration':
-        add('medium', `Se elimina la integración "${op.integration}"`, i);
+        add('medium', t('Se elimina la integración "{name}"', { name: op.integration }), i);
         break;
       case 'upsert_form':
-        add(op.form.public ? 'high' : 'low', op.form.public ? `Formulario PÚBLICO "${op.form.name}" (acepta datos de Internet)` : `Formulario "${op.form.name}"`, i);
+        add(op.form.public ? 'high' : 'low', op.form.public ? t('Formulario PÚBLICO "{name}" (acepta datos de Internet)', { name: op.form.name }) : t('Formulario "{name}"', { name: op.form.name }), i);
         break;
       case 'remove_form':
-        add('low', `Se elimina el formulario "${op.form}"`, i);
+        add('low', t('Se elimina el formulario "{name}"', { name: op.form }), i);
         break;
       case 'upsert_script': {
         // Código a medida: aunque se ejecuta en un sandbox aislado y solo puede tocar datos de esta
@@ -240,45 +241,45 @@ export function assessRisk(before: Blueprint, ops: Operation[], opts: { counts?:
         const prev = (before.scripts ?? []).find((s) => s.key === op.script.key);
         const codeChanged = !prev || prev.code !== op.script.code;
         const enabling = op.script.enabled && (!prev || !prev.enabled);
-        if (!prev) add('high', `Nuevo script con código a medida "${op.script.name}" (sandbox aislado)`, i);
-        else if (codeChanged) add('high', `Se modifica el código del script "${op.script.name}"`, i);
-        else if (enabling) add('high', `Se activa el script "${op.script.name}"`, i);
-        else add('medium', op.script.enabled ? `Ajustes del script "${op.script.name}" (sin cambiar el código)` : `Se desactiva el script "${op.script.name}"`, i);
+        if (!prev) add('high', t('Nuevo script con código a medida "{name}" (sandbox aislado)', { name: op.script.name }), i);
+        else if (codeChanged) add('high', t('Se modifica el código del script "{name}"', { name: op.script.name }), i);
+        else if (enabling) add('high', t('Se activa el script "{name}"', { name: op.script.name }), i);
+        else add('medium', op.script.enabled ? t('Ajustes del script "{name}" (sin cambiar el código)', { name: op.script.name }) : t('Se desactiva el script "{name}"', { name: op.script.name }), i);
         break;
       }
       case 'remove_script':
-        add('medium', `Se elimina el script "${op.script}"`, i);
+        add('medium', t('Se elimina el script "{name}"', { name: op.script }), i);
         break;
       case 'update_appearance': {
         // Colores, tipografía, bordes, densidad o menú lateral: solo presentación. El CSS personalizado es de
         // riesgo medio: aunque no puede cargar nada ni ejecutar código, puede ocultar o imitar elementos.
         const css = op.changes.customCss;
         const prev = before.appearance?.customCss;
-        if (typeof css === 'string' && css.trim() && css !== prev) add('medium', 'CSS personalizado: puede ocultar o imitar elementos de la interfaz (revísalo antes de aprobar; nunca se aplica en EVOLVE, Ajustes ni Plataforma)', i);
-        else add('low', css === null && prev ? 'Apariencia del CRM (se quita el CSS personalizado)' : 'Apariencia del CRM (colores, tipografía, bordes, menú lateral…)', i);
+        if (typeof css === 'string' && css.trim() && css !== prev) add('medium', t('CSS personalizado: puede ocultar o imitar elementos de la interfaz (revísalo antes de aprobar; nunca se aplica en EVOLVE, Ajustes ni Plataforma)'), i);
+        else add('low', css === null && prev ? t('Apariencia del CRM (se quita el CSS personalizado)') : t('Apariencia del CRM (colores, tipografía, bordes, menú lateral…)'), i);
         break;
       }
       case 'update_navigation':
-        add('low', op.navigation ? `Menú de navegación (${op.navigation.groups.length} grupo(s))` : 'Vuelve el menú de navegación por defecto', i);
+        add('low', op.navigation ? tp(op.navigation.groups.length, 'Menú de navegación ({count} grupo)', 'Menú de navegación ({count} grupos)') : t('Vuelve el menú de navegación por defecto'), i);
         break;
       case 'upsert_page': {
         // Cada rol solo ve las páginas de su rol mínimo y los bloques de los módulos que puede leer.
-        const unknownBlocks = [...new Set<string>(op.page.blocks.map((b) => b.type))].filter((t) => !KNOWN_BLOCKS.has(t));
-        if (unknownBlocks.length) add('medium', `Página «${op.page.label}» con un tipo de bloque nuevo de la plataforma (${unknownBlocks.join(', ')})`, i);
-        else add('low', `Página «${op.page.label}»`, i);
+        const unknownBlocks = [...new Set<string>(op.page.blocks.map((b) => b.type))].filter((type) => !KNOWN_BLOCKS.has(type));
+        if (unknownBlocks.length) add('medium', t('Página «{page}» con un tipo de bloque nuevo de la plataforma ({blocks})', { page: op.page.label, blocks: unknownBlocks.join(', ') }), i);
+        else add('low', t('Página «{page}»', { page: op.page.label }), i);
         break;
       }
       case 'remove_page':
-        add('low', `Se elimina la página "${op.page}"`, i);
+        add('low', t('Se elimina la página "{page}"', { page: op.page }), i);
         break;
       case 'backfill_field':
         if (!op.onlyEmpty) destructive = true;
-        add(op.onlyEmpty ? 'medium' : 'high', op.onlyEmpty ? `Migración de datos: rellenar "${op.module}.${op.field}" donde esté vacío` : `Migración de datos: SOBRESCRIBIR "${op.module}.${op.field}"`, i);
+        add(op.onlyEmpty ? 'medium' : 'high', op.onlyEmpty ? t('Migración de datos: rellenar "{module}.{field}" donde esté vacío', { module: op.module, field: op.field }) : t('Migración de datos: SOBRESCRIBIR "{module}.{field}"', { module: op.module, field: op.field }), i);
         break;
       default: {
         // Operación que esta versión no conoce (p. ej. añadida con el motor de código fuente): riesgo alto.
-        const kind = String((op as { op?: unknown }).op ?? 'desconocida');
-        add('high', `Operación nueva de la plataforma (${kind}): revisa qué cambia`, i);
+        const kind = String((op as { op?: unknown }).op ?? t('desconocida'));
+        add('high', t('Operación nueva de la plataforma ({kind}): revisa qué cambia', { kind }), i);
       }
     }
   });
@@ -300,23 +301,23 @@ export function assessTransition(current: Blueprint, target: Blueprint): RiskAss
     const cur = current.modules.find((x) => x.key === m.key);
     if (!cur) continue;
     const loosened = (['read', 'create', 'update', 'delete'] as const).filter((k) => ROLE_RANK[m.permissions[k]] < ROLE_RANK[cur.permissions[k]]);
-    if (loosened.length) high(`Se amplían los permisos de "${m.labelPlural}" (${loosened.join(', ')})`);
+    if (loosened.length) high(t('Se amplían los permisos de "{module}" ({permissions})', { module: m.labelPlural, permissions: loosened.join(', ') }));
   }
   for (const i of target.integrations) {
     const cur = current.integrations.find((x) => x.key === i.key);
     if (!i.enabled) continue;
     if (!cur || !cur.enabled || cur.url !== i.url || JSON.stringify(cur.includeFields ?? null) !== JSON.stringify(i.includeFields ?? null)) {
       dataEgress = true;
-      high(`Se reactiva o cambia la integración externa "${i.name}" (${safeHost(i.url)})`);
+      high(t('Se reactiva o cambia la integración externa "{name}" ({host})', { name: i.name, host: safeHost(i.url) }));
     }
   }
   for (const f of target.forms) {
     const cur = current.forms.find((x) => x.key === f.key);
-    if (f.public && !(cur?.public)) high(`El formulario "${f.name}" vuelve a ser PÚBLICO`);
+    if (f.public && !(cur?.public)) high(t('El formulario "{name}" vuelve a ser PÚBLICO', { name: f.name }));
   }
   for (const s of target.scripts ?? []) {
     const cur = (current.scripts ?? []).find((x) => x.key === s.key);
-    if (s.enabled && (!cur || !cur.enabled || cur.code !== s.code)) high(`Se reactiva o cambia el código del script "${s.name}"`);
+    if (s.enabled && (!cur || !cur.enabled || cur.code !== s.code)) high(t('Se reactiva o cambia el código del script "{name}"', { name: s.name }));
   }
   for (const a of target.automations) {
     if (!a.enabled) continue;
@@ -325,7 +326,7 @@ export function assessTransition(current: Blueprint, target: Blueprint): RiskAss
     const risky = a.actions.some((x) => x.type === 'send_webhook' || x.type === 'run_script' || !KNOWN_ACTIONS.has(x.type));
     if (risky && (!cur || !cur.enabled || JSON.stringify(cur.actions) !== JSON.stringify(a.actions))) {
       if (a.actions.some((x) => x.type === 'send_webhook')) dataEgress = true;
-      high(`Se reactiva la automatización "${a.name}" (envía datos fuera, ejecuta código o usa una acción nueva de la plataforma)`);
+      high(t('Se reactiva la automatización "{name}" (envía datos fuera, ejecuta código o usa una acción nueva de la plataforma)', { name: a.name }));
     }
   }
   const level: RiskLevel = items.length ? 'high' : 'low';
@@ -336,6 +337,6 @@ function safeHost(url: string): string {
   try {
     return new URL(url).host;
   } catch {
-    return 'URL inválida';
+    return t('URL inválida');
   }
 }

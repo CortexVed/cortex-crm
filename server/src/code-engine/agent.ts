@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../deps';
 import { extractJson } from '../ai/json';
 import type { ToolCall, ToolSpec } from '../ai/types';
+import { t } from '../i18n';
 import { engineOptions } from './options';
 import { PathError } from './paths';
 import { agentUserMessage, codeAgentSystem } from './prompts';
@@ -305,6 +306,6 @@ export async function runCodeAgent(
       /* texto libre */
     }
   }
-  summary ??= { title: input.prompt.slice(0, 120), summary: result.text.trim().slice(0, 4000) || 'El agente terminó sin resumen.', testsAdded: [] };
+  summary ??= { title: input.prompt.slice(0, 120), summary: result.text.trim().slice(0, 4000) || t('El agente terminó sin resumen.'), testsAdded: [] };
   return { ...summary, provider: result.provider, model: result.model, costUsd: result.costUsd, steps: result.steps, calls };
 }

@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { AppDeps } from '../deps';
+import { t } from '../i18n';
 import { unifiedDiff } from './diff';
 import type { Flag, GuardStats } from './guards';
-import { REVIEW_SYSTEM } from './prompts';
+import { reviewSystem } from './prompts';
 import type { ReviewResult } from './store';
 import type { FileChange } from './workspace';
 
@@ -44,16 +45,16 @@ export async function runReview(
 ): Promise<ReviewResult> {
   const at = () => deps.now().toISOString();
   const candidates = await deps.ai.plan(input.workspaceId, 'code_review');
-  const other = candidates.filter((t) => t.provider !== input.agentProvider);
+  const other = candidates.filter((c) => c.provider !== input.agentProvider);
   const target = other[0] ?? candidates[0];
-  if (!target) return { status: 'skipped', message: 'No hay ningún proveedor de IA disponible para la revisión', at: at() };
+  if (!target) return { status: 'skipped', message: t('No hay ningún proveedor de IA disponible para la revisión'), at: at() };
   const diff = reviewDiff(input.changes);
   try {
     const res = await deps.ai.runJson(
       input.workspaceId,
       {
         task: 'code_review',
-        system: REVIEW_SYSTEM,
+        system: reviewSystem(),
         target,
         maxTokens: 8000,
         userId: input.userId,
@@ -76,6 +77,6 @@ export async function runReview(
     );
     return { status: 'done', ...res.value, provider: res.result.provider, model: res.result.model, sameProvider: res.result.provider === input.agentProvider, truncated: diff.truncated, at: at() };
   } catch (e) {
-    return { status: 'error', message: `No se pudo completar la revisión: ${(e as Error).message.slice(0, 300)}`, at: at() };
+    return { status: 'error', message: t('No se pudo completar la revisión: {error}', { error: (e as Error).message.slice(0, 300) }), at: at() };
   }
 }

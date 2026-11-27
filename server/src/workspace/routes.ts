@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { msg, t } from '../i18n';
 import { hasRole, ROLES, ROLE_RANK, type Role } from '../../../shared/constants';
 import { appBaseUrl, type AppDeps } from '../deps';
 import type { Queryable } from '../db/db';
@@ -28,7 +29,18 @@ export function mailSafe(s: string, max = 60): string {
 const SettingsSchema = z.object({
   timezone: z.string().max(60).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/).optional(),
-  locale: z.string().max(20).optional(),
+  // «Idioma y región» (BCP 47): idioma por defecto de la organización y formato de fechas y números.
+  locale: z
+    .string()
+    .max(20)
+    .refine((v) => {
+      try {
+        return Intl.getCanonicalLocales(v).length === 1;
+      } catch {
+        return false;
+      }
+    }, msg('Idioma y región no válidos'))
+    .optional(),
   industry: z.string().max(80).optional(),
   description: z.string().max(1000).optional(),
   approval: z.object({ requireDistinctApprover: z.boolean() }).optional(),
@@ -132,19 +144,19 @@ export async function workspaceRoutes(app: FastifyInstance, deps: AppDeps) {
     const a = requireWorkspace(req, 'owner');
     requireUserSession(req);
     const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
-    const t = (
+    const member = (
       await deps.db.query(
         `SELECT u.is_platform_admin, m.role, (SELECT count(*)::int FROM memberships mm WHERE mm.user_id = m.user_id) AS orgs
          FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = $1 AND m.user_id = $2`,
         [a.workspaceId, userId],
       )
     ).rows[0];
-    if (!t) throw notFound('Miembro no encontrado');
+    if (!member) throw notFound('Miembro no encontrado');
     // Un enlace de recuperación da acceso a TODA la cuenta: solo para cuentas que pertenecen únicamente
     // a esta organización, que no son propietarias ni administradoras de la plataforma.
-    if (t.is_platform_admin) throw forbidden('No se pueden generar enlaces para un administrador de la plataforma');
-    if (t.role === 'owner') throw forbidden('No se pueden generar enlaces para otro propietario');
-    if (t.orgs > 1) throw forbidden('Esta persona pertenece a otras organizaciones: debe recuperar su contraseña por correo');
+    if (member.is_platform_admin) throw forbidden('No se pueden generar enlaces para un administrador de la plataforma');
+    if (member.role === 'owner') throw forbidden('No se pueden generar enlaces para otro propietario');
+    if (member.orgs > 1) throw forbidden('Esta persona pertenece a otras organizaciones: debe recuperar su contraseña por correo');
     if (userId === a.userId) throw forbidden('Usa «Mi cuenta» para cambiar tu propia contraseña');
     // El enlace queda ligado a esta organización y se revalida al usarlo (si la persona entra en otra
     // organización o deja de cumplir las condiciones, deja de servir). Invalida los enlaces anteriores.
@@ -171,15 +183,20 @@ export async function workspaceRoutes(app: FastifyInstance, deps: AppDeps) {
     if (already.rows.length) throw conflict('Esa persona ya es miembro');
     // Tope diario por organización: el correo de invitación sale desde el dominio de la plataforma.
     const today = (await deps.db.query<{ n: number }>(`SELECT count(*)::int AS n FROM auth_tokens WHERE kind = 'invite' AND workspace_id = $1 AND created_at > now() - interval '24 hours'`, [a.workspaceId])).rows[0].n;
-    if (today >= MAX_INVITES_PER_DAY) throw tooMany(`Límite de ${MAX_INVITES_PER_DAY} invitaciones al día alcanzado`);
+    if (today >= MAX_INVITES_PER_DAY) throw tooMany(t('Límite de {max} invitaciones al día alcanzado', { max: MAX_INVITES_PER_DAY }));
     const token = await createInviteToken(deps, { workspaceId: a.workspaceId, email: body.email, role: body.role, createdBy: a.userId });
     const link = `${appBaseUrl(deps, req)}/invite/${token}`;
     let emailSent = false;
     if (deps.mailer.enabled) {
       const ws = (await deps.db.query(`SELECT name FROM workspaces WHERE id = $1`, [a.workspaceId])).rows[0];
       // Asunto fijo y nombres saneados: los textos de la organización no pueden convertir el correo en phishing.
-      const mail = emailTemplate('Te han invitado a Cortex CRM', `${mailSafe(a.userName)} te invita a colaborar en la organización «${mailSafe(ws.name)}».`, { label: 'Aceptar invitación', url: link }, 'La invitación caduca en 7 días. Si no esperabas este correo, ignóralo.');
-      await deps.mailer.send({ to: body.email, subject: 'Te han invitado a una organización en Cortex CRM', ...mail }).then(() => (emailSent = true)).catch(() => {});
+      const mail = emailTemplate(
+        t('Te han invitado a Cortex CRM'),
+        t('{name} te invita a colaborar en la organización «{workspace}».', { name: mailSafe(a.userName), workspace: mailSafe(ws.name) }),
+        { label: t('Aceptar invitación'), url: link },
+        t('La invitación caduca en 7 días. Si no esperabas este correo, ignóralo.'),
+      );
+      await deps.mailer.send({ to: body.email, subject: t('Te han invitado a una organización en Cortex CRM'), ...mail }).then(() => (emailSent = true)).catch(() => {});
       if (emailSent) await deps.db.query(`UPDATE auth_tokens SET delivered = true WHERE token_hash = $1 AND kind = 'invite'`, [sha256(token)]);
     }
     await audit(deps.db, { workspaceId: a.workspaceId, actorId: a.userId, action: 'member.invited', ip: req.ip, meta: { email: body.email, role: body.role, emailSent } });
@@ -248,7 +265,7 @@ export async function workspaceRoutes(app: FastifyInstance, deps: AppDeps) {
       secret: deps.box.derive(`webhook:${a.workspaceId}:${key}`),
       algorithm: 'HMAC-SHA256',
       headers: { signature: 'X-Cortex-Signature', timestamp: 'X-Cortex-Timestamp', event: 'X-Cortex-Event' },
-      signedPayload: '<X-Cortex-Timestamp>.<cuerpo JSON sin modificar>',
+      signedPayload: t('<X-Cortex-Timestamp>.<cuerpo JSON sin modificar>'),
     };
   });
 

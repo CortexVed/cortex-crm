@@ -2,11 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BadgeCheck, Check, Eye, EyeOff, LogOut, MailWarning, Monitor, MonitorSmartphone, ShieldCheck, Smartphone, Tablet } from 'lucide-react';
 import { ApiError, del, errorMessage, get, post } from '../../lib/api';
+import { msg, t, tk, tp, tx } from '../../lib/i18n';
 import { useSession } from '../../lib/session';
 import { formatDate, relativeTime } from '../../lib/format';
 import { useToast } from '../../components/toast';
 import { Alert, Avatar, Badge, Button, Card, ConfirmDialog, cx, EmptyState, ErrorState, Field, Input, Skeleton } from '../../components/ui';
 import { RoleBadge } from './TeamTab';
+import { LanguageCard } from '../../components/LanguageSelect';
 
 interface SessionRow {
   id: string;
@@ -26,9 +28,9 @@ const EMPTY_FORM: PasswordForm = { current: '', next: '', confirm: '' };
 
 // Mismas reglas que el servidor (PasswordSchema): 10+ caracteres y letras combinadas con números o símbolos.
 const PASSWORD_RULES: { label: string; test: (p: string) => boolean }[] = [
-  { label: 'Al menos 10 caracteres', test: (p) => p.length >= 10 },
-  { label: 'Contiene letras', test: (p) => /[A-Za-zÀ-ÿ]/.test(p) },
-  { label: 'Contiene números o símbolos', test: (p) => /[0-9\W_]/.test(p) },
+  { label: msg('Al menos 10 caracteres'), test: (p) => p.length >= 10 },
+  { label: msg('Contiene letras'), test: (p) => /[A-Za-zÀ-ÿ]/.test(p) },
+  { label: msg('Contiene números o símbolos'), test: (p) => /[0-9\W_]/.test(p) },
 ];
 
 /** Errores por campo del servidor: validación zod ({ path, message }[]) o de registros ({ fields }). */
@@ -44,7 +46,7 @@ function serverFieldErrors(e: unknown): Record<string, string> {
 
 /** Descripción legible del dispositivo a partir del user agent ("Chrome en Windows"). */
 function describeAgent(ua: string | null): { label: string; kind: 'mobile' | 'tablet' | 'desktop' | 'unknown' } {
-  if (!ua) return { label: 'Dispositivo desconocido', kind: 'unknown' };
+  if (!ua) return { label: t('Dispositivo desconocido'), kind: 'unknown' };
   const browser = /Edge?\/|EdgA\/|EdgiOS\//.test(ua)
     ? 'Edge'
     : /OPR\/|Opera/.test(ua)
@@ -58,8 +60,8 @@ function describeAgent(ua: string | null): { label: string; kind: 'mobile' | 'ta
             : /Safari\//.test(ua)
               ? 'Safari'
               : /curl|python|node|axios|okhttp|go-http/i.test(ua)
-                ? 'Cliente de API'
-                : 'Navegador';
+                ? t('Cliente de API')
+                : t('Navegador');
   const os = /iPad/.test(ua)
     ? 'iPadOS'
     : /iPhone|iPod/.test(ua)
@@ -76,10 +78,8 @@ function describeAgent(ua: string | null): { label: string; kind: 'mobile' | 'ta
                 ? 'Linux'
                 : '';
   const kind = /iPad|Tablet/.test(ua) || (/Android/.test(ua) && !/Mobile/.test(ua)) ? 'tablet' : /Mobi|iPhone|iPod/.test(ua) ? 'mobile' : 'desktop';
-  return { label: os ? `${browser} en ${os}` : browser, kind };
+  return { label: os ? t('{browser} en {os}', { browser, os }) : browser, kind };
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export default function AccountTab() {
   return (
@@ -88,6 +88,7 @@ export default function AccountTab() {
         <ProfileCard className="lg:col-span-2" />
         <PasswordCard className="lg:col-span-3" />
       </div>
+      <LanguageCard />
       <PlatformSetupCard />
       <SessionsCard />
     </div>
@@ -106,14 +107,14 @@ function PlatformSetupCard() {
     mutationFn: () => post('/auth/platform-admin/claim', { token: token.trim() }),
     onSuccess: async () => {
       setToken('');
-      toast('Ya eres administrador de la plataforma');
+      toast(t('Ya eres administrador de la plataforma'));
       await refresh();
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   if (!me?.features.platformSetupAvailable) return null;
   return (
-    <Card title="Administración de la plataforma" description="Esta instalación todavía no tiene a nadie que la administre.">
+    <Card title={t('Administración de la plataforma')} description={t('Esta instalación todavía no tiene a nadie que la administre.')}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -122,13 +123,16 @@ function PlatformSetupCard() {
         }}
       >
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Si has desplegado tú esta instalación, pega el token de instalación. Lo encontrarás en Railway, en las variables del servicio web, con el nombre <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">PLATFORM_ADMIN_SETUP_TOKEN</code>. Solo funciona una vez: después, la administración se gestiona con la CLI del contenedor.
+          {tx(
+            'Si has desplegado tú esta instalación, pega el token de instalación. Lo encontrarás en Railway, en las variables del servicio web, con el nombre {variable}. Solo funciona una vez: después, la administración se gestiona con la CLI del contenedor.',
+            { variable: <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">PLATFORM_ADMIN_SETUP_TOKEN</code> },
+          )}
         </p>
-        <Field label="Token de instalación">
-          <Input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token" />
+        <Field label={t('Token de instalación')}>
+          <Input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('Pega aquí el token')} />
         </Field>
         <Button type="submit" variant="primary" loading={claim.isPending} disabled={!token.trim()}>
-          Convertirme en administrador de la plataforma
+          {t('Convertirme en administrador de la plataforma')}
         </Button>
       </form>
     </Card>
@@ -142,10 +146,10 @@ function ProfileCard({ className }: { className?: string }) {
     mutationFn: () => post<{ ok: boolean; alreadyVerified?: boolean; emailEnabled?: boolean }>('/auth/verify-email/resend'),
     onSuccess: async (r) => {
       if (r.alreadyVerified) {
-        toast('Tu email ya está verificado');
+        toast(t('Tu email ya está verificado'));
         await refresh();
       } else {
-        toast('Te hemos enviado un nuevo enlace de verificación');
+        toast(t('Te hemos enviado un nuevo enlace de verificación'));
       }
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -153,7 +157,7 @@ function ProfileCard({ className }: { className?: string }) {
   if (!me) return null;
   const u = me.user;
   return (
-    <Card className={className} title="Perfil" description="Datos de tu cuenta de usuario.">
+    <Card className={className} title={t('Perfil')} description={t('Datos de tu cuenta de usuario.')}>
       <div className="flex items-center gap-3">
         <Avatar name={u.name} />
         <div className="min-w-0">
@@ -164,38 +168,38 @@ function ProfileCard({ className }: { className?: string }) {
       <div className="mt-4 flex flex-wrap gap-1.5">
         {u.emailVerified ? (
           <Badge color="emerald">
-            <BadgeCheck className="size-3.5" /> Email verificado
+            <BadgeCheck className="size-3.5" /> {t('Email verificado')}
           </Badge>
         ) : (
           <Badge color="amber">
-            <MailWarning className="size-3.5" /> Email sin verificar
+            <MailWarning className="size-3.5" /> {t('Email sin verificar')}
           </Badge>
         )}
         {u.isPlatformAdmin && (
           <Badge color="fuchsia">
-            <ShieldCheck className="size-3.5" /> Administrador de la plataforma
+            <ShieldCheck className="size-3.5" /> {t('Administrador de la plataforma')}
           </Badge>
         )}
       </div>
       {!u.emailVerified &&
         (me.features.emailEnabled ? (
-          <Alert tone="warning" className="mt-4" title="Verifica tu correo">
-            <p>Así proteges tu cuenta y podrás recuperarla si olvidas la contraseña.</p>
+          <Alert tone="warning" className="mt-4" title={t('Verifica tu correo')}>
+            <p>{t('Así proteges tu cuenta y podrás recuperarla si olvidas la contraseña.')}</p>
             <Button size="sm" className="mt-2.5" loading={resend.isPending} onClick={() => resend.mutate()}>
-              Reenviar enlace de verificación
+              {t('Reenviar enlace de verificación')}
             </Button>
           </Alert>
         ) : (
-          <p className="mt-3 text-xs text-zinc-500">El envío de correo no está configurado en este servidor, así que no es posible enviar el enlace de verificación.</p>
+          <p className="mt-3 text-xs text-zinc-500">{t('El envío de correo no está configurado en este servidor, así que no es posible enviar el enlace de verificación.')}</p>
         ))}
       {me.workspaces.length > 0 && (
         <div className="mt-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tus organizaciones</div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{t('Tus organizaciones')}</div>
           <ul className="space-y-2">
             {me.workspaces.map((w) => (
               <li key={w.id} className="flex items-center gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300">{w.name}</span>
-                {w.id === me.workspace?.id && <span className="text-xs text-zinc-400">Actual</span>}
+                {w.id === me.workspace?.id && <span className="text-xs text-zinc-400">{t('Actual')}</span>}
                 <RoleBadge role={w.role} />
               </li>
             ))}
@@ -220,7 +224,7 @@ function PasswordCard({ className }: { className?: string }) {
       setForm(EMPTY_FORM);
       setErrors({});
       setShow(false);
-      toast('Contraseña actualizada. Hemos cerrado tus sesiones en otros dispositivos.');
+      toast(t('Contraseña actualizada. Hemos cerrado tus sesiones en otros dispositivos.'));
       qc.invalidateQueries({ queryKey: SESSIONS_KEY });
     },
     onError: (e) => {
@@ -242,11 +246,11 @@ function PasswordCard({ className }: { className?: string }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const errs: PasswordErrors = {};
-    if (!form.current) errs.current = 'Introduce tu contraseña actual';
-    if (form.next.length < 10) errs.next = 'La contraseña debe tener al menos 10 caracteres';
-    else if (!PASSWORD_RULES.every((r) => r.test(form.next))) errs.next = 'Combina letras con números o símbolos';
-    else if (form.next === form.current) errs.next = 'La nueva contraseña debe ser distinta de la actual';
-    if (!errs.next && form.confirm !== form.next) errs.confirm = 'Las contraseñas no coinciden';
+    if (!form.current) errs.current = t('Introduce tu contraseña actual');
+    if (form.next.length < 10) errs.next = t('La contraseña debe tener al menos 10 caracteres');
+    else if (!PASSWORD_RULES.every((r) => r.test(form.next))) errs.next = t('Combina letras con números o símbolos');
+    else if (form.next === form.current) errs.next = t('La nueva contraseña debe ser distinta de la actual');
+    if (!errs.next && form.confirm !== form.next) errs.confirm = t('Las contraseñas no coinciden');
     setErrors(errs);
     if (Object.keys(errs).length === 0) change.mutate({ currentPassword: form.current, newPassword: form.next });
   };
@@ -255,42 +259,42 @@ function PasswordCard({ className }: { className?: string }) {
   return (
     <Card
       className={className}
-      title="Cambiar contraseña"
-      description="Al cambiarla se cerrarán tus sesiones en otros dispositivos."
+      title={t('Cambiar contraseña')}
+      description={t('Al cambiarla se cerrarán tus sesiones en otros dispositivos.')}
       actions={
         <Button variant="ghost" size="sm" aria-pressed={show} icon={show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />} onClick={() => setShow((s) => !s)}>
-          {show ? 'Ocultar' : 'Mostrar'}
+          {show ? t('Ocultar') : t('Mostrar')}
         </Button>
       }
     >
       <form onSubmit={submit} className="space-y-4" noValidate>
         {/* Campo oculto para que los gestores de contraseñas asocien el cambio a la cuenta correcta. */}
         <input type="email" name="username" autoComplete="username" value={me?.user.email ?? ''} readOnly hidden />
-        <Field label="Contraseña actual" required error={errors.current}>
+        <Field label={t('Contraseña actual')} required error={errors.current}>
           <Input type={type} autoComplete="current-password" value={form.current} invalid={!!errors.current} maxLength={200} onChange={(e) => set('current', e.target.value)} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nueva contraseña" required error={errors.next}>
+          <Field label={t('Nueva contraseña')} required error={errors.next}>
             <Input type={type} autoComplete="new-password" value={form.next} invalid={!!errors.next} maxLength={200} onChange={(e) => set('next', e.target.value)} />
           </Field>
-          <Field label="Repite la nueva contraseña" required error={errors.confirm}>
+          <Field label={t('Repite la nueva contraseña')} required error={errors.confirm}>
             <Input type={type} autoComplete="new-password" value={form.confirm} invalid={!!errors.confirm} maxLength={200} onChange={(e) => set('confirm', e.target.value)} />
           </Field>
         </div>
-        <ul className="grid gap-1.5 text-xs sm:grid-cols-3" aria-label="Requisitos de la contraseña">
+        <ul className="grid gap-1.5 text-xs sm:grid-cols-3" aria-label={t('Requisitos de la contraseña')}>
           {PASSWORD_RULES.map((r) => {
             const ok = r.test(form.next);
             return (
               <li key={r.label} className={cx('flex items-center gap-1.5', ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500')}>
                 {ok ? <Check className="size-3.5 shrink-0" /> : <span className="mx-1 size-1.5 shrink-0 rounded-full bg-current opacity-60" />}
-                {r.label}
+                {tk(r.label)}
               </li>
             );
           })}
         </ul>
         <div className="flex justify-end border-t border-zinc-100 pt-4 dark:border-zinc-800">
           <Button type="submit" variant="primary" loading={change.isPending}>
-            Actualizar contraseña
+            {t('Actualizar contraseña')}
           </Button>
         </div>
       </form>
@@ -314,7 +318,7 @@ function SessionsCard() {
     mutationFn: (s: SessionRow) => del(`/auth/sessions/${s.id}`),
     onSuccess: () => {
       setRevoking(null);
-      toast('Sesión cerrada en ese dispositivo');
+      toast(t('Sesión cerrada en ese dispositivo'));
       qc.invalidateQueries({ queryKey: SESSIONS_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -324,7 +328,7 @@ function SessionsCard() {
     mutationFn: () => post('/auth/logout-all'),
     onSuccess: () => {
       setConfirmAll(false);
-      toast('Se han cerrado las demás sesiones');
+      toast(t('Se han cerrado las demás sesiones'));
       qc.invalidateQueries({ queryKey: SESSIONS_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -337,12 +341,12 @@ function SessionsCard() {
   return (
     <Card
       padded={false}
-      title="Sesiones activas"
-      description="Dispositivos con tu cuenta abierta. Cierra cualquiera que no reconozcas."
+      title={t('Sesiones activas')}
+      description={t('Dispositivos con tu cuenta abierta. Cierra cualquiera que no reconozcas.')}
       actions={
         <Button size="sm" icon={<LogOut className="size-3.5" />} disabled={!others} onClick={() => setConfirmAll(true)}>
-          <span className="hidden sm:inline">Cerrar las demás sesiones</span>
-          <span className="sm:hidden">Cerrar otras</span>
+          <span className="hidden sm:inline">{t('Cerrar las demás sesiones')}</span>
+          <span className="sm:hidden">{t('Cerrar otras')}</span>
         </Button>
       }
     >
@@ -361,7 +365,7 @@ function SessionsCard() {
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !sessions.length ? (
-        <EmptyState icon={<Monitor className="size-5" />} title="Sin sesiones activas" />
+        <EmptyState icon={<Monitor className="size-5" />} title={t('Sin sesiones activas')} />
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {sessions.map((s) => {
@@ -378,17 +382,17 @@ function SessionsCard() {
                     </span>
                     {s.current && (
                       <Badge color="emerald" dot>
-                        Esta sesión
+                        {t('Esta sesión')}
                       </Badge>
                     )}
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">
-                    <span className="font-mono">{s.ip ?? 'IP desconocida'}</span> · {s.current ? 'Activa ahora' : `Última actividad ${relativeTime(s.lastSeenAt)}`} · Iniciada el {formatDate(s.createdAt, true)}
+                    <span className="font-mono">{s.ip ?? t('IP desconocida')}</span> · {s.current ? t('Activa ahora') : t('Última actividad {when}', { when: relativeTime(s.lastSeenAt) })} · {t('Iniciada el {date}', { date: formatDate(s.createdAt, true) })}
                   </div>
                 </div>
                 {!s.current && (
                   <Button size="sm" variant="ghost" onClick={() => setRevoking(s)}>
-                    Cerrar sesión
+                    {t('Cerrar sesión')}
                   </Button>
                 )}
               </li>
@@ -403,9 +407,13 @@ function SessionsCard() {
         onConfirm={() => revoking && revoke.mutate(revoking)}
         loading={revoke.isPending}
         danger
-        confirmLabel="Cerrar sesión"
-        title="¿Cerrar esta sesión?"
-        description={revoking && revokingAgent ? `Se cerrará la sesión de ${revokingAgent.label}${revoking.ip ? ` (${revoking.ip})` : ''}. Habrá que volver a iniciar sesión en ese dispositivo.` : undefined}
+        confirmLabel={t('Cerrar sesión')}
+        title={t('¿Cerrar esta sesión?')}
+        description={
+          revoking && revokingAgent
+            ? t('Se cerrará la sesión de {device}. Habrá que volver a iniciar sesión en ese dispositivo.', { device: revoking.ip ? `${revokingAgent.label} (${revoking.ip})` : revokingAgent.label })
+            : undefined
+        }
       />
       <ConfirmDialog
         open={confirmAll}
@@ -413,9 +421,9 @@ function SessionsCard() {
         onConfirm={() => logoutOthers.mutate()}
         loading={logoutOthers.isPending}
         danger
-        confirmLabel="Cerrar las demás"
-        title="¿Cerrar las demás sesiones?"
-        description={`Se cerrarán ${plural(others, 'sesión', 'sesiones')} en otros dispositivos. Esta sesión seguirá abierta.`}
+        confirmLabel={t('Cerrar las demás')}
+        title={t('¿Cerrar las demás sesiones?')}
+        description={tp(others, 'Se cerrará {count} sesión en otro dispositivo. Esta sesión seguirá abierta.', 'Se cerrarán {count} sesiones en otros dispositivos. Esta sesión seguirá abierta.')}
       />
     </Card>
   );

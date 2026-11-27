@@ -29,10 +29,11 @@ import { useToast } from '../../components/toast';
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { formatBytes, formatDate, relativeTime } from '../../lib/format';
+import { msg, t, tk, tp, tx } from '../../lib/i18n';
 import { ModuleIcon } from '../../lib/icons';
 import { MODULE_ACCENT } from '../../lib/colors';
 import type { Blueprint } from '../../lib/types';
-import type { Color } from '../../../../shared/constants';
+import { CONFIRM_WORDS, type Color } from '../../../../shared/constants';
 
 type ReleaseKind = 'initial' | 'apply' | 'rollback' | 'restore';
 type ReleaseStatus = 'applied' | 'verified' | 'failed' | 'rolled_back';
@@ -83,43 +84,44 @@ const KEYS = {
   version: (v: number) => ['evolve', 'version', v] as const,
 };
 
-const KIND: Record<ReleaseKind, { label: string; color: Color; icon: LucideIcon; actor: string }> = {
-  initial: { label: 'Versión inicial', color: 'sky', icon: Rocket, actor: 'Creada por' },
-  apply: { label: 'Evolución', color: 'violet', icon: Sparkles, actor: 'Publicada por' },
-  rollback: { label: 'Rollback', color: 'orange', icon: RotateCcw, actor: 'Ejecutado por' },
-  restore: { label: 'Restauración', color: 'blue', icon: History, actor: 'Restaurada por' },
+// `actor` recibe el nombre (un elemento) y devuelve la frase completa, traducida al pintar.
+const KIND: Record<ReleaseKind, { label: string; color: Color; icon: LucideIcon; actor: (name: ReactNode) => ReactNode }> = {
+  initial: { label: msg('Versión inicial'), color: 'sky', icon: Rocket, actor: (name) => tx('Creada por {name}', { name }) },
+  apply: { label: msg('Evolución'), color: 'violet', icon: Sparkles, actor: (name) => tx('Publicada por {name}', { name }) },
+  rollback: { label: msg('Rollback'), color: 'orange', icon: RotateCcw, actor: (name) => tx('Ejecutado por {name}', { name }) },
+  restore: { label: msg('Restauración'), color: 'blue', icon: History, actor: (name) => tx('Restaurada por {name}', { name }) },
 };
 
 const STATUS: Record<ReleaseStatus, { label: string; color: Color; node: string }> = {
-  verified: { label: 'Verificada', color: 'emerald', node: 'bg-emerald-500 text-white' },
-  applied: { label: 'Aplicada', color: 'amber', node: 'bg-amber-500 text-white' },
-  failed: { label: 'Verificación fallida', color: 'red', node: 'bg-red-500 text-white' },
-  rolled_back: { label: 'Revertida', color: 'slate', node: 'bg-zinc-300 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300' },
+  verified: { label: msg('Verificada'), color: 'emerald', node: 'bg-emerald-500 text-white' },
+  applied: { label: msg('Aplicada'), color: 'amber', node: 'bg-amber-500 text-white' },
+  failed: { label: msg('Verificación fallida'), color: 'red', node: 'bg-red-500 text-white' },
+  rolled_back: { label: msg('Revertida'), color: 'slate', node: 'bg-zinc-300 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300' },
 };
 
 const ARTIFACT_ACTION: Record<string, { label: string; color: Color }> = {
-  create: { label: 'Nuevo', color: 'emerald' },
-  update: { label: 'Modificado', color: 'sky' },
-  archive: { label: 'Archivado', color: 'amber' },
-  delete: { label: 'Eliminado', color: 'red' },
+  create: { label: msg('Nuevo'), color: 'emerald' },
+  update: { label: msg('Modificado'), color: 'sky' },
+  archive: { label: msg('Archivado'), color: 'amber' },
+  delete: { label: msg('Eliminado'), color: 'red' },
 };
 
 const VALIDATION_LABELS: Record<string, string> = {
-  issues: 'Avisos de validación',
-  errors: 'Errores de validación',
-  rebased: 'Adaptado a una versión más reciente',
-  backupId: 'Copia de seguridad previa',
-  revertedRecords: 'Registros restaurados',
-  skippedRecords: 'Registros conservados (modificados después del cambio)',
+  issues: msg('Avisos de validación'),
+  errors: msg('Errores de validación'),
+  rebased: msg('Adaptado a una versión más reciente'),
+  backupId: msg('Copia de seguridad previa'),
+  revertedRecords: msg('Registros restaurados'),
+  skippedRecords: msg('Registros conservados (modificados después del cambio)'),
 };
 
 const TRIGGER_LABELS: Record<string, string> = {
-  record_created: 'Al crear un registro',
-  record_updated: 'Al actualizar un registro',
-  field_changed: 'Al cambiar un campo',
-  record_deleted: 'Al eliminar un registro',
-  date_reached: 'Al llegar una fecha',
-  inactivity: 'Por inactividad',
+  record_created: msg('Al crear un registro'),
+  record_updated: msg('Al actualizar un registro'),
+  field_changed: msg('Al cambiar un campo'),
+  record_deleted: msg('Al eliminar un registro'),
+  date_reached: msg('Al llegar una fecha'),
+  inactivity: msg('Por inactividad'),
 };
 
 const ROLLBACKABLE: ReleaseStatus[] = ['verified', 'applied', 'failed'];
@@ -128,14 +130,12 @@ const ROLLBACKABLE: ReleaseStatus[] = ['verified', 'applied', 'failed'];
 const ghostLink =
   'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100';
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-async function copyText(text: string, toast: (m: string, t?: 'success' | 'error' | 'info') => void) {
+async function copyText(text: string, toast: (m: string, tone?: 'success' | 'error' | 'info') => void) {
   try {
     await navigator.clipboard.writeText(text);
-    toast('Copiado al portapapeles');
+    toast(t('Copiado al portapapeles'));
   } catch {
-    toast('No se ha podido copiar al portapapeles', 'error');
+    toast(t('No se ha podido copiar al portapapeles'), 'error');
   }
 }
 
@@ -173,11 +173,11 @@ export default function Releases() {
 
   const rollback = useMutation({
     mutationFn: (v: { id: string; reason: string }) =>
-      post<{ version: number; revertedRecords: number; skippedRecords: number }>(`/evolve/releases/${v.id}/rollback`, { confirmation: 'REVERTIR', reason: v.reason.trim() || undefined }),
+      post<{ version: number; revertedRecords: number; skippedRecords: number }>(`/evolve/releases/${v.id}/rollback`, { confirmation: CONFIRM_WORDS.revert, reason: v.reason.trim() || undefined }),
     onSuccess: (res) => {
-      const parts = [`Cambio revertido: tu CRM está ahora en la v${res.version}`];
-      if (res.revertedRecords) parts.push(plural(res.revertedRecords, 'registro restaurado', 'registros restaurados'));
-      if (res.skippedRecords) parts.push(plural(res.skippedRecords, 'registro conservado por cambios posteriores', 'registros conservados por cambios posteriores'));
+      const parts = [t('Cambio revertido: tu CRM está ahora en la v{version}', { version: res.version })];
+      if (res.revertedRecords) parts.push(tp(res.revertedRecords, '{count} registro restaurado', '{count} registros restaurados'));
+      if (res.skippedRecords) parts.push(tp(res.skippedRecords, '{count} registro conservado por cambios posteriores', '{count} registros conservados por cambios posteriores'));
       toast(parts.join(' · '));
       setRollbackTarget(null);
       refresh();
@@ -186,9 +186,9 @@ export default function Releases() {
   });
 
   const restore = useMutation({
-    mutationFn: (v: number) => post<{ version: number }>(`/evolve/versions/${v}/restore`, { confirmation: 'RESTAURAR' }),
+    mutationFn: (v: number) => post<{ version: number }>(`/evolve/versions/${v}/restore`, { confirmation: CONFIRM_WORDS.restore }),
     onSuccess: (res, v) => {
-      toast(`Configuración de la v${v} restaurada como nueva versión v${res.version}`);
+      toast(t('Configuración de la v{from} restaurada como nueva versión v{version}', { from: v, version: res.version }));
       setRestoreTarget(null);
       refresh();
     },
@@ -203,8 +203,8 @@ export default function Releases() {
             <History className="size-5" />
           </span>
         }
-        title="Cómo ha evolucionado tu CRM"
-        description="Cada cambio publicado queda registrado como una versión, con sus pruebas, su verificación y la posibilidad de revertirlo."
+        title={t('Cómo ha evolucionado tu CRM')}
+        description={t('Cada cambio publicado queda registrado como una versión, con sus pruebas, su verificación y la posibilidad de revertirlo.')}
       />
 
       {q.isLoading ? (
@@ -216,17 +216,17 @@ export default function Releases() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="Versión actual" value={`v${current}`} icon={<Sparkles className="size-3.5 text-fuchsia-500" />} hint={currentRelease ? `Publicada ${relativeTime(currentRelease.created_at)}` : undefined} />
-            <StatTile label="Evoluciones publicadas" value={stats.evolutions} icon={<Rocket className="size-3.5 text-zinc-400" />} hint="Aprobadas y desplegadas" />
-            <StatTile label="Rollbacks y restauraciones" value={stats.reversions} icon={<RotateCcw className="size-3.5 text-zinc-400" />} hint="Vueltas a una versión anterior" />
-            <StatTile label="Pruebas automáticas" value={stats.tests} icon={<FlaskConical className="size-3.5 text-zinc-400" />} hint="Ejecutadas antes de publicar" />
+            <StatTile label={t('Versión actual')} value={`v${current}`} icon={<Sparkles className="size-3.5 text-fuchsia-500" />} hint={currentRelease ? t('Publicada {time}', { time: relativeTime(currentRelease.created_at) }) : undefined} />
+            <StatTile label={t('Evoluciones publicadas')} value={stats.evolutions} icon={<Rocket className="size-3.5 text-zinc-400" />} hint={t('Aprobadas y desplegadas')} />
+            <StatTile label={t('Rollbacks y restauraciones')} value={stats.reversions} icon={<RotateCcw className="size-3.5 text-zinc-400" />} hint={t('Vueltas a una versión anterior')} />
+            <StatTile label={t('Pruebas automáticas')} value={stats.tests} icon={<FlaskConical className="size-3.5 text-zinc-400" />} hint={t('Ejecutadas antes de publicar')} />
           </div>
 
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <section aria-label="Historial de versiones">
+            <section aria-label={t('Historial de versiones')}>
               {items.length === 0 ? (
                 <Card>
-                  <EmptyState icon={<History className="size-5" />} title="Todavía no hay versiones" description="Cuando EVOLVE AI ENGINE publique un cambio aprobado, aparecerá aquí con todo su detalle." />
+                  <EmptyState icon={<History className="size-5" />} title={t('Todavía no hay versiones')} description={t('Cuando EVOLVE AI ENGINE publique un cambio aprobado, aparecerá aquí con todo su detalle.')} />
                 </Card>
               ) : (
                 <ol>
@@ -271,21 +271,22 @@ export default function Releases() {
         open={!!rollbackTarget}
         onClose={() => !rollback.isPending && setRollbackTarget(null)}
         onConfirm={() => rollbackTarget && rollback.mutate({ id: rollbackTarget.id, reason })}
-        title={rollbackTarget ? `Revertir la v${rollbackTarget.to_version}` : 'Revertir versión'}
+        title={rollbackTarget ? t('Revertir la v{version}', { version: rollbackTarget.to_version }) : t('Revertir versión')}
         description={rollbackTarget ? `«${rollbackTarget.title}»` : undefined}
-        confirmLabel="Revertir cambio"
+        confirmLabel={t('Revertir cambio')}
         danger
-        typed="REVERTIR"
+        typed={tk(CONFIRM_WORDS.revert)}
         loading={rollback.isPending}
       >
         {rollbackTarget && (
           <div className="space-y-3">
             <Alert tone="warning">
-              Se publicará una nueva versión v{current + 1} con la configuración de la v{rollbackTarget.from_version}
-              {(rollbackTarget.data_changes_count ?? 0) > 0 ? ' y se desharán sus migraciones de datos (los registros modificados después se conservan).' : '.'}
+              {(rollbackTarget.data_changes_count ?? 0) > 0
+                ? t('Se publicará una nueva versión v{version} con la configuración de la v{from} y se desharán sus migraciones de datos (los registros modificados después se conservan).', { version: current + 1, from: rollbackTarget.from_version })
+                : t('Se publicará una nueva versión v{version} con la configuración de la v{from}.', { version: current + 1, from: rollbackTarget.from_version })}
             </Alert>
-            <Field label="Motivo (opcional)" hint="Quedará registrado en el historial de versiones y en la auditoría.">
-              <Textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej.: el nuevo campo confunde al equipo comercial" />
+            <Field label={t('Motivo (opcional)')} hint={t('Quedará registrado en el historial de versiones y en la auditoría.')}>
+              <Textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('Ej.: el nuevo campo confunde al equipo comercial')} />
             </Field>
           </div>
         )}
@@ -295,14 +296,14 @@ export default function Releases() {
         open={restoreTarget !== null}
         onClose={() => !restore.isPending && setRestoreTarget(null)}
         onConfirm={() => restoreTarget !== null && restore.mutate(restoreTarget)}
-        title={restoreTarget !== null ? `Restaurar la v${restoreTarget}` : 'Restaurar versión'}
-        confirmLabel="Restaurar versión"
-        typed="RESTAURAR"
+        title={restoreTarget !== null ? t('Restaurar la v{version}', { version: restoreTarget }) : t('Restaurar versión')}
+        confirmLabel={t('Restaurar versión')}
+        typed={tk(CONFIRM_WORDS.restore)}
         loading={restore.isPending}
       >
         {restoreTarget !== null && (
           <Alert tone="info">
-            Se creará la versión v{current + 1} con la configuración completa de la v{restoreTarget} (módulos, campos, vistas, automatizaciones y paneles). Los datos de tus registros no se modifican.
+            {t('Se creará la versión v{version} con la configuración completa de la v{from} (módulos, campos, vistas, automatizaciones y paneles). Los datos de tus registros no se modifican.', { version: current + 1, from: restoreTarget })}
           </Alert>
         )}
       </ConfirmDialog>
@@ -312,7 +313,7 @@ export default function Releases() {
 
 function ReleasesSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Cargando versiones">
+    <div className="space-y-5" aria-busy="true" aria-label={t('Cargando versiones')}>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} className="h-[88px] rounded-xl" />
@@ -383,12 +384,12 @@ function ReleaseCard({
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-1.5">
           <VersionChip version={r.to_version} current={isCurrent} />
-          {r.from_version > 0 && <span className="text-xs text-zinc-400">desde v{r.from_version}</span>}
-          <Badge color={kind.color}>{kind.label}</Badge>
+          {r.from_version > 0 && <span className="text-xs text-zinc-400">{t('desde v{version}', { version: r.from_version })}</span>}
+          <Badge color={kind.color}>{tk(kind.label)}</Badge>
           <Badge color={status.color} dot>
-            {status.label}
+            {tk(status.label)}
           </Badge>
-          {isCurrent && <Badge color="fuchsia">Versión actual</Badge>}
+          {isCurrent && <Badge color="fuchsia">{t('Versión actual')}</Badge>}
           <span className="ml-auto text-xs text-zinc-500" title={formatDate(r.created_at, true)}>
             {relativeTime(r.created_at)}
           </span>
@@ -400,12 +401,12 @@ function ReleaseCard({
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
           {showApprover && (
             <span className="inline-flex items-center gap-1">
-              <UserCheck className="size-3.5" /> Aprobada por <span className="font-medium text-zinc-700 dark:text-zinc-300">{r.approved_by_name}</span>
+              <UserCheck className="size-3.5" /> {tx('Aprobada por {name}', { name: <span className="font-medium text-zinc-700 dark:text-zinc-300">{r.approved_by_name}</span> })}
             </span>
           )}
           {r.applied_by_name && (
             <span className="inline-flex items-center gap-1">
-              <Rocket className="size-3.5" /> {kind.actor} <span className="font-medium text-zinc-700 dark:text-zinc-300">{r.applied_by_name}</span>
+              <Rocket className="size-3.5" /> {kind.actor(<span className="font-medium text-zinc-700 dark:text-zinc-300">{r.applied_by_name}</span>)}
             </span>
           )}
           <span className="inline-flex items-center gap-1">
@@ -413,8 +414,10 @@ function ReleaseCard({
           </span>
           {r.rolled_back_at && (
             <span className="inline-flex items-center gap-1 text-orange-700 dark:text-orange-300">
-              <RotateCcw className="size-3.5" /> Revertida el {formatDate(r.rolled_back_at, true)}
-              {r.rolled_back_by_name && <> por {r.rolled_back_by_name}</>}
+              <RotateCcw className="size-3.5" />{' '}
+              {r.rolled_back_by_name
+                ? t('Revertida el {date} por {name}', { date: formatDate(r.rolled_back_at, true), name: r.rolled_back_by_name })
+                : t('Revertida el {date}', { date: formatDate(r.rolled_back_at, true) })}
             </span>
           )}
         </div>
@@ -422,26 +425,26 @@ function ReleaseCard({
 
       <div className="flex flex-wrap items-center gap-1 border-t border-zinc-100 px-2.5 py-2 dark:border-zinc-800">
         <Button size="sm" variant="ghost" aria-expanded={open} icon={<ChevronDown className={cx('size-3.5 transition', open && 'rotate-180')} />} onClick={() => setOpen((o) => !o)}>
-          Detalles
+          {t('Detalles')}
         </Button>
         <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={onViewDefinition}>
-          Ver definición
+          {t('Ver definición')}
         </Button>
         {r.request_id && (
           <Link to={`/evolve/requests/${r.request_id}`} className={ghostLink}>
-            <ArrowUpRight className="size-3.5" /> Ver petición
+            <ArrowUpRight className="size-3.5" /> {t('Ver petición')}
           </Link>
         )}
         {(canRestore || canRollback) && (
           <div className="ml-auto flex flex-wrap items-center gap-2 pl-1">
             {canRestore && (
               <Button size="sm" icon={<History className="size-3.5" />} onClick={onRestore}>
-                Restaurar esta versión
+                {t('Restaurar esta versión')}
               </Button>
             )}
             {canRollback && (
               <Button size="sm" variant="danger" icon={<RotateCcw className="size-3.5" />} onClick={onRollback}>
-                Revertir
+                {t('Revertir')}
               </Button>
             )}
           </div>
@@ -477,13 +480,13 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
     if (key === 'backupId' && typeof value === 'string') {
       return showBackupLink ? (
         <a href={`/api/evolve/backups/${value}/download`} download className="inline-flex items-center gap-1 font-medium text-brand-600 hover:underline dark:text-brand-400">
-          <Download className="size-3.5" /> Descargar
+          <Download className="size-3.5" /> {t('Descargar')}
         </a>
       ) : (
-        'Sí'
+        t('Sí')
       );
     }
-    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    if (typeof value === 'boolean') return value ? t('Sí') : t('No');
     if (typeof value === 'number' || typeof value === 'string') return String(value);
     return JSON.stringify(value);
   };
@@ -491,18 +494,18 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
   return (
     <div className="animate-fade-in rounded-b-xl border-t border-zinc-100 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
       {empty ? (
-        <p className="text-sm text-zinc-500">No hay detalles técnicos registrados para esta versión.</p>
+        <p className="text-sm text-zinc-500">{t('No hay detalles técnicos registrados para esta versión.')}</p>
       ) : (
         <div className="grid gap-5 sm:grid-cols-2">
           {artifacts.length > 0 && (
-            <DetailSection icon={FileCode} title={`Artefactos (${artifacts.length})`}>
+            <DetailSection icon={FileCode} title={t('Artefactos ({count})', { count: artifacts.length })}>
               <ul className="max-h-56 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
                 {artifacts.map((a, i) => {
                   const action = ARTIFACT_ACTION[a.action] ?? { label: a.action, color: 'slate' as Color };
                   return (
                     <li key={`${a.path}-${i}`} className="flex items-center gap-2 text-xs">
                       <Badge color={action.color} className="shrink-0">
-                        {action.label}
+                        {tk(action.label)}
                       </Badge>
                       <code className="min-w-0 truncate font-mono text-zinc-700 dark:text-zinc-300" title={a.path}>
                         {a.path}
@@ -515,12 +518,16 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
           )}
 
           {tests && (
-            <DetailSection icon={FlaskConical} title="Pruebas en sandbox">
+            <DetailSection icon={FlaskConical} title={t('Pruebas en sandbox')}>
               <p className="text-sm">
-                <span className="font-medium">{(tests.total ?? 0) - (tests.failed ?? 0)}</span>
-                <span className="text-zinc-500">/{tests.total} superadas</span>
-                {!!tests.failed && <span className="text-red-600 dark:text-red-400"> · {plural(tests.failed, 'fallida', 'fallidas')}</span>}
-                {!!tests.warnings && <span className="text-amber-600 dark:text-amber-400"> · {plural(tests.warnings, 'aviso', 'avisos')}</span>}
+                {tx('<b>{passed}</b><muted>/{total} superadas</muted>', {
+                  passed: (tests.total ?? 0) - (tests.failed ?? 0),
+                  total: tests.total,
+                  b: (c) => <span className="font-medium">{c}</span>,
+                  muted: (c) => <span className="text-zinc-500">{c}</span>,
+                })}
+                {!!tests.failed && <span className="text-red-600 dark:text-red-400"> · {tp(tests.failed, '{count} fallida', '{count} fallidas')}</span>}
+                {!!tests.warnings && <span className="text-amber-600 dark:text-amber-400"> · {tp(tests.warnings, '{count} aviso', '{count} avisos')}</span>}
               </p>
               {!!tests.suites?.length && (
                 <ul className="mt-2 space-y-1">
@@ -539,11 +546,11 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
           )}
 
           {validation.length > 0 && (
-            <DetailSection icon={ListChecks} title="Validación">
+            <DetailSection icon={ListChecks} title={t('Validación')}>
               <dl className="space-y-1 text-xs">
                 {validation.map(([k, v]) => (
                   <div key={k} className="flex items-baseline justify-between gap-3">
-                    <dt className="text-zinc-500">{VALIDATION_LABELS[k] ?? k}</dt>
+                    <dt className="text-zinc-500">{tk(VALIDATION_LABELS[k] ?? k)}</dt>
                     <dd className="shrink-0 font-medium tabular-nums text-zinc-800 dark:text-zinc-200">{renderValidation(k, v)}</dd>
                   </div>
                 ))}
@@ -552,10 +559,10 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
           )}
 
           {checks.length > 0 && (
-            <DetailSection icon={ShieldCheck} title="Verificación tras publicar">
+            <DetailSection icon={ShieldCheck} title={t('Verificación tras publicar')}>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <Badge color={r.verification?.ok ? 'emerald' : 'red'} dot>
-                  {r.verification?.ok ? 'Todo correcto' : 'Con fallos'}
+                  {r.verification?.ok ? t('Todo correcto') : t('Con fallos')}
                 </Badge>
                 {r.verification?.at && <span className="text-xs text-zinc-500">{formatDate(r.verification.at, true)}</span>}
               </div>
@@ -574,9 +581,11 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
           )}
 
           {showData && (
-            <DetailSection icon={Database} title="Migraciones de datos">
+            <DetailSection icon={Database} title={t('Migraciones de datos')}>
               <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                {dataChanges > 0 ? `${plural(dataChanges, 'migración aplicada', 'migraciones aplicadas')} a registros existentes.` : 'Este cambio no modificó datos de registros.'}
+                {dataChanges > 0
+                  ? tp(dataChanges, '{count} migración aplicada a registros existentes.', '{count} migraciones aplicadas a registros existentes.')
+                  : t('Este cambio no modificó datos de registros.')}
               </p>
             </DetailSection>
           )}
@@ -587,23 +596,23 @@ function ReleaseDetails({ release: r, showBackupLink }: { release: Release; show
 }
 
 function HowItWorks() {
-  const items: { icon: LucideIcon; color: string; title: string; text: string }[] = [
-    { icon: Sparkles, color: 'text-fuchsia-500', title: 'Cada cambio es una versión.', text: 'Solo se publica tras pruebas automáticas y aprobación humana, y se verifica justo después: si la verificación falla, se revierte sola.' },
-    { icon: RotateCcw, color: 'text-orange-500', title: 'Revertir', text: 'deshace la última versión publicada, incluidas sus migraciones de datos. Para administradores.' },
-    { icon: History, color: 'text-sky-500', title: 'Restaurar', text: 'recupera la configuración de cualquier versión anterior como una versión nueva, sin tocar los datos. Solo propietarios.' },
-    { icon: HardDrive, color: 'text-emerald-500', title: 'Copias de seguridad', text: 'automáticas antes de cualquier cambio con migraciones o destructivo.' },
+  // Cada punto es una frase completa: el inicio va en negrita (<b>…</b>).
+  const b = (c: ReactNode) => <span className="font-medium text-zinc-900 dark:text-zinc-100">{c}</span>;
+  const items: { key: string; icon: LucideIcon; color: string; text: ReactNode }[] = [
+    { key: 'version', icon: Sparkles, color: 'text-fuchsia-500', text: tx('<b>Cada cambio es una versión.</b> Solo se publica tras pruebas automáticas y aprobación humana, y se verifica justo después: si la verificación falla, se revierte sola.', { b }) },
+    { key: 'rollback', icon: RotateCcw, color: 'text-orange-500', text: tx('<b>Revertir</b> deshace la última versión publicada, incluidas sus migraciones de datos. Para administradores.', { b }) },
+    { key: 'restore', icon: History, color: 'text-sky-500', text: tx('<b>Restaurar</b> recupera la configuración de cualquier versión anterior como una versión nueva, sin tocar los datos. Solo propietarios.', { b }) },
+    { key: 'backups', icon: HardDrive, color: 'text-emerald-500', text: tx('<b>Copias de seguridad</b> automáticas antes de cualquier cambio con migraciones o destructivo.', { b }) },
   ];
   return (
-    <Card title="Cómo funcionan las versiones">
+    <Card title={t('Cómo funcionan las versiones')}>
       <ul className="space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
         {items.map((it) => {
           const Icon = it.icon;
           return (
-            <li key={it.title} className="flex gap-2.5">
+            <li key={it.key} className="flex gap-2.5">
               <Icon className={cx('mt-0.5 size-4 shrink-0', it.color)} />
-              <span>
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">{it.title}</span> {it.text}
-              </span>
+              <span>{it.text}</span>
             </li>
           );
         })}
@@ -616,7 +625,7 @@ function BackupsCard({ releases }: { releases: Release[] }) {
   const q = useQuery({ queryKey: KEYS.backups, queryFn: () => get<Backup[]>('/evolve/backups') });
   const versionOf = (releaseId: string | null) => (releaseId ? releases.find((r) => r.id === releaseId)?.to_version : undefined);
   return (
-    <Card title="Copias de seguridad" description="Datos afectados por un cambio, guardados antes de publicarlo." padded={false}>
+    <Card title={t('Copias de seguridad')} description={t('Datos afectados por un cambio, guardados antes de publicarlo.')} padded={false}>
       {q.isLoading ? (
         <div className="space-y-3 p-4">
           {[0, 1, 2].map((i) => (
@@ -626,7 +635,7 @@ function BackupsCard({ releases }: { releases: Release[] }) {
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-8" />
       ) : !q.data?.length ? (
-        <EmptyState className="py-8" icon={<HardDrive className="size-5" />} title="Sin copias todavía" description="Se crean automáticamente al publicar cambios con migraciones de datos o destructivos." />
+        <EmptyState className="py-8" icon={<HardDrive className="size-5" />} title={t('Sin copias todavía')} description={t('Se crean automáticamente al publicar cambios con migraciones de datos o destructivos.')} />
       ) : (
         <ul className="max-h-[420px] divide-y divide-zinc-100 overflow-y-auto scrollbar-thin dark:divide-zinc-800">
           {q.data.map((b) => {
@@ -648,8 +657,8 @@ function BackupsCard({ releases }: { releases: Release[] }) {
                 <a
                   href={`/api/evolve/backups/${b.id}/download`}
                   download
-                  aria-label={`Descargar copia: ${b.reason}`}
-                  title="Descargar copia (JSON)"
+                  aria-label={t('Descargar copia: {reason}', { reason: b.reason })}
+                  title={t('Descargar copia (JSON)')}
                   className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                 >
                   <Download className="size-4" />
@@ -677,10 +686,10 @@ function DefinitionModal({ version, current, onClose }: { version: number; curre
       size="xl"
       title={
         <span className="flex flex-wrap items-center gap-2">
-          Definición de la versión <VersionChip version={version} current={current} />
+          {tx('Definición de la versión {version}', { version: <VersionChip version={version} current={current} /> })}
         </span>
       }
-      description={q.data ? `Instantánea completa de la configuración creada el ${formatDate(q.data.createdAt, true)}.` : 'Instantánea completa de la configuración del CRM.'}
+      description={q.data ? t('Instantánea completa de la configuración creada el {date}.', { date: formatDate(q.data.createdAt, true) }) : t('Instantánea completa de la configuración del CRM.')}
     >
       {q.isLoading ? (
         <div className="space-y-3">
@@ -697,7 +706,7 @@ function DefinitionModal({ version, current, onClose }: { version: number; curre
         <div className="space-y-4">
           <Tabs
             tabs={[
-              { key: 'summary', label: 'Resumen' },
+              { key: 'summary', label: t('Resumen') },
               { key: 'json', label: 'JSON' },
             ]}
             value={tab}
@@ -708,7 +717,7 @@ function DefinitionModal({ version, current, onClose }: { version: number; curre
           ) : (
             <div className="relative">
               <Button size="sm" className="absolute right-2 top-2 z-10" icon={<Copy className="size-3.5" />} onClick={() => copyText(json, toast)}>
-                Copiar
+                {t('Copiar')}
               </Button>
               <pre className="max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100 ring-1 ring-zinc-800 scrollbar-thin">{json}</pre>
             </div>
@@ -723,12 +732,12 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
   const activeModules = bp.modules.filter((m) => !m.archived);
   const moduleLabel = (key: string) => bp.modules.find((m) => m.key === key)?.labelPlural ?? key;
   const counters: [string, number][] = [
-    ['Módulos activos', activeModules.length],
-    ['Automatizaciones', bp.automations.length],
-    ['Paneles', bp.dashboards.length],
-    ['Páginas', bp.pages?.length ?? 0],
-    ['Formularios', bp.forms.length],
-    ['Integraciones', bp.integrations.length],
+    [t('Módulos activos'), activeModules.length],
+    [t('Automatizaciones'), bp.automations.length],
+    [t('Paneles'), bp.dashboards.length],
+    [t('Páginas'), bp.pages?.length ?? 0],
+    [t('Formularios'), bp.forms.length],
+    [t('Integraciones'), bp.integrations.length],
   ];
   return (
     <div className="space-y-5">
@@ -742,7 +751,7 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
       </div>
 
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Módulos</h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{t('Módulos')}</h3>
         <ul className="grid gap-2 sm:grid-cols-2">
           {bp.modules.map((m) => {
             const fields = m.fields.filter((f) => !f.archived).length;
@@ -756,10 +765,10 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
                     <div className="truncate text-sm font-medium">{m.labelPlural}</div>
                     <div className="truncate font-mono text-[11px] text-zinc-500">{m.key}</div>
                   </div>
-                  {m.archived && <Badge>Archivado</Badge>}
+                  {m.archived && <Badge>{t('Archivado')}</Badge>}
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">
-                  {plural(fields, 'campo', 'campos')} · {plural(m.views.length, 'vista', 'vistas')}
+                  {tp(fields, '{count} campo', '{count} campos')} · {tp(m.views.length, '{count} vista', '{count} vistas')}
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {m.views.map((v) => (
@@ -775,9 +784,9 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
       </section>
 
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Automatizaciones</h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{t('Automatizaciones')}</h3>
         {bp.automations.length === 0 ? (
-          <p className="text-sm text-zinc-500">Esta versión no tiene automatizaciones.</p>
+          <p className="text-sm text-zinc-500">{t('Esta versión no tiene automatizaciones.')}</p>
         ) : (
           <ul className="divide-y divide-zinc-100 rounded-lg ring-1 ring-inset ring-zinc-200 dark:divide-zinc-800 dark:ring-zinc-800">
             {bp.automations.map((a) => (
@@ -786,11 +795,11 @@ function DefinitionSummary({ blueprint: bp }: { blueprint: Blueprint }) {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{a.name}</div>
                   <div className="truncate text-xs text-zinc-500">
-                    {TRIGGER_LABELS[a.trigger.type] ?? a.trigger.type} · {moduleLabel(a.trigger.module)} · {plural(a.actions.length, 'acción', 'acciones')}
+                    {tk(TRIGGER_LABELS[a.trigger.type] ?? a.trigger.type)} · {moduleLabel(a.trigger.module)} · {tp(a.actions.length, '{count} acción', '{count} acciones')}
                   </div>
                 </div>
                 <Badge color={a.enabled ? 'emerald' : 'slate'} dot className="shrink-0">
-                  {a.enabled ? 'Activa' : 'Pausada'}
+                  {a.enabled ? t('Activa') : t('Pausada')}
                 </Badge>
               </li>
             ))}

@@ -2,6 +2,7 @@ import dns from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
+import { t } from '../i18n';
 
 function ipv4ToInt(ip: string): number {
   return ip.split('.').reduce((acc, o) => (acc << 8) + Number(o), 0) >>> 0;
@@ -33,11 +34,11 @@ function expandIPv6(ip: string): number[] | null {
   }
   const [head, tail] = addr.includes('::') ? addr.split('::') : [addr, null];
   const h = head ? head.split(':').filter(Boolean) : [];
-  const t = tail ? tail.split(':').filter(Boolean) : [];
-  const missing = 8 - h.length - t.length;
+  const tl = tail ? tail.split(':').filter(Boolean) : [];
+  const missing = 8 - h.length - tl.length;
   if (tail === null && h.length !== 8) return null;
   if (missing < 0) return null;
-  const groups = [...h, ...Array(tail === null ? 0 : missing).fill('0'), ...t].map((g) => parseInt(g, 16));
+  const groups = [...h, ...Array(tail === null ? 0 : missing).fill('0'), ...tl].map((g) => parseInt(g, 16));
   return groups.length === 8 && groups.every((g) => Number.isInteger(g) && g >= 0 && g <= 0xffff) ? groups : null;
 }
 
@@ -132,7 +133,7 @@ const guardedLookup: net.LookupFunction = (hostname, options, cb) => {
     if (err) return (cb as any)(err);
     const list = addresses as dns.LookupAddress[];
     const bad = list.find((a) => isPrivateIp(a.address));
-    if (bad || !list.length) return (cb as any)(new SsrfError('Destino privado no permitido'));
+    if (bad || !list.length) return (cb as any)(new SsrfError(t('Destino privado no permitido')));
     if ((options as dns.LookupOptions).all) return (cb as any)(null, list);
     (cb as any)(null, list[0].address, list[0].family);
   });
@@ -149,11 +150,11 @@ export async function safePost(rawUrl: string, body: string, headers: Record<str
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new SsrfError('URL inválida');
+    throw new SsrfError(t('URL inválida'));
   }
-  if (url.protocol !== 'https:' && !(opts.allowHttp && url.protocol === 'http:')) throw new SsrfError('Solo se permiten destinos HTTPS');
-  if (url.username || url.password) throw new SsrfError('La URL no puede incluir credenciales');
-  if (isPrivateHostname(url.hostname)) throw new SsrfError('Destino privado no permitido');
+  if (url.protocol !== 'https:' && !(opts.allowHttp && url.protocol === 'http:')) throw new SsrfError(t('Solo se permiten destinos HTTPS'));
+  if (url.username || url.password) throw new SsrfError(t('La URL no puede incluir credenciales'));
+  if (isPrivateHostname(url.hostname)) throw new SsrfError(t('Destino privado no permitido'));
   return postWithDeadline(url, body, headers, { timeoutMs: opts.timeoutMs, maxBytes: opts.maxBytes, signal: opts.signal, lookup: guardedLookup });
 }
 
@@ -171,7 +172,7 @@ function postWithDeadline(url: URL, body: string, headers: Record<string, string
   const client = url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
     const signal = opts.signal;
-    if (signal?.aborted) return reject(new SafePostError('aborted', 'Envío cancelado'));
+    if (signal?.aborted) return reject(new SafePostError('aborted', t('Envío cancelado')));
     let settled = false;
     let req: http.ClientRequest | undefined;
     let res: http.IncomingMessage | undefined;
@@ -190,8 +191,8 @@ function postWithDeadline(url: URL, body: string, headers: Record<string, string
         resolve(value!);
       }
     };
-    const onAbort = () => settle(new SafePostError('aborted', 'Envío cancelado'));
-    const incomplete = (cause?: unknown) => new SafePostError('incomplete', 'El destino cerró la conexión antes de completar la respuesta', { cause });
+    const onAbort = () => settle(new SafePostError('aborted', t('Envío cancelado')));
+    const incomplete = (cause?: unknown) => new SafePostError('incomplete', t('El destino cerró la conexión antes de completar la respuesta'), { cause });
     // Respuesta demasiado grande: se conserva el código de estado y el principio del cuerpo, y se cortan
     // ambos extremos para no seguir recibiendo datos.
     const truncate = (response: http.IncomingMessage, chunks: Buffer[]) => {
@@ -199,7 +200,7 @@ function postWithDeadline(url: URL, body: string, headers: Record<string, string
       response.destroy();
       req?.destroy();
     };
-    const timer = setTimeout(() => settle(new SafePostError('timeout', `Tiempo de espera agotado (${timeoutMs} ms)`)), timeoutMs);
+    const timer = setTimeout(() => settle(new SafePostError('timeout', t('Tiempo de espera agotado ({ms} ms)', { ms: timeoutMs }))), timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
       req = client.request(
@@ -234,7 +235,7 @@ function postWithDeadline(url: URL, body: string, headers: Record<string, string
     }
     req.on('error', (e) => settle(e));
     req.on('close', () => {
-      if (!res) settle(new SafePostError('incomplete', 'La conexión se cerró sin recibir respuesta'));
+      if (!res) settle(new SafePostError('incomplete', t('La conexión se cerró sin recibir respuesta')));
     });
     req.end(body);
   });

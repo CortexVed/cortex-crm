@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { Activity, ExternalLink, GitCompareArrows, Plug, Route, Sparkles } from 'lucide-react';
 import { Alert, ErrorState, Skeleton } from '../../components/ui';
+import { msg, t, tk, tx } from '../../lib/i18n';
 import { ComparePanel } from './ai/ComparePanel';
 import { ProvidersPanel } from './ai/ProvidersPanel';
 import { RoutingPanel } from './ai/RoutingPanel';
@@ -12,10 +13,10 @@ import type { ProviderState } from './ai/types';
 type Section = 'providers' | 'routing' | 'usage' | 'compare';
 
 const SECTIONS: { key: Section; label: string; icon: ReactNode }[] = [
-  { key: 'providers', label: 'Proveedores', icon: <Plug className="size-4" /> },
-  { key: 'routing', label: 'Enrutado y límites', icon: <Route className="size-4" /> },
-  { key: 'usage', label: 'Consumo', icon: <Activity className="size-4" /> },
-  { key: 'compare', label: 'Comparar modelos', icon: <GitCompareArrows className="size-4" /> },
+  { key: 'providers', label: msg('Proveedores'), icon: <Plug className="size-4" /> },
+  { key: 'routing', label: msg('Enrutado y límites'), icon: <Route className="size-4" /> },
+  { key: 'usage', label: msg('Consumo'), icon: <Activity className="size-4" /> },
+  { key: 'compare', label: msg('Comparar modelos'), icon: <GitCompareArrows className="size-4" /> },
 ];
 
 function Onboarding({ providers }: { providers: ProviderState[] }) {
@@ -24,15 +25,17 @@ function Onboarding({ providers }: { providers: ProviderState[] }) {
   const core = real.filter((p) => p.tier === 'core' && p.docsUrl);
   if (real.some((p) => p.configured)) {
     return (
-      <Alert tone="warning" title="EVOLVE AI no tiene ningún proveedor listo">
-        Hay API keys guardadas, pero ningún proveedor está activo con un modelo por defecto. Activa uno y elige su modelo para que el asistente y el motor de evolución puedan trabajar.
+      <Alert tone="warning" title={t('EVOLVE AI no tiene ningún proveedor listo')}>
+        {t('Hay API keys guardadas, pero ningún proveedor está activo con un modelo por defecto. Activa uno y elige su modelo para que el asistente y el motor de evolución puedan trabajar.')}
       </Alert>
     );
   }
   return (
-    <Alert tone="warning" title="EVOLVE AI necesita al menos una API key">
+    <Alert tone="warning" title={t('EVOLVE AI necesita al menos una API key')}>
       <p>
-        El asistente, el análisis del CRM y el motor de evolución usan modelos de IA con las claves de tu organización. Añade la API key de cualquiera de estos proveedores (con <strong>OpenRouter</strong> una sola clave da acceso a cientos de modelos):
+        {tx('El asistente, el análisis del CRM y el motor de evolución usan modelos de IA con las claves de tu organización. Añade la API key de cualquiera de estos proveedores (con <b>OpenRouter</b> una sola clave da acceso a cientos de modelos):', {
+          b: (c) => <strong>{c}</strong>,
+        })}
       </p>
       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
         {core.map((p) => (
@@ -78,10 +81,11 @@ export default function AiTab() {
             </span>
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wider">
+                {/* i18n-ignore: nombre propio del módulo de EVOLVE, como «EVOLVE AI ENGINE» */}
                 <span className="evolve-text">AI Provider Manager</span>
               </div>
-              <h2 className="text-base font-semibold tracking-tight">Proveedores y modelos de IA</h2>
-              <p className="mt-0.5 max-w-2xl text-sm text-zinc-500">Conecta Claude, OpenAI, DeepSeek u OpenRouter con tus propias claves, decide qué modelo resuelve cada tarea y controla el gasto. EVOLVE cambia de proveedor automáticamente si uno falla.</p>
+              <h2 className="text-base font-semibold tracking-tight">{t('Proveedores y modelos de IA')}</h2>
+              <p className="mt-0.5 max-w-2xl text-sm text-zinc-500">{t('Conecta Claude, OpenAI, DeepSeek u OpenRouter con tus propias claves, decide qué modelo resuelve cada tarea y controla el gasto. EVOLVE cambia de proveedor automáticamente si uno falla.')}</p>
             </div>
           </div>
           {q.data && (
@@ -90,7 +94,7 @@ export default function AiTab() {
                 {ready}
                 <span className="text-sm font-normal text-zinc-400"> / {total}</span>
               </div>
-              <div className="text-[11px] text-zinc-500">proveedores listos</div>
+              <div className="text-[11px] text-zinc-500">{t('proveedores listos')}</div>
             </div>
           )}
         </div>
@@ -98,7 +102,7 @@ export default function AiTab() {
 
       {q.data && <Onboarding providers={providers} />}
 
-      <Segmented options={SECTIONS} value={section} onChange={go} />
+      <Segmented options={SECTIONS.map((s) => ({ ...s, label: tk(s.label) }))} value={section} onChange={go} />
 
       {q.isLoading ? (
         <div className="grid gap-4 lg:grid-cols-2">

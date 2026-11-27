@@ -46,11 +46,11 @@ export const DEFAULT_PALETTE: Record<Shade, string> = {
 export const DEFAULT_GRADIENT = 'linear-gradient(120deg, #7a5af8 0%, #c026d3 55%, #f97316 100%)';
 
 export const FONT_STACKS: Record<AppearanceFont, string> = {
-  inter: "'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  system: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-  serif: "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
+  inter: "'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, 'Noto Sans JP', sans-serif",
+  system: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, 'Noto Sans JP', sans-serif",
+  serif: "ui-serif, Georgia, Cambria, 'Times New Roman', Times, 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif",
   mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  rounded: "ui-rounded, 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Quicksand, Comfortaa, Manjari, 'Arial Rounded MT', 'Arial Rounded MT Bold', Calibri, sans-serif",
+  rounded: "ui-rounded, 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Quicksand, Comfortaa, Manjari, 'Arial Rounded MT', 'Arial Rounded MT Bold', Calibri, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, 'Noto Sans JP', sans-serif",
 };
 
 /** Radios de Tailwind v4 (rem) y factor de cada opción. `rounded-full` no cambia. */

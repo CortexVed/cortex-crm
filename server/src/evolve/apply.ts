@@ -1,6 +1,7 @@
 import { BlueprintSchema, type Blueprint } from '../../../shared/blueprint';
 import type { Operation } from '../../../shared/changeset';
 import type { Issue } from './validate';
+import { t, tk } from '../i18n';
 
 /** Cambios de tipo que preservan los datos existentes (el resto se rechaza). */
 export const COMPATIBLE_TYPE_CHANGES: Record<string, string[]> = {
@@ -35,13 +36,13 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
     const fail = (message: string) => errors.push({ level: 'error', path, message });
     const mod = 'module' in op && typeof op.module === 'string' ? bp.modules.find((m) => m.key === op.module) : undefined;
     const needModule = () => {
-      if (!mod) fail(`No existe el módulo "${(op as { module: string }).module}"`);
+      if (!mod) fail(t('No existe el módulo "{module}"', { module: (op as { module: string }).module }));
       return mod;
     };
 
     switch (op.op) {
       case 'create_module': {
-        if (bp.modules.some((m) => m.key === op.module.key)) fail(`Ya existe un módulo "${op.module.key}"`);
+        if (bp.modules.some((m) => m.key === op.module.key)) fail(t('Ya existe un módulo "{module}"', { module: op.module.key }));
         else bp.modules.push(structuredClone({ ...op.module, system: false, archived: false }));
         break;
       }
@@ -70,7 +71,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         if (!m) break;
         const existing = m.fields.find((f) => f.key === op.field.key);
         if (existing) {
-          fail(existing.archived ? `El campo "${op.field.key}" existe archivado: usa restore_field` : `Ya existe el campo "${op.field.key}"`);
+          fail(existing.archived ? t('El campo "{field}" existe archivado: usa restore_field', { field: op.field.key }) : t('Ya existe el campo "{field}"', { field: op.field.key }));
           break;
         }
         const field = structuredClone({ ...op.field, system: false, archived: false });
@@ -84,17 +85,17 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         const f = m?.fields.find((x) => x.key === op.field);
         if (!m) break;
         if (!f) {
-          fail(`No existe el campo "${op.module}.${op.field}"`);
+          fail(t('No existe el campo "{module}.{field}"', { module: op.module, field: op.field }));
           break;
         }
         const changes = defined(op.changes);
         if (changes.type && changes.type !== f.type) {
           if (f.system) {
-            fail(`No se puede cambiar el tipo del campo de sistema "${f.key}"`);
+            fail(t('No se puede cambiar el tipo del campo de sistema "{field}"', { field: f.key }));
             break;
           }
           if (!COMPATIBLE_TYPE_CHANGES[f.type]?.includes(changes.type)) {
-            fail(`Cambio de tipo no compatible (${f.type} → ${changes.type}): crea un campo nuevo y migra los datos`);
+            fail(t('Cambio de tipo no compatible ({from} → {to}): crea un campo nuevo y migra los datos', { from: f.type, to: changes.type }));
             break;
           }
         }
@@ -105,22 +106,22 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         const m = needModule();
         const f = m?.fields.find((x) => x.key === op.field);
         if (!m) break;
-        if (!f) fail(`No existe el campo "${op.module}.${op.field}"`);
-        else if (f.system || m.primaryField === f.key) fail(`El campo "${f.key}" es esencial y no se puede archivar`);
+        if (!f) fail(t('No existe el campo "{module}.{field}"', { module: op.module, field: op.field }));
+        else if (f.system || m.primaryField === f.key) fail(t('El campo "{field}" es esencial y no se puede archivar', { field: f.key }));
         else f.archived = true;
         break;
       }
       case 'restore_field': {
         const f = needModule()?.fields.find((x) => x.key === op.field);
         if (f) f.archived = false;
-        else if (mod) fail(`No existe el campo "${op.module}.${op.field}"`);
+        else if (mod) fail(t('No existe el campo "{module}.{field}"', { module: op.module, field: op.field }));
         break;
       }
       case 'add_select_options': {
         const f = needModule()?.fields.find((x) => x.key === op.field);
         if (!mod) break;
         if (!f || (f.type !== 'select' && f.type !== 'multi_select')) {
-          fail(`"${op.module}.${op.field}" no es un campo de selección`);
+          fail(t('"{module}.{field}" no es un campo de selección', { module: op.module, field: op.field }));
           break;
         }
         f.options ??= [];
@@ -138,8 +139,8 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
       case 'remove_view': {
         const m = needModule();
         if (!m) break;
-        if (!m.views.some((v) => v.key === op.view)) fail(`No existe la vista "${op.view}"`);
-        else if (m.views.length === 1) fail('Un módulo necesita al menos una vista');
+        if (!m.views.some((v) => v.key === op.view)) fail(t('No existe la vista "{view}"', { view: op.view }));
+        else if (m.views.length === 1) fail(t('Un módulo necesita al menos una vista'));
         else m.views = m.views.filter((v) => v.key !== op.view);
         break;
       }
@@ -150,7 +151,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         break;
       }
       case 'remove_automation': {
-        if (!bp.automations.some((a) => a.key === op.automation)) fail(`No existe la automatización "${op.automation}"`);
+        if (!bp.automations.some((a) => a.key === op.automation)) fail(t('No existe la automatización "{automation}"', { automation: op.automation }));
         bp.automations = bp.automations.filter((a) => a.key !== op.automation);
         break;
       }
@@ -161,7 +162,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         break;
       }
       case 'remove_dashboard': {
-        if (!bp.dashboards.some((d) => d.key === op.dashboard)) fail(`No existe el panel "${op.dashboard}"`);
+        if (!bp.dashboards.some((d) => d.key === op.dashboard)) fail(t('No existe el panel "{dashboard}"', { dashboard: op.dashboard }));
         bp.dashboards = bp.dashboards.filter((d) => d.key !== op.dashboard);
         break;
       }
@@ -172,7 +173,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         break;
       }
       case 'remove_integration': {
-        if (!bp.integrations.some((x) => x.key === op.integration)) fail(`No existe la integración "${op.integration}"`);
+        if (!bp.integrations.some((x) => x.key === op.integration)) fail(t('No existe la integración "{integration}"', { integration: op.integration }));
         bp.integrations = bp.integrations.filter((x) => x.key !== op.integration);
         break;
       }
@@ -183,7 +184,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         break;
       }
       case 'remove_form': {
-        if (!bp.forms.some((x) => x.key === op.form)) fail(`No existe el formulario "${op.form}"`);
+        if (!bp.forms.some((x) => x.key === op.form)) fail(t('No existe el formulario "{form}"', { form: op.form }));
         bp.forms = bp.forms.filter((x) => x.key !== op.form);
         break;
       }
@@ -196,7 +197,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
       }
       case 'remove_script': {
         const scripts = (bp.scripts ??= []);
-        if (!scripts.some((x) => x.key === op.script)) fail(`No existe el script "${op.script}"`);
+        if (!scripts.some((x) => x.key === op.script)) fail(t('No existe el script "{script}"', { script: op.script }));
         bp.scripts = scripts.filter((x) => x.key !== op.script);
         break;
       }
@@ -205,7 +206,7 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
         // rellena BlueprintSchema al normalizar el resultado.
         const changes = Object.entries(op.changes).filter(([, v]) => v !== undefined);
         if (!changes.length) {
-          fail('update_appearance no indica ningún cambio');
+          fail(t('update_appearance no indica ningún cambio'));
           break;
         }
         const next: Record<string, unknown> = { ...(bp.appearance ?? {}) };
@@ -231,14 +232,14 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
       }
       case 'remove_page': {
         const pages = (bp.pages ??= []);
-        if (!pages.some((p) => p.key === op.page)) fail(`No existe la página "${op.page}"`);
+        if (!pages.some((p) => p.key === op.page)) fail(t('No existe la página "{page}"', { page: op.page }));
         bp.pages = pages.filter((p) => p.key !== op.page);
         break;
       }
       case 'backfill_field': {
         const f = needModule()?.fields.find((x) => x.key === op.field);
         if (mod && (!f || f.archived || f.type === 'formula' || f.type === 'file')) {
-          fail(`No se puede rellenar el campo "${op.module}.${op.field}"`);
+          fail(t('No se puede rellenar el campo "{module}.{field}"', { module: op.module, field: op.field }));
         }
         break;
       }
@@ -247,8 +248,9 @@ export function applyOperations(input: Blueprint, ops: Operation[]): { blueprint
 
   const parsed = BlueprintSchema.safeParse(bp);
   if (!parsed.success) {
+    // Los mensajes propios del esquema son claves del catálogo (msg); los de zod ya llegan traducidos.
     for (const issue of parsed.error.issues.slice(0, 20)) {
-      errors.push({ level: 'error', path: issue.path.join('.'), message: issue.message });
+      errors.push({ level: 'error', path: issue.path.join('.'), message: tk(issue.message) });
     }
     return { blueprint: bp, errors };
   }

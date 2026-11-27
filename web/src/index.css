@@ -3,7 +3,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Las fuentes japonesas del sistema solo se usan para los caracteres que Inter no tiene (interfaz en japonés). */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, 'Noto Sans JP', sans-serif;
   --color-brand-50: #f4f3ff;
   --color-brand-100: #ebe9fe;
   --color-brand-200: #d9d6fe;

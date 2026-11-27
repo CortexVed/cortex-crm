@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ProviderError, type ChatRequest, type ChatResponse, type Credentials, type ModelInfo, type ProviderAdapter, type ToolCall } from '../types';
+import { t } from '../../i18n';
 
 /** Modelos que aceptan output_config.effort. */
 export function supportsEffort(model: string): boolean {
@@ -56,15 +57,15 @@ function toAnthropicMessages(req: ChatRequest): any[] {
 function mapError(e: unknown): ProviderError {
   if (e instanceof ProviderError) return e;
   if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
-    return new ProviderError('auth', 'Anthropic rechazó la API key (revisa que sea válida y tenga permisos)', false, (e as any).status);
+    return new ProviderError('auth', t('Anthropic rechazó la API key (revisa que sea válida y tenga permisos)'), false, (e as any).status);
   }
-  if (e instanceof Anthropic.RateLimitError) return new ProviderError('rate_limit', 'Límite de peticiones de Anthropic alcanzado', true, 429);
-  if (e instanceof Anthropic.NotFoundError) return new ProviderError('invalid_request', `Modelo o recurso no encontrado en Anthropic: ${e.message}`, false, 404);
-  if (e instanceof Anthropic.BadRequestError) return new ProviderError('invalid_request', `Petición rechazada por Anthropic: ${e.message}`, false, 400);
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return new ProviderError('timeout', 'Tiempo de espera agotado con Anthropic', true);
-  if (e instanceof Anthropic.APIConnectionError) return new ProviderError('unavailable', 'No se pudo conectar con Anthropic', true);
-  if (e instanceof Anthropic.APIError) return new ProviderError('unavailable', `Error de Anthropic (${e.status ?? '?'}): ${e.message}`, true, e.status ?? undefined);
-  return new ProviderError('unavailable', (e as Error)?.message ?? 'Error desconocido', true);
+  if (e instanceof Anthropic.RateLimitError) return new ProviderError('rate_limit', t('Límite de peticiones de Anthropic alcanzado'), true, 429);
+  if (e instanceof Anthropic.NotFoundError) return new ProviderError('invalid_request', t('Modelo o recurso no encontrado en Anthropic: {message}', { message: e.message }), false, 404);
+  if (e instanceof Anthropic.BadRequestError) return new ProviderError('invalid_request', t('Petición rechazada por Anthropic: {message}', { message: e.message }), false, 400);
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return new ProviderError('timeout', t('Tiempo de espera agotado con Anthropic'), true);
+  if (e instanceof Anthropic.APIConnectionError) return new ProviderError('unavailable', t('No se pudo conectar con Anthropic'), true);
+  if (e instanceof Anthropic.APIError) return new ProviderError('unavailable', t('Error de Anthropic ({status}): {message}', { status: e.status ?? '?', message: e.message }), true, e.status ?? undefined);
+  return new ProviderError('unavailable', (e as Error)?.message ?? t('Error desconocido'), true);
 }
 
 export const anthropicAdapter: ProviderAdapter = {
@@ -78,7 +79,7 @@ export const anthropicAdapter: ProviderAdapter = {
     };
     if (req.system) params.system = req.system;
     if (req.tools?.length) {
-      params.tools = req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema, eager_input_streaming: true }));
+      params.tools = req.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema, eager_input_streaming: true }));
     }
     if (req.effort && supportsEffort(req.model)) params.output_config = { effort: anthropicEffort(req.model, req.effort) };
     if (supportsServerFallback(req.model)) {
@@ -92,7 +93,7 @@ export const anthropicAdapter: ProviderAdapter = {
       const stream = client.beta.messages.stream(params as any, { signal: req.signal });
       const msg: any = await stream.finalMessage();
       if (msg.stop_reason === 'refusal') {
-        throw new ProviderError('refusal', `El modelo declinó la petición${msg.stop_details?.category ? ` (${msg.stop_details.category})` : ''}`, true);
+        throw new ProviderError('refusal', msg.stop_details?.category ? t('El modelo declinó la petición ({category})', { category: msg.stop_details.category }) : t('El modelo declinó la petición'), true);
       }
       let text = '';
       const toolCalls: ToolCall[] = [];
@@ -123,7 +124,7 @@ export const anthropicAdapter: ProviderAdapter = {
   },
 
   async listModels(cred): Promise<ModelInfo[]> {
-    if (!cred.apiKey) throw new ProviderError('not_configured', 'Configura la API key de Anthropic para listar modelos', false);
+    if (!cred.apiKey) throw new ProviderError('not_configured', t('Configura la API key de Anthropic para listar modelos'), false);
     const client = new Anthropic({ apiKey: cred.apiKey, baseURL: cred.baseUrl || undefined, maxRetries: 1, timeout: 30_000 });
     try {
       const out: ModelInfo[] = [];

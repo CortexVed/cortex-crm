@@ -16,6 +16,8 @@
  *   que usa una base vacía).
  */
 
+import { t } from '../i18n';
+
 export const MIGRATIONS_PATH = 'server/src/db/migrations.ts';
 
 export interface MigrationIssue {
@@ -81,13 +83,13 @@ function splitStatements(sql: string): string[] | { error: string } {
       inStr = true;
       cur += c;
     } else if (c === '"') {
-      return { error: 'no se admiten identificadores entre comillas dobles' };
+      return { error: t('no se admiten identificadores entre comillas dobles') };
     } else if (c === '-' && sql[i + 1] === '-') {
       while (i < sql.length && sql[i] !== '\n') i++;
       cur += ' ';
     } else if (c === '/' && sql[i + 1] === '*') {
       const end = sql.indexOf('*/', i + 2);
-      if (end < 0) return { error: 'comentario /* sin cerrar' };
+      if (end < 0) return { error: t('comentario /* sin cerrar') };
       i = end + 1;
       cur += ' ';
     } else if (c === ';') {
@@ -97,7 +99,7 @@ function splitStatements(sql: string): string[] | { error: string } {
       cur += c;
     }
   }
-  if (inStr) return { error: 'cadena sin cerrar' };
+  if (inStr) return { error: t('cadena sin cerrar') };
   if (cur.trim()) out.push(cur.trim());
   return out;
 }
@@ -136,8 +138,8 @@ function analyzeSql(id: string, sql: string, existing: Set<string>, report: Migr
   const fail = (message: string) => report.violations.push({ migration: id, message: `${id}: ${message}` });
   const warn = (message: string) => report.warnings.push({ migration: id, message: `${id}: ${message}` });
   const split = splitStatements(sql);
-  if (!Array.isArray(split)) return fail(`SQL no válido (${split.error})`);
-  if (!split.length) return fail('la migración está vacía');
+  if (!Array.isArray(split)) return fail(t('SQL no válido ({error})', { error: split.error }));
+  if (!split.length) return fail(t('la migración está vacía'));
 
   const statements: Statement[] = [];
   const created = new Map<string, boolean>(); // tabla nueva → ¿tiene workspace_id?
@@ -151,12 +153,12 @@ function analyzeSql(id: string, sql: string, existing: Set<string>, report: Migr
     if ((m = noStrings.match(new RegExp(`^CREATE TABLE IF NOT EXISTS (${IDENT}) \\(`)))) {
       const table = m[1].toLowerCase();
       if (existing.has(table) || created.has(table)) {
-        fail(`la tabla ${table} ya existe: no se puede redefinir`);
+        fail(t('la tabla {table} ya existe: no se puede redefinir', { table }));
         continue;
       }
       const body = wholeParenBody(noStrings, m[0].length - 1);
       if (body === null) {
-        fail(`solo se admite CREATE TABLE IF NOT EXISTS ${table} (columnas…), sin nada detrás (sin INHERITS, PARTITION ni AS)`);
+        fail(t('solo se admite CREATE TABLE IF NOT EXISTS {table} (columnas…), sin nada detrás (sin INHERITS, PARTITION ni AS)', { table }));
         continue;
       }
       const columns = splitTopLevel(body);
@@ -164,14 +166,14 @@ function analyzeSql(id: string, sql: string, existing: Set<string>, report: Migr
       st = { kind: 'create_table', table, text: noStrings };
     } else if ((m = noStrings.match(new RegExp(`^CREATE (UNIQUE )?INDEX (?:IF NOT EXISTS )?${IDENT} ON (${IDENT}) (?:USING ${IDENT} ?)?\\(`)))) {
       const table = m[2].toLowerCase();
-      if (m[1] && !created.has(table)) warn(`índice único sobre la tabla existente ${table}: fallará si los datos reales tienen duplicados (el CI usa una base vacía)`);
-      if (!created.has(table) && ['records', 'record_history', 'audit_log', 'llm_usage', 'files'].includes(table)) warn(`crear un índice sobre ${table} bloquea sus escrituras mientras se construye`);
+      if (m[1] && !created.has(table)) warn(t('índice único sobre la tabla existente {table}: fallará si los datos reales tienen duplicados (el CI usa una base vacía)', { table }));
+      if (!created.has(table) && ['records', 'record_history', 'audit_log', 'llm_usage', 'files'].includes(table)) warn(t('crear un índice sobre {table} bloquea sus escrituras mientras se construye', { table }));
       st = { kind: 'create_index', table, text: noStrings };
     } else if ((m = noStrings.match(new RegExp(`^ALTER TABLE (?:IF EXISTS )?(${IDENT}) (ADD COLUMN .*)$`)))) {
       const table = m[1].toLowerCase();
       for (const clause of splitTopLevel(m[2])) {
-        if (!/^ADD COLUMN /.test(clause)) fail(`ALTER TABLE solo puede añadir columnas (${clause.slice(0, 60)})`);
-        else if (/\bNOT NULL\b/.test(clause) && !/\bDEFAULT\b/.test(clause) && !created.has(table)) fail(`la columna nueva «${clause.slice(11, 60)}» es NOT NULL sin DEFAULT: fallaría con los datos existentes`);
+        if (!/^ADD COLUMN /.test(clause)) fail(t('ALTER TABLE solo puede añadir columnas ({clause})', { clause: clause.slice(0, 60) }));
+        else if (/\bNOT NULL\b/.test(clause) && !/\bDEFAULT\b/.test(clause) && !created.has(table)) fail(t('la columna nueva «{column}» es NOT NULL sin DEFAULT: fallaría con los datos existentes', { column: clause.slice(11, 60) }));
       }
       st = { kind: 'add_column', table, text: noStrings };
     } else if ((m = noStrings.match(new RegExp(`^ALTER TABLE (${IDENT}) (?:ENABLE|FORCE) ROW LEVEL SECURITY$`)))) {
@@ -183,25 +185,25 @@ function analyzeSql(id: string, sql: string, existing: Set<string>, report: Migr
     } else if ((m = noStrings.match(new RegExp(`^COMMENT ON (?:TABLE|COLUMN) (${IDENT})(?:\\.${IDENT})? IS ''$`)))) {
       st = { kind: 'comment', table: m[1].toLowerCase(), text: '' };
     } else {
-      fail(`sentencia no permitida en una migración: «${short}»`);
+      fail(t('sentencia no permitida en una migración: «{statement}»', { statement: short }));
       continue;
     }
     if (st.table.startsWith('pg_') || st.table === 'schema_migrations') {
-      fail(`no se puede tocar ${st.table}`);
+      fail(t('no se puede tocar {table}', { table: st.table }));
       continue;
     }
     // Palabras prohibidas (fuera de cadenas), tras quitar las acciones de las claves foráneas.
     const scan = st.text.replace(/\bON (?:DELETE|UPDATE) (?:CASCADE|SET NULL|SET DEFAULT|RESTRICT|NO ACTION)\b/g, ' ');
     const deny = scan.match(DENY);
     if (deny) {
-      fail(`${deny[1]} no está permitido («${short}»)`);
+      fail(t('{keyword} no está permitido («{statement}»)', { keyword: deny[1], statement: short }));
       continue;
     }
     // Solo funciones de una lista corta (o el nombre de una tabla seguido de su lista de columnas).
     for (const call of scan.matchAll(new RegExp(`(${IDENT})\\s*\\(`, 'g'))) {
       const name = call[1];
       if (ALLOWED_CALLS.has(name) || name.toLowerCase() === st.table || existing.has(name.toLowerCase()) || created.has(name.toLowerCase())) continue;
-      fail(`función no permitida en una migración: ${name.toLowerCase()}()`);
+      fail(t('función no permitida en una migración: {name}()', { name: name.toLowerCase() }));
     }
     statements.push(st);
   }
@@ -210,15 +212,15 @@ function analyzeSql(id: string, sql: string, existing: Set<string>, report: Migr
   // tienen workspace_id (tablas de organización).
   for (const st of statements) {
     if ((st.kind === 'rls' || st.kind === 'policy' || st.kind === 'grant') && !created.has(st.table)) {
-      fail(`${st.kind === 'grant' ? 'GRANT' : st.kind === 'policy' ? 'CREATE POLICY' : 'Row Level Security'} solo se permite sobre tablas creadas en la misma migración (${st.table})`);
+      fail(t('{statement} solo se permite sobre tablas creadas en la misma migración ({table})', { statement: st.kind === 'grant' ? 'GRANT' : st.kind === 'policy' ? 'CREATE POLICY' : 'Row Level Security', table: st.table }));
     }
-    if (st.kind === 'grant' && created.get(st.table) === false) fail(`la tabla de plataforma ${st.table} no puede dar permisos a evolve_tenant (solo las que tienen workspace_id)`);
+    if (st.kind === 'grant' && created.get(st.table) === false) fail(t('la tabla de plataforma {table} no puede dar permisos a evolve_tenant (solo las que tienen workspace_id)', { table: st.table }));
   }
   for (const [table, tenant] of created) {
     if (!tenant) continue;
     const has = (kind: Statement['kind']) => statements.some((s) => s.kind === kind && s.table === table);
     if (!has('rls') || !has('policy') || !has('grant')) {
-      fail(`la tabla de organización ${table} (con workspace_id) necesita en la misma migración: ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON ${table} USING (workspace_id = app_current_workspace()) WITH CHECK (workspace_id = app_current_workspace()); GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO evolve_tenant`);
+      fail(t('la tabla de organización {table} (con workspace_id) necesita en la misma migración: ALTER TABLE {table} ENABLE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON {table} USING (workspace_id = app_current_workspace()) WITH CHECK (workspace_id = app_current_workspace()); GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO evolve_tenant', { table }));
     }
   }
 }
@@ -229,13 +231,13 @@ export function checkMigrationsChange(before: string, after: string): MigrationR
   const marker = before.indexOf('export const MIGRATIONS');
   const close = marker < 0 ? -1 : before.indexOf('\n];', marker);
   if (close < 0) {
-    report.violations.push({ message: 'No se encuentra la lista MIGRATIONS en la base: migrations.ts no se puede modificar' });
+    report.violations.push({ message: t('No se encuentra la lista MIGRATIONS en la base: migrations.ts no se puede modificar') });
     return report;
   }
   const head = before.slice(0, close + 1);
   const tail = before.slice(close + 1);
   if (after.length < head.length + tail.length || !after.startsWith(head) || !after.endsWith(tail)) {
-    report.violations.push({ message: 'Las migraciones existentes son inmutables: solo se pueden añadir entradas nuevas al final de MIGRATIONS (nada antes ni después puede cambiar, tampoco TENANT_TABLES)' });
+    report.violations.push({ message: t('Las migraciones existentes son inmutables: solo se pueden añadir entradas nuevas al final de MIGRATIONS (nada antes ni después puede cambiar, tampoco TENANT_TABLES)') });
     return report;
   }
   const inserted = after.slice(head.length, after.length - tail.length);
@@ -252,18 +254,18 @@ export function checkMigrationsChange(before: string, after: string): MigrationR
     }
     const m = inserted.slice(i).match(ENTRY);
     if (!m) {
-      report.violations.push({ message: `Formato de migración no válido cerca de «${inserted.slice(i, i + 80).trim()}»: usa { id: 'NNN_nombre', sql: () => \`…\` }, con SQL estático (sin \${}, barras invertidas ni $)` });
+      report.violations.push({ message: t(`Formato de migración no válido cerca de «{near}»: usa { id: 'NNN_nombre', sql: () => \`…\` }, con SQL estático (sin \${}, barras invertidas ni $)`, { near: inserted.slice(i, i + 80).trim() }) });
       return report;
     }
     i += m[0].length;
     const [, id, sql] = m;
     const n = Number(id.slice(0, 3));
-    if (seen.has(id) || n <= last) report.violations.push({ migration: id, message: `${id}: el id debe ser único y mayor que el de la última migración (${String(last).padStart(3, '0')})` });
+    if (seen.has(id) || n <= last) report.violations.push({ migration: id, message: t('{id}: el id debe ser único y mayor que el de la última migración ({last})', { id, last: String(last).padStart(3, '0') }) });
     last = Math.max(last, n);
     seen.add(id);
     report.added.push({ id, sql });
     analyzeSql(id, sql, existing, report);
-    for (const t of sql.matchAll(/CREATE TABLE IF NOT EXISTS ([a-z_][a-z0-9_]*)/gi)) existing.add(t[1].toLowerCase());
+    for (const tbl of sql.matchAll(/CREATE TABLE IF NOT EXISTS ([a-z_][a-z0-9_]*)/gi)) existing.add(tbl[1].toLowerCase());
   }
   return report;
 }

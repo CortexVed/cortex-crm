@@ -1,4 +1,6 @@
 import type { AppDeps } from '../deps';
+import { CONFIRM_WORDS } from '../../../shared/constants';
+import { listFormat, t, tk } from '../i18n';
 import { audit } from '../lib/audit';
 import type { Job, JobContext } from '../lib/jobs';
 import { TREE_HASH_EXCLUDE } from './ci';
@@ -101,12 +103,12 @@ async function step(deps: AppDeps, lease: ChangeLease, run: RunContext): Promise
 function deployTree(change: SourceChange) {
   const tree = loadSourceTree(sourceRoot());
   const attempt = change.ci.attempts.find((a) => a.n === change.deploy.attempt);
-  if (!attempt || attempt.status !== 'passed') throw new DeployAbort('No hay una ejecución del CI superada para desplegar');
+  if (!attempt || attempt.status !== 'passed') throw new DeployAbort(t('No hay una ejecución del CI superada para desplegar'));
   const railwayJson = tree.files.get('railway.json')?.toString('utf8');
-  if (!railwayJson) throw new DeployAbort('El código base no tiene railway.json');
+  if (!railwayJson) throw new DeployAbort(t('El código base no tiene railway.json'));
   const ws = new VirtualWorkspace(tree, change.patch.files);
   const files = buildVersionTree(ws, attempt.sourceVersion, railwayJson);
-  if (treeHash(files, TREE_HASH_EXCLUDE) !== attempt.treeHash) throw new DeployAbort('El código que se iba a desplegar no es el mismo que superó el CI');
+  if (treeHash(files, TREE_HASH_EXCLUDE) !== attempt.treeHash) throw new DeployAbort(t('El código que se iba a desplegar no es el mismo que superó el CI'));
   return { tree, ws, files, attempt };
 }
 
@@ -117,27 +119,27 @@ async function preflight(deps: AppDeps, lease: ChangeLease): Promise<StepResult>
   const change = lease.change;
   try {
     const approval = change.approvals[change.approvals.length - 1];
-    if (!approval || approval.confirmation !== 'DESPLEGAR') throw new DeployAbort('Falta la aprobación con la confirmación DESPLEGAR');
+    if (!approval || approval.confirmation !== CONFIRM_WORDS.deploy) throw new DeployAbort(t('Falta la aprobación con la confirmación {word}', { word: tk(CONFIRM_WORDS.deploy) }));
     const tree = loadSourceTree(sourceRoot());
-    if (change.base_tree_hash !== tree.hash) throw new DeployAbort('La instalación ya no está en la versión sobre la que se preparó y probó el cambio: refínalo para reconstruirlo');
+    if (change.base_tree_hash !== tree.hash) throw new DeployAbort(t('La instalación ya no está en la versión sobre la que se preparó y probó el cambio: refínalo para reconstruirlo'));
     const { ws, attempt } = deployTree(change);
-    if (approval.treeHash !== attempt.treeHash) throw new DeployAbort('La aprobación no corresponde al código que superó el CI');
+    if (approval.treeHash !== attempt.treeHash) throw new DeployAbort(t('La aprobación no corresponde al código que superó el CI'));
     const guards = checkChanges(tree, ws.changes());
-    if (!guards.ok) throw new DeployAbort(`El cambio incumple las reglas del motor de código: ${guards.violations.slice(0, 3).map(formatViolation).join(' · ')}`);
+    if (!guards.ok) throw new DeployAbort(t('El cambio incumple las reglas del motor de código: {list}', { list: guards.violations.slice(0, 3).map(formatViolation).join(' · ') }));
     const { client, targets } = await railwayForJob(deps, lease.signal);
     // Un servicio que sigue conectado a un repositorio (p. ej. el de la plantilla) volvería a desplegar el
     // código del repositorio en el siguiente push y el código modificado se perdería: no se despliega.
     const repos = await Promise.all([client.connectedRepo(targets.worker), client.connectedRepo(targets.web)]);
-    const connected = repos.map((r, i) => (r.repo ? `${i === 0 ? 'Worker' : 'web'} (${r.repo})` : null)).filter(Boolean);
+    const connected = repos.map((r, i) => (r.repo ? `${i === 0 ? 'Worker' : 'web'} (${r.repo})` : null)).filter((s): s is string => !!s);
     if (connected.length) {
-      throw new DeployAbort(`${connected.join(' y ')} sigue conectado a un repositorio de GitHub: un push a ese repositorio sustituiría el código modificado. Desconéctalo en Railway (servicio › Settings › Source › Disconnect) y vuelve a aprobar el cambio`);
+      throw new DeployAbort(t('{services} sigue conectado a un repositorio de GitHub: un push a ese repositorio sustituiría el código modificado. Desconéctalo en Railway (servicio › Settings › Source › Disconnect) y vuelve a aprobar el cambio', { services: listFormat(connected) }));
     }
     const [worker, web] = await Promise.all([client.activeDeployment(targets.worker), client.activeDeployment(targets.web)]);
-    if (!worker || !web) throw new DeployAbort(`No se encuentra el despliegue activo del ${!worker ? 'worker' : 'servicio web'}: sin él no se podría revertir`);
+    if (!worker || !web) throw new DeployAbort(!worker ? t('No se encuentra el despliegue activo del worker: sin él no se podría revertir') : t('No se encuentra el despliegue activo del servicio web: sin él no se podría revertir'));
     await saveDeploy(
       lease,
       { phase: 'worker_upload', sourceVersion: attempt.sourceVersion, treeHash: attempt.treeHash, previous: { worker: { serviceId: targets.worker.serviceId, deploymentId: worker.id }, web: { serviceId: targets.web.serviceId, deploymentId: web.id } } },
-      [progressEntry('deploy_worker', 'running', `Despliegues actuales registrados para poder revertir (worker ${worker.id.slice(0, 8)}, web ${web.id.slice(0, 8)})`, deps.now())],
+      [progressEntry('deploy_worker', 'running', t('Despliegues actuales registrados para poder revertir (worker {worker}, web {web})', { worker: worker.id.slice(0, 8), web: web.id.slice(0, 8) }), deps.now())],
     );
     return 'continue';
   } catch (e) {
@@ -153,11 +155,15 @@ async function upload(deps: AppDeps, lease: ChangeLease, service: 'worker' | 'we
   const { files } = deployTree(change);
   const { client, targets } = await railwayForJob(deps, lease.signal);
   const archive = createTarGz(files, { mtime: mtimeOf(change) });
-  const up = await client.upload(targets[service], archive, `Cortex · ${change.title ?? 'cambio de código'} (${service === 'worker' ? 'worker' : 'web'})`);
+  const up = await client.upload(targets[service], archive, `Cortex · ${change.title ?? t('cambio de código')} (${service === 'worker' ? 'worker' : 'web'})`);
   const now = deps.now().toISOString();
   const step = service === 'worker' ? 'deploy_worker' : 'deploy_web';
+  const id = up.deploymentId.slice(0, 8);
+  const uploaded = service === 'worker' ? t('Código subido al worker: construyendo (despliegue {id})', { id }) : t('Código subido al servicio web: construyendo (despliegue {id})', { id });
+  // continuedBy es un valor fijo: 'worker nuevo' o 'worker anterior'.
+  const continued = service === 'web' && change.deploy.continuedBy ? ` · ${change.deploy.continuedBy === 'worker nuevo' ? t('continuado por el worker nuevo') : t('continuado por el worker anterior')}` : '';
   await saveDeploy(lease, { phase: service === 'worker' ? 'worker_wait' : 'web_wait', [service]: { serviceId: targets[service].serviceId, deploymentId: up.deploymentId, startedAt: now } }, [
-    progressEntry(step, 'running', `Código subido al ${service === 'worker' ? 'worker' : 'servicio web'}: construyendo (despliegue ${up.deploymentId.slice(0, 8)})${service === 'web' && change.deploy.continuedBy ? ` · continuado por el ${change.deploy.continuedBy}` : ''}`, deps.now()),
+    progressEntry(step, 'running', `${uploaded}${continued}`, deps.now()),
   ]);
   return 'continue';
 }
@@ -189,33 +195,41 @@ async function waitFor(deps: AppDeps, lease: ChangeLease, run: RunContext, servi
   const finished = { ...dep, status, finishedAt: deps.now().toISOString() };
   if (status !== 'TIMEOUT' && deploymentOutcome(status) === 'success') {
     if (service === 'worker') {
-      await saveDeploy(lease, { worker: finished, phase: 'web_upload', workerReadyAt: deps.now().toISOString() }, [progressEntry(step, 'done', 'Worker desplegado y sano (migraciones aplicadas, base de datos y cola en marcha)', deps.now())]);
+      await saveDeploy(lease, { worker: finished, phase: 'web_upload', workerReadyAt: deps.now().toISOString() }, [progressEntry(step, 'done', t('Worker desplegado y sano (migraciones aplicadas, base de datos y cola en marcha)'), deps.now())]);
       // Lo normal es que lo continúe el worker nuevo: Railway retira el anterior en cuanto el nuevo está sano.
       return later(run);
     }
-    await saveDeploy(lease, { web: finished, phase: 'verify' }, [progressEntry(step, 'done', 'Servicio web desplegado', deps.now())]);
+    await saveDeploy(lease, { web: finished, phase: 'verify' }, [progressEntry(step, 'done', t('Servicio web desplegado'), deps.now())]);
     return 'continue';
   }
-  const why = status === 'TIMEOUT' ? 'superó el tiempo máximo' : `terminó como ${status}`;
-  await saveDeploy(lease, { [service]: finished }, [progressEntry(step, 'failed', `El despliegue del ${service === 'worker' ? 'worker' : 'servicio web'} ${why}`, deps.now())]);
+  const timedOut = status === 'TIMEOUT';
+  const failure =
+    service === 'worker'
+      ? (timedOut ? t('El despliegue del worker superó el tiempo máximo') : t('El despliegue del worker terminó como {status}', { status }))
+      : (timedOut ? t('El despliegue del servicio web superó el tiempo máximo') : t('El despliegue del servicio web terminó como {status}', { status }));
+  const reverted =
+    service === 'worker'
+      ? (timedOut ? t('El despliegue del worker (canario) superó el tiempo máximo: se ha revertido') : t('El despliegue del worker (canario) terminó como {status}: se ha revertido', { status }))
+      : (timedOut ? t('El despliegue del servicio web superó el tiempo máximo: se ha revertido') : t('El despliegue del servicio web terminó como {status}: se ha revertido', { status }));
+  await saveDeploy(lease, { [service]: finished }, [progressEntry(step, 'failed', failure, deps.now())]);
   // El web solo sustituye al anterior si el nuevo está sano: si falló, basta con revertir el worker.
-  return startRollback(deps, lease, ['worker'], `El despliegue del ${service === 'worker' ? 'worker (canario)' : 'servicio web'} ${why}: se ha revertido`);
+  return startRollback(deps, lease, ['worker'], reverted);
 }
 
 /** GET /api/health del web hasta que responda con la versión esperada (o se agoten los intentos). */
 async function healthVersion(deps: AppDeps, expected: string | null): Promise<{ ok: boolean; detail: string }> {
   const opts = engineOptions();
-  if (!deps.config.appUrl) return { ok: false, detail: 'Sin APP_URL no se puede consultar /api/health' };
+  if (!deps.config.appUrl) return { ok: false, detail: t('Sin APP_URL no se puede consultar /api/health') };
   let detail = '';
   for (let i = 0; i < opts.verifyAttempts; i++) {
     try {
       const res = await deps.fetchImpl(`${deps.config.appUrl}/api/health`, { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(10_000) });
       const body = (await res.json().catch(() => null)) as { status?: string; version?: { sourceVersion?: { id?: string } | null } } | null;
       const got = body?.version?.sourceVersion?.id ?? null;
-      if (res.ok && body?.status === 'ok' && got === expected) return { ok: true, detail: `/api/health responde con la versión ${expected ?? 'inicial'}` };
-      detail = `/api/health: HTTP ${res.status}, versión ${got ?? 'inicial'} (se espera ${expected ?? 'la inicial'})`;
+      if (res.ok && body?.status === 'ok' && got === expected) return { ok: true, detail: t('/api/health responde con la versión {version}', { version: expected ?? t('inicial') }) };
+      detail = t('/api/health: HTTP {status}, versión {got} (se espera {expected})', { status: String(res.status), got: got ?? t('inicial'), expected: expected ?? t('la inicial') });
     } catch (e) {
-      detail = `/api/health no responde: ${(e as Error).message.slice(0, 120)}`;
+      detail = t('/api/health no responde: {error}', { error: (e as Error).message.slice(0, 120) });
     }
     if (i < opts.verifyAttempts - 1) await opts.sleep(opts.verifyIntervalMs);
   }
@@ -227,14 +241,15 @@ async function verify(deps: AppDeps, lease: ChangeLease): Promise<StepResult> {
   const expected = change.deploy.sourceVersion?.id ?? null;
   await lease.save({}, [progressEntry('verify', 'running', undefined, deps.now())]);
   const health = await healthVersion(deps, expected);
+  const by = change.deploy.continuedBy;
   const verification = {
     ok: health.ok,
     at: deps.now().toISOString(),
     checks: [
-      { name: 'Worker desplegado primero (canario) y sano', passed: true },
-      { name: `Despliegue continuado por el ${change.deploy.continuedBy ?? 'worker'}`, passed: true },
-      { name: 'Servicio web desplegado', passed: true },
-      { name: 'El web responde con la versión nueva', passed: health.ok, detail: health.detail },
+      { name: t('Worker desplegado primero (canario) y sano'), passed: true },
+      { name: !by ? t('Despliegue continuado por el worker') : by === 'worker nuevo' ? t('Despliegue continuado por el worker nuevo') : t('Despliegue continuado por el worker anterior'), passed: true },
+      { name: t('Servicio web desplegado'), passed: true },
+      { name: t('El web responde con la versión nueva'), passed: health.ok, detail: health.detail },
     ],
   };
   if (health.ok) {
@@ -243,7 +258,7 @@ async function verify(deps: AppDeps, lease: ChangeLease): Promise<StepResult> {
     return 'stop';
   }
   await saveDeploy(lease, { verification }, [progressEntry('verify', 'failed', health.detail, deps.now())]);
-  return startRollback(deps, lease, ['web', 'worker'], `La verificación posterior al despliegue ha fallado (${health.detail}): se ha revertido`);
+  return startRollback(deps, lease, ['web', 'worker'], t('La verificación posterior al despliegue ha fallado ({detail}): se ha revertido', { detail: health.detail }));
 }
 
 /** Revierte los servicios indicados a los despliegues registrados antes de empezar (web primero). */
@@ -252,7 +267,7 @@ export async function rollbackServices(client: RailwayClient, deploy: DeployStat
   for (const s of services) {
     const prev = deploy.previous?.[s];
     if (!prev) {
-      results.push({ service: s, deploymentId: '', ok: false, error: 'No hay despliegue anterior registrado' });
+      results.push({ service: s, deploymentId: '', ok: false, error: t('No hay despliegue anterior registrado') });
       continue;
     }
     try {
@@ -274,9 +289,11 @@ async function startRollback(deps: AppDeps, lease: ChangeLease, services: ('web'
     results = services.map((s) => ({ service: s, deploymentId: change.deploy.previous?.[s]?.deploymentId ?? '', ok: false, error: (e as Error).message.slice(0, 300) }));
   }
   const ok = results.every((r) => r.ok);
+  const failures = results.filter((r) => !r.ok).map((r) => `${r.service}: ${r.error ?? t('error')}`).join(' · ');
+  const summary = results.map((r) => `${r.service} ${r.ok ? '✓' : '✗'}`).join(', ');
   await lease.save(
-    { status: 'rolling_back', error: ok ? message : `${message}. ATENCIÓN: el rollback automático no se ha completado; revierte manualmente en Railway (${results.filter((r) => !r.ok).map((r) => `${r.service}: ${r.error ?? 'error'}`).join(' · ')})`, deploy: { ...change.deploy, phase: 'rollback_verify', rollback: { reason: 'failure', requestedAt: deps.now().toISOString(), message, services: results } } },
-    [progressEntry('rollback', ok ? 'running' : 'failed', `${ok ? 'Rollback solicitado' : 'Rollback incompleto'}: ${results.map((r) => `${r.service} ${r.ok ? '✓' : '✗'}`).join(', ')}`, deps.now())],
+    { status: 'rolling_back', error: ok ? message : t('{message}. ATENCIÓN: el rollback automático no se ha completado; revierte manualmente en Railway ({failures})', { message, failures }), deploy: { ...change.deploy, phase: 'rollback_verify', rollback: { reason: 'failure', requestedAt: deps.now().toISOString(), message, services: results } } },
+    [progressEntry('rollback', ok ? 'running' : 'failed', ok ? t('Rollback solicitado: {services}', { services: summary }) : t('Rollback incompleto: {services}', { services: summary }), deps.now())],
   );
   await auditDeploy(deps, change, 'platform.code.deploy_failed', { reason: message, rollback: results });
   return 'continue';
@@ -291,16 +308,16 @@ async function rollbackVerify(deps: AppDeps, lease: ChangeLease): Promise<StepRe
   const anyOk = !!rb?.services.some((s) => s.ok);
   const webRolledBack = !!rb?.services.some((s) => s.service === 'web' && s.ok);
   let verified = false;
-  let detail = anyOk ? 'Rollback solicitado a Railway' : 'Railway no ha aceptado el rollback: revierte manualmente';
+  let detail = anyOk ? t('Rollback solicitado a Railway') : t('Railway no ha aceptado el rollback: revierte manualmente');
   if (webRolledBack) {
     // La versión base es la de source-version.json; la imagen de partida (sin él) se identifica como «inicial-…».
     const base = change.base_version && !change.base_version.startsWith('inicial-') ? change.base_version : null;
     const health = await healthVersion(deps, base);
     verified = health.ok;
-    detail = health.ok ? `El web ha vuelto a la versión anterior (${base ?? 'inicial'})` : `No se ha podido confirmar la vuelta atrás: ${health.detail}`;
+    detail = health.ok ? t('El web ha vuelto a la versión anterior ({version})', { version: base ?? t('inicial') }) : t('No se ha podido confirmar la vuelta atrás: {detail}', { detail: health.detail });
   } else if (anyOk) {
     verified = true;
-    detail = 'Worker revertido (el servicio web no llegó a cambiar)';
+    detail = t('Worker revertido (el servicio web no llegó a cambiar)');
   }
   await lease.save(
     {
@@ -322,7 +339,7 @@ async function failDeploy(deps: AppDeps, lease: ChangeLease, e: unknown, run: Ru
     const n = (d.transientErrors ?? 0) + 1;
     if (n <= MAX_TRANSIENT) {
       try {
-        await saveDeploy(lease, { transientErrors: n }, [progressEntry(lease.change.status === 'rolling_back' ? 'rollback' : 'deploy_worker', 'running', `Railway no responde (${n}/${MAX_TRANSIENT}): se reintenta en ${n} min`, deps.now())]);
+        await saveDeploy(lease, { transientErrors: n }, [progressEntry(lease.change.status === 'rolling_back' ? 'rollback' : 'deploy_worker', 'running', t('Railway no responde ({n}/{max}): se reintenta en {minutes} min', { n, max: MAX_TRANSIENT, minutes: n }), deps.now())]);
         run.next = n * 60_000;
       } catch {
         /* el cambio ya no es de esta ejecución */
@@ -330,12 +347,12 @@ async function failDeploy(deps: AppDeps, lease: ChangeLease, e: unknown, run: Ru
       return;
     }
   }
-  const msg = e instanceof RailwayError || e instanceof ConfigMissingError || e instanceof DeployAbort ? e.message : `Error interno del motor de código: ${(e as Error)?.message ?? String(e)}`;
+  const msg = e instanceof RailwayError || e instanceof ConfigMissingError || e instanceof DeployAbort ? e.message : t('Error interno del motor de código: {error}', { error: (e as Error)?.message ?? String(e) });
   try {
     if (lease.change.status === 'deploying' && (d.worker || d.web)) {
       // Ya se ha subido algo: se revierte todo lo que pudo cambiar.
       const services: ('web' | 'worker')[] = d.web ? ['web', 'worker'] : ['worker'];
-      await startRollback(deps, lease, services, `El despliegue se ha interrumpido (${msg}): se ha revertido`);
+      await startRollback(deps, lease, services, t('El despliegue se ha interrumpido ({error}): se ha revertido', { error: msg }));
       run.next = engineOptions().requeueDelayMs;
     } else if (lease.change.status === 'deploying') {
       await lease.save({ status: 'failed', error: msg.slice(0, 2000), deploy: { ...d, phase: 'done' } }, [progressEntry('deploy_worker', 'failed', msg.slice(0, 300), deps.now())]);

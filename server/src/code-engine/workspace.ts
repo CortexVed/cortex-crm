@@ -1,6 +1,7 @@
 import { GENERATED_PATHS } from './lockfile';
 import { normalizePath, PathError, writeBlockedReason } from './paths';
 import { isBinary, type SourceTree } from './source';
+import { t } from '../i18n';
 
 /**
  * Límites de un cambio (los vuelve a comprobar guards.ts sobre el resultado final). Son límites de abuso, no de
@@ -70,7 +71,7 @@ export class VirtualWorkspace {
     if (this.overlay.has(p)) return this.overlay.get(p) ?? null;
     const buf = this.base.files.get(p);
     if (!buf) return null;
-    if (isBinary(buf)) throw new PathError(`${p} es un archivo binario`);
+    if (isBinary(buf)) throw new PathError(t('{path} es un archivo binario', { path: p }));
     return buf.toString('utf8');
   }
 
@@ -86,11 +87,11 @@ export class VirtualWorkspace {
     const p = normalizePath(path);
     const blocked = writeBlockedReason(p);
     if (blocked) throw new PathError(blocked);
-    if (typeof content !== 'string') throw new PathError('El contenido debe ser texto');
-    if (content.includes('\u0000')) throw new PathError('El contenido no puede incluir bytes nulos');
-    if (Buffer.byteLength(content, 'utf8') > LIMITS.maxFileBytes) throw new PathError(`El archivo supera ${LIMITS.maxFileBytes / 1024} KB`);
+    if (typeof content !== 'string') throw new PathError(t('El contenido debe ser texto'));
+    if (content.includes('\u0000')) throw new PathError(t('El contenido no puede incluir bytes nulos'));
+    if (Buffer.byteLength(content, 'utf8') > LIMITS.maxFileBytes) throw new PathError(t('El archivo supera {size} KB', { size: LIMITS.maxFileBytes / 1024 }));
     const baseBuf = this.base.files.get(p);
-    if (baseBuf && isBinary(baseBuf)) throw new PathError(`${p} es un archivo binario: no se puede modificar`);
+    if (baseBuf && isBinary(baseBuf)) throw new PathError(t('{path} es un archivo binario: no se puede modificar', { path: p }));
     const previous = this.overlay.has(p) ? { value: this.overlay.get(p) } : null;
     if (this.baseText(p) === content) this.overlay.delete(p);
     else this.overlay.set(p, content);
@@ -108,7 +109,7 @@ export class VirtualWorkspace {
     const p = normalizePath(path);
     const blocked = writeBlockedReason(p);
     if (blocked) throw new PathError(blocked);
-    if (!this.exists(p)) throw new PathError(`${p} no existe`);
+    if (!this.exists(p)) throw new PathError(t('{path} no existe', { path: p }));
     if (this.base.files.has(p)) this.overlay.set(p, null);
     else this.overlay.delete(p);
     this.revision++;
@@ -120,8 +121,8 @@ export class VirtualWorkspace {
    */
   setGenerated(path: string, content: string): void {
     const p = normalizePath(path);
-    if (!GENERATED_PATHS.has(p)) throw new PathError(`${p} no lo genera el motor`);
-    if (Buffer.byteLength(content, 'utf8') > LIMITS.maxGeneratedBytes) throw new PathError(`${p} supera ${LIMITS.maxGeneratedBytes / 1024 / 1024} MB`);
+    if (!GENERATED_PATHS.has(p)) throw new PathError(t('{path} no lo genera el motor', { path: p }));
+    if (Buffer.byteLength(content, 'utf8') > LIMITS.maxGeneratedBytes) throw new PathError(t('{path} supera {size} MB', { path: p, size: LIMITS.maxGeneratedBytes / 1024 / 1024 }));
     if (this.baseText(p) === content) this.overlay.delete(p);
     else this.overlay.set(p, content);
     this.revision++;
@@ -136,10 +137,10 @@ export class VirtualWorkspace {
 
   private checkLimits() {
     const changes = this.overlay.size;
-    if (changes > LIMITS.maxFiles) throw new PathError(`Un cambio puede tocar como mucho ${LIMITS.maxFiles} archivos`);
+    if (changes > LIMITS.maxFiles) throw new PathError(t('Un cambio puede tocar como mucho {max} archivos', { max: LIMITS.maxFiles }));
     let bytes = 0;
     for (const v of this.overlay.values()) bytes += v ? Buffer.byteLength(v, 'utf8') : 0;
-    if (bytes > LIMITS.maxPatchBytes) throw new PathError(`El cambio supera ${LIMITS.maxPatchBytes / 1024 / 1024} MB`);
+    if (bytes > LIMITS.maxPatchBytes) throw new PathError(t('El cambio supera {size} MB', { size: LIMITS.maxPatchBytes / 1024 / 1024 }));
   }
 
   /** Cambios frente a la base, ordenados por ruta. */

@@ -12,6 +12,8 @@
  * token nunca aparece en errores ni registros.
  */
 
+import { t } from '../i18n';
+
 export const RAILWAY_BACKBOARD = 'https://backboard.railway.com';
 export const RAILWAY_GRAPHQL_URL = `${RAILWAY_BACKBOARD}/graphql/v2`;
 
@@ -100,7 +102,7 @@ export class RailwayClient {
         signal: this.signal(this.opts.timeoutMs ?? 30_000),
       });
     } catch (e) {
-      throw new RailwayError('unavailable', `No se pudo conectar con Railway: ${clip((e as Error).message, 160)}`);
+      throw new RailwayError('unavailable', t('No se pudo conectar con Railway: {error}', { error: clip((e as Error).message, 160) }));
     }
     const text = await res.text().catch(() => '');
     let body: { data?: T; errors?: { message?: string }[] } | null = null;
@@ -109,27 +111,27 @@ export class RailwayClient {
     } catch {
       body = null;
     }
-    if (res.status === 401 || res.status === 403) throw new RailwayError('auth', 'Railway ha rechazado el token (no es válido, se ha revocado o no tiene permisos)', res.status);
+    if (res.status === 401 || res.status === 403) throw new RailwayError('auth', t('Railway ha rechazado el token (no es válido, se ha revocado o no tiene permisos)'), res.status);
     if (body?.errors?.length) {
-      const msg = clip(body.errors[0]?.message ?? 'error desconocido');
+      const msg = clip(body.errors[0]?.message ?? t('error desconocido'));
       const auth = /not authorized|unauthori[sz]ed|forbidden|invalid token|permission|authenticat/i.test(msg);
       throw new RailwayError(auth ? 'auth' : 'invalid', `Railway: ${msg}`, res.status);
     }
-    if (!res.ok) throw new RailwayError(res.status >= 500 || res.status === 429 ? 'unavailable' : 'invalid', `Railway respondió ${res.status}`, res.status);
-    if (!body?.data) throw new RailwayError('unavailable', 'Respuesta de Railway no válida');
+    if (!res.ok) throw new RailwayError(res.status >= 500 || res.status === 429 ? 'unavailable' : 'invalid', t('Railway respondió {status}', { status: String(res.status) }), res.status);
+    if (!body?.data) throw new RailwayError('unavailable', t('Respuesta de Railway no válida'));
     return body.data;
   }
 
   /** Proyecto y entorno del token (solo existe para tokens de proyecto). */
   async projectToken(): Promise<{ projectId: string; environmentId: string }> {
     const d = await this.graphql<{ projectToken: { projectId: string; environmentId: string } }>('query projectToken { projectToken { projectId environmentId } }');
-    if (!d.projectToken?.projectId || !d.projectToken?.environmentId) throw new RailwayError('invalid', 'El token no es un token de proyecto de Railway');
+    if (!d.projectToken?.projectId || !d.projectToken?.environmentId) throw new RailwayError('invalid', t('El token no es un token de proyecto de Railway'));
     return { projectId: d.projectToken.projectId, environmentId: d.projectToken.environmentId };
   }
 
   /** Sube el código (tar.gz) a un servicio: crea un despliegue nuevo que Railway construye y publica. */
   async upload(target: ServiceTarget, archive: Buffer, message: string): Promise<UploadResult> {
-    for (const [k, v] of Object.entries(target)) if (!isRailwayId(v)) throw new RailwayError('invalid', `Identificador de Railway no válido (${k})`);
+    for (const [k, v] of Object.entries(target)) if (!isRailwayId(v)) throw new RailwayError('invalid', t('Identificador de Railway no válido ({field})', { field: k }));
     const url = `${RAILWAY_BACKBOARD}/project/${target.projectId}/environment/${target.environmentId}/up?serviceId=${target.serviceId}&message=${encodeURIComponent(message.slice(0, 200))}`;
     let res: Response;
     try {
@@ -140,7 +142,7 @@ export class RailwayClient {
         signal: this.signal(this.opts.uploadTimeoutMs ?? 180_000),
       });
     } catch (e) {
-      throw new RailwayError('unavailable', `No se pudo subir el código a Railway: ${clip((e as Error).message, 160)}`);
+      throw new RailwayError('unavailable', t('No se pudo subir el código a Railway: {error}', { error: clip((e as Error).message, 160) }));
     }
     const text = await res.text().catch(() => '');
     let body: Record<string, unknown> | null = null;
@@ -149,12 +151,12 @@ export class RailwayClient {
     } catch {
       body = null;
     }
-    if (res.status === 413) throw new RailwayError('too_large', 'El código comprimido supera el tamaño máximo que acepta Railway', 413);
-    if (res.status === 401 || res.status === 403) throw new RailwayError('auth', 'Railway ha rechazado el token al subir el código', res.status);
-    if (res.status === 400) throw new RailwayError('invalid', `Railway ha rechazado la subida: ${clip(body?.message ?? text) || 'petición no válida'}`, 400);
-    if (!res.ok) throw new RailwayError(res.status >= 500 || res.status === 429 ? 'unavailable' : 'invalid', `Railway respondió ${res.status} a la subida`, res.status);
+    if (res.status === 413) throw new RailwayError('too_large', t('El código comprimido supera el tamaño máximo que acepta Railway'), 413);
+    if (res.status === 401 || res.status === 403) throw new RailwayError('auth', t('Railway ha rechazado el token al subir el código'), res.status);
+    if (res.status === 400) throw new RailwayError('invalid', t('Railway ha rechazado la subida: {error}', { error: clip(body?.message ?? text) || t('petición no válida') }), 400);
+    if (!res.ok) throw new RailwayError(res.status >= 500 || res.status === 429 ? 'unavailable' : 'invalid', t('Railway respondió {status} a la subida', { status: String(res.status) }), res.status);
     const deploymentId = typeof body?.deploymentId === 'string' ? body.deploymentId : null;
-    if (!deploymentId) throw new RailwayError('invalid', 'Railway no ha devuelto el identificador del despliegue');
+    if (!deploymentId) throw new RailwayError('invalid', t('Railway no ha devuelto el identificador del despliegue'));
     const str = (v: unknown) => (typeof v === 'string' ? v : null);
     return { deploymentId, url: str(body?.url), logsUrl: str(body?.logsUrl), deploymentDomain: str(body?.deploymentDomain) };
   }

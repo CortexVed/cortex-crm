@@ -15,7 +15,7 @@ Cortex CRM es un CRM SaaS multi-organización que la IA puede hacer evolucionar 
 | Datos | PostgreSQL con Row Level Security (`pg`); PGlite (Postgres en WASM) en desarrollo y tests | `server/src/db` |
 | IA | AI Provider Manager propio: SDK oficial de Anthropic + adaptador compatible con OpenAI | `server/src/ai` |
 | Scripts por organización | Sandbox QuickJS compilado a WebAssembly (`quickjs-emscripten-core` + `@jitl/quickjs-wasmfile-release-sync`, 0.32.0) | `server/src/crm/scripts.ts` |
-| Tests | Vitest 5 (297 tests en 20 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
+| Tests | Vitest 5 (310 tests en 21 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
 
 Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker); en una instalación desde la plantilla, `Cortex` y `Worker`. Un tercer rol, `ci`, solo lo usa el servicio de CI del **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)): la administración de la plataforma pide cambios del código real, un agente de IA los escribe, se prueban en ese CI aislado y, con aprobación humana, se despliegan en los servicios de la propia instalación (nunca en GitHub).
 
@@ -86,7 +86,7 @@ server/src/
                     workspace · lockfile (dependencias) · typecheck (tsc antes del CI) · tar · diff · railway · ci · review · pipeline (code.plan) · deploy (code.deploy) ·
                     store · settings · routes
   lib/              crypto · ssrf · jobs · mailer · audit · errors · metrics
-server/test/        helpers.ts + 20 archivos de tests Vitest (297 tests)
+server/test/        helpers.ts + 21 archivos de tests Vitest (310 tests)
 shared/             constants · blueprint · changeset · appearance · formula · conditions · templates · records ·
                     time · default-blueprint
 web/src/            main.tsx (rutas) · components/ (Layout, navigation, AiPanel, AiTools, CommandPalette, ui,
@@ -101,7 +101,7 @@ Dockerfile · Dockerfile.ci (CI del motor de código) · railway.json · .env.ex
 ## 4. Convenciones para contribuir
 
 1. **Validación en la frontera.** Toda entrada (`params`, `query`, `body`) se valida con zod en la ruta. Los `ZodError` se convierten en `400 validation_failed` automáticamente.
-2. **Errores tipados.** Usa los helpers de `server/src/lib/errors.ts` (`badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict`, `unprocessable`, `tooMany`, `unavailable`). Formato de respuesta: `{"error": {"code", "message", "details"}}`. Los mensajes al usuario van en español.
+2. **Errores tipados.** Usa los helpers de `server/src/lib/errors.ts` (`badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict`, `unprocessable`, `tooMany`, `unavailable`). Formato de respuesta: `{"error": {"code", "message", "details"}}`. Los mensajes se escriben en español y se traducen al idioma de la petición: un texto fijo es una clave del catálogo (el manejador de errores lo traduce); si lleva datos, `t('… {x} …', { x })` (ver [shared/i18n/README.md](../shared/i18n/README.md)).
 3. **Autorización explícita.** Empieza cada ruta con `requireWorkspace(req, rolMinimo)`, `requireUserSession(req)` (acciones que no deben poder hacerse con API key, datos personales del usuario y funciones de IA) o `requirePlatformAdmin(req)`. Los permisos por módulo (`permissions.read/create/update/delete` del blueprint) los aplica `RecordService`.
 4. **Datos de organización siempre en `deps.db.tenant(workspaceId, q => …)`** y, además, con filtro explícito `workspace_id = $n` en cada consulta (defensa en profundidad con RLS). `deps.db.query`/`tx` (conexión privilegiada) se reserva a tablas de plataforma (`users`, `sessions`, `auth_tokens`, `jobs`, `error_events` y, solo desde el motor de código fuente, `source_changes` y `platform_settings`) y a búsquedas inherentemente globales (token de API key, token de webhook, slug de formulario público).
 5. **SQL parametrizado** siempre (`$1…$n`, `= ANY($n::uuid[])`, helper `inList`). Nunca interpolar valores. Los filtros del blueprint se traducen con `conditionsToSql`/`sortToSql` (`crm/store.ts`).
@@ -112,7 +112,7 @@ Dockerfile · Dockerfile.ci (CI del motor de código) · railway.json · .env.ex
 10. **Secretos** con `SecretBox` (AES-256-GCM) y AAD de contexto; nunca se devuelven al cliente ni se registran (solo pistas enmascaradas `••••1234`).
 11. **Límites de frecuencia** en rutas costosas o abusables con `config: { rateLimit: { max, timeWindow } }`.
 12. **Tests** en `server/test/*.test.ts` con `setup()` (PGlite en memoria + LLM simulado) y `Client` (gestiona cookie y CSRF); `env.drain()` ejecuta los trabajos encolados.
-13. **Frontend:** estado de servidor con TanStack Query, llamadas con `web/src/lib/api.ts` (añade `X-CSRF-Token`), componentes de `components/ui.tsx`, textos en español y soporte de modo oscuro (`dark:`).
+13. **Frontend:** estado de servidor con TanStack Query, llamadas con `web/src/lib/api.ts` (añade `X-CSRF-Token`), componentes de `components/ui.tsx`, textos en español dentro de `t()`/`tp()`/`tx()` de `lib/i18n.tsx` con su traducción en los seis catálogos de `shared/i18n/locales/` (`npm run i18n:check`) y soporte de modo oscuro (`dark:`).
 14. **Configuración centralizada en `config.ts`**: el resto del código recibe `deps.config` (únicas excepciones: `RAILWAY_GIT_COMMIT_SHA` en `app.ts`, `NODE_ENV` para el coste de scrypt en `lib/crypto.ts` y para decidir si se carga `.env` en `index.ts`/`cli.ts`). El código nuevo no debe leer `process.env`.
 15. **Lógica a medida de una organización = script de su blueprint**, nunca código común. Se ejecuta solo con `runScript` (`crm/scripts.ts`, QuickJS/WebAssembly con un runtime nuevo por ejecución); el módulo `vm` de Node no se usa como aislamiento. Lo que necesite red, credenciales u OAuth es una funcionalidad de la plataforma: la escribe el equipo de desarrollo y se despliega con la imagen (`railway up`).
 

@@ -16,6 +16,7 @@ import { AppError } from '../lib/errors';
 import { isPrivateHostname } from '../lib/ssrf';
 import { applyOperations } from './apply';
 import { validateBlueprint, type Issue } from './validate';
+import { t, tk, tp } from '../i18n';
 
 export interface CaseResult {
   name: string;
@@ -58,10 +59,11 @@ export interface SimulationResult {
 
 function errMessage(e: unknown): string {
   if (e instanceof AppError) {
+    // Los mensajes de AppError (y de sus campos) son claves del catálogo o textos ya traducidos.
     const fields = (e.details as { fields?: { field: string; message: string }[] } | undefined)?.fields;
-    return fields?.length ? `${e.message}: ${fields.map((f) => `${f.field} → ${f.message}`).join('; ')}` : e.message;
+    return fields?.length ? `${tk(e.message)}: ${fields.map((f) => `${f.field} → ${tk(f.message)}`).join('; ')}` : tk(e.message);
   }
-  return (e as Error)?.message ?? String(e);
+  return tk((e as Error)?.message ?? String(e));
 }
 
 class Sandbox {
@@ -179,7 +181,7 @@ async function runStep(sb: Sandbox, step: TestStep, refs: Map<string, StoredReco
   const tctx = { now: new Date(sb.clock), tz: sb.tz };
   const ref = (name: string) => {
     const r = refs.get(name);
-    if (!r) throw new Error(`Referencia "${name}" no definida en un paso anterior`);
+    if (!r) throw new Error(t('Referencia "{name}" no definida en un paso anterior', { name }));
     return r;
   };
   switch (step.action) {
@@ -198,36 +200,36 @@ async function runStep(sb: Sandbox, step: TestStep, refs: Map<string, StoredReco
       return null;
     case 'expect_field': {
       const fresh = await sb.store.get(ref(step.ref).id);
-      if (!fresh) return `El registro "${step.ref}" ya no existe`;
+      if (!fresh) return t('El registro "{ref}" ya no existe', { ref: step.ref });
       const actual = fresh.data[step.field];
-      if (step.notEmpty && (actual === null || actual === undefined || actual === '')) return `Se esperaba "${step.field}" con valor`;
+      if (step.notEmpty && (actual === null || actual === undefined || actual === '')) return t('Se esperaba "{field}" con valor', { field: step.field });
       if (step.equals !== undefined) {
         const okEq = evaluateCondition({ field: step.field, operator: 'eq', value: step.equals }, fresh, tctx);
-        if (!okEq) return `Se esperaba ${step.field} = ${JSON.stringify(step.equals)} y es ${JSON.stringify(actual ?? null)}`;
+        if (!okEq) return t('Se esperaba {field} = {expected} y es {actual}', { field: step.field, expected: JSON.stringify(step.equals), actual: JSON.stringify(actual ?? null) });
       }
       return null;
     }
     case 'expect_invalid': {
       try {
         await svc.create(step.module, resolveTestValues(step.values, refs, sb, tctx));
-        return 'Se esperaba un error de validación y el registro se creó';
+        return t('Se esperaba un error de validación y el registro se creó');
       } catch (e) {
-        return e instanceof AppError && e.status === 422 ? null : `Error inesperado: ${errMessage(e)}`;
+        return e instanceof AppError && e.status === 422 ? null : t('Error inesperado: {error}', { error: errMessage(e) });
       }
     }
     case 'expect_count': {
       const mod = findModule(sb.bp, step.module);
-      if (!mod) return `Módulo inexistente "${step.module}"`;
+      if (!mod) return t('Módulo inexistente "{module}"', { module: step.module });
       const { total } = await sb.store.list(mod, { filters: step.where, limit: 1, offset: 0 }, tctx);
-      return total === step.equals ? null : `Se esperaban ${step.equals} registros y hay ${total}`;
+      return total === step.equals ? null : tp(step.equals, 'Se esperaba {count} registro y hay {total}', 'Se esperaban {count} registros y hay {total}', { total });
     }
     case 'expect_notification': {
       const n = sb.effects.notifications.length - baseline.n;
-      return n >= step.min ? null : `Se esperaban al menos ${step.min} aviso(s) y hubo ${n}`;
+      return n >= step.min ? null : tp(step.min, 'Se esperaba al menos {count} aviso y hubo {n}', 'Se esperaban al menos {count} avisos y hubo {n}', { n });
     }
     case 'expect_webhook': {
       const n = sb.effects.webhooks.filter((w) => w.integration === step.integration).length;
-      return n >= step.min ? null : `Se esperaban al menos ${step.min} webhook(s) a "${step.integration}" y hubo ${n}`;
+      return n >= step.min ? null : tp(step.min, 'Se esperaba al menos {count} webhook a "{integration}" y hubo {n}', 'Se esperaban al menos {count} webhooks a "{integration}" y hubo {n}', { integration: step.integration, n });
     }
     case 'advance_days':
       sb.clock += step.days * 86_400_000;
@@ -255,7 +257,11 @@ async function runTestCase(bp: Blueprint, tc: TestCase, members: { id: string; r
     // Un script o automatización que falla durante la prueba la hace fallar, con el error real.
     if (!message) {
       const failed = [...sb.effects.runs.entries()].filter(([id, r]) => !runsBefore.has(id) && r.status === 'failed');
-      if (failed.length) message = `La automatización "${failed[0][1].automationKey}" falló: ${failed[0][1].log.filter((l) => l.startsWith('Error')).join(' ') || failed[0][1].log.join(' ')}`;
+      if (failed.length) {
+        // Una ejecución fallida termina su registro con el error (crm/automations), en cualquier idioma: la última línea.
+        const runLog = failed[0][1].log;
+        message = t('La automatización "{automation}" falló: {log}', { automation: failed[0][1].automationKey, log: runLog[runLog.length - 1] ?? '' });
+      }
     }
     steps.push({ action: step.action, passed: !message, message: message ?? undefined });
     if (message) return { name: tc.name, passed: false, message, durationMs: Date.now() - t0, steps };
@@ -298,25 +304,26 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
   const after = applied.errors.length ? null : applied.blueprint;
   if (after) issues.push(...validateBlueprint(after));
   const validation: CaseResult[] = [
-    { name: 'Las operaciones se aplican sin conflictos', passed: applied.errors.length === 0, message: applied.errors.map((e) => e.message).join('; ') || undefined, durationMs: 0 },
+    { name: t('Las operaciones se aplican sin conflictos'), passed: applied.errors.length === 0, message: applied.errors.map((e) => e.message).join('; ') || undefined, durationMs: 0 },
     {
-      name: 'El blueprint resultante es coherente (referencias, vistas, fórmulas, automatizaciones)',
+      name: t('El blueprint resultante es coherente (referencias, vistas, fórmulas, automatizaciones)'),
       passed: !!after && !issues.some((i) => i.level === 'error'),
       message: issues.filter((i) => i.level === 'error').map((i) => `${i.path}: ${i.message}`).join('; ') || undefined,
       durationMs: 0,
     },
-    ...issues.filter((i) => i.level === 'warning').map((i) => ({ name: `Aviso: ${i.path}`, passed: true, warning: true, message: i.message, durationMs: 0 })),
+    ...issues.filter((i) => i.level === 'warning').map((i) => ({ name: t('Aviso: {path}', { path: i.path }), passed: true, warning: true, message: i.message, durationMs: 0 })),
   ];
-  suites.push({ key: 'validation', name: 'Validación (unitarias)', cases: validation });
+  suites.push({ key: 'validation', name: t('Validación (unitarias)'), cases: validation });
 
   if (after && !issues.some((i) => i.level === 'error')) {
     // 2) Compatibilidad con datos existentes (muestra real, sin modificar producción)
     const compat: CaseResult[] = [];
+    const requiredMessages = new Set(['Obligatorio', t('Obligatorio')]);
     for (const mod of changedModules(input.before, after, input.changeSet)) {
       const sample = input.samples[mod.key] ?? [];
       if (!sample.length) continue;
       compat.push(
-        await time(`Datos existentes de "${mod.labelPlural}" (${sample.length} registros muestreados)`, async () => {
+        await time(tp(sample.length, 'Datos existentes de "{module}" ({count} registro muestreado)', 'Datos existentes de "{module}" ({count} registros muestreados)', { module: mod.labelPlural }), async () => {
           let invalid = 0;
           let missingRequired = 0;
           const examples: string[] = [];
@@ -328,10 +335,11 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
               }),
             );
             const { issues: iss } = normalizeRecordInput(mod, writable, { mode: 'update', existing: {} });
-            const bad = iss.filter((i) => i.message !== 'Obligatorio');
+            // «Obligatorio» se cuenta aparte (missingRequired); puede llegar como clave o ya traducido.
+            const bad = iss.filter((i) => !requiredMessages.has(i.message));
             if (bad.length) {
               invalid++;
-              if (examples.length < 3) examples.push(bad.map((b) => `${b.field}: ${b.message}`).join(', '));
+              if (examples.length < 3) examples.push(bad.map((b) => `${b.field}: ${tk(b.message)}`).join(', '));
             }
             for (const f of mod.fields) {
               if (f.required && !f.archived && f.type !== 'formula' && (rec.data[f.key] === undefined || rec.data[f.key] === null)) {
@@ -340,35 +348,37 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
               }
             }
           }
-          if (invalid) return `${invalid} registro(s) quedarían con datos inválidos (${examples.join(' | ')})`;
-          if (missingRequired) return { warn: `${missingRequired} registro(s) no tienen valor en algún campo obligatorio: considera una migración (backfill_field)` };
+          if (invalid) return tp(invalid, '{count} registro quedaría con datos inválidos ({examples})', '{count} registros quedarían con datos inválidos ({examples})', { examples: examples.join(' | ') });
+          if (missingRequired) {
+            return { warn: tp(missingRequired, '{count} registro no tiene valor en algún campo obligatorio: considera una migración (backfill_field)', '{count} registros no tienen valor en algún campo obligatorio: considera una migración (backfill_field)') };
+          }
           return null;
         }),
       );
     }
-    if (!compat.length) compat.push({ name: 'No hay datos existentes afectados', passed: true, durationMs: 0 });
-    suites.push({ key: 'compatibility', name: 'Compatibilidad', cases: compat });
+    if (!compat.length) compat.push({ name: t('No hay datos existentes afectados'), passed: true, durationMs: 0 });
+    suites.push({ key: 'compatibility', name: t('Compatibilidad'), cases: compat });
 
     // 3) Integración: CRUD completo + automatizaciones en sandbox
     const integration: CaseResult[] = [];
     for (const mod of changedModules(input.before, after, input.changeSet)) {
       integration.push(
-        await time(`CRUD de "${mod.labelPlural}" con automatizaciones`, async () => {
+        await time(t('CRUD de "{module}" con automatizaciones', { module: mod.labelPlural }), async () => {
           const sb = new Sandbox(after, input.members, start, tz);
           const rec = await makeRecord(sb, mod);
           const { total } = await sb.store.list(mod, { limit: 5, offset: 0 }, { now: new Date(sb.clock), tz });
-          if (total < 1) return 'El registro creado no aparece en el listado';
+          if (total < 1) return t('El registro creado no aparece en el listado');
           const editable = activeFields(mod).find((f) => ['text', 'long_text', 'number', 'currency'].includes(f.type) && f.key !== mod.primaryField);
           if (editable) await sb.svc().update(rec.id, { [editable.key]: sampleValue(editable, sb) });
           await sb.svc().delete(rec.id);
           const failedRuns = [...sb.effects.runs.values()].filter((r) => r.status === 'failed');
-          if (failedRuns.length) return `Automatización con errores: ${failedRuns.map((r) => `${r.automationKey}: ${r.log.join(' ')}`).join('; ')}`;
+          if (failedRuns.length) return t('Automatización con errores: {errors}', { errors: failedRuns.map((r) => `${r.automationKey}: ${r.log.join(' ')}`).join('; ') });
           return null;
         }),
       );
       for (const view of mod.views) {
         integration.push(
-          await time(`Vista "${mod.labelPlural} › ${view.label}" se puede consultar`, async () => {
+          await time(t('Vista "{module} › {view}" se puede consultar', { module: mod.labelPlural, view: view.label }), async () => {
             const sb = new Sandbox(after, input.members, start, tz);
             await makeRecord(sb, mod);
             await sb.store.list(mod, { filters: view.filters, sort: view.sort, limit: 10, offset: 0 }, { now: new Date(sb.clock), tz });
@@ -385,7 +395,7 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
         const mod = findModule(after, b.module);
         if (!mod || mod.archived) continue;
         integration.push(
-          await time(`Página «${page.label}» › lista de "${mod.labelPlural}" se puede consultar`, async () => {
+          await time(t('Página «{page}» › lista de "{module}" se puede consultar', { page: page.label, module: mod.labelPlural }), async () => {
             const sb = new Sandbox(after, input.members, start, tz);
             await makeRecord(sb, mod);
             const view = b.view ? mod.views.find((v) => v.key === b.view) : undefined;
@@ -398,49 +408,49 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
     const scheduled = after.automations.filter((a) => a.enabled && (a.trigger.type === 'date_reached' || a.trigger.type === 'inactivity'));
     if (scheduled.length) {
       integration.push(
-        await time('El planificador de automatizaciones programadas se ejecuta sin errores', async () => {
+        await time(t('El planificador de automatizaciones programadas se ejecuta sin errores'), async () => {
           const sb = new Sandbox(after, input.members, start, tz);
           await runScheduledAutomations(sb.svc());
           return null;
         }),
       );
     }
-    if (!integration.length) integration.push({ name: 'Sin módulos afectados', passed: true, durationMs: 0 });
-    suites.push({ key: 'integration', name: 'Integración', cases: integration });
+    if (!integration.length) integration.push({ name: t('Sin módulos afectados'), passed: true, durationMs: 0 });
+    suites.push({ key: 'integration', name: t('Integración'), cases: integration });
 
     // 4) Aceptación (pruebas generadas)
     const acceptance: CaseResult[] = [];
     for (const tc of input.changeSet.tests) acceptance.push(await runTestCase(after, tc, input.members, start, tz));
     if (!acceptance.length && input.changeSet.operations.length) {
-      acceptance.push({ name: 'Sin pruebas de aceptación definidas', passed: true, warning: true, message: 'El plan no incluye pruebas específicas', durationMs: 0 });
+      acceptance.push({ name: t('Sin pruebas de aceptación definidas'), passed: true, warning: true, message: t('El plan no incluye pruebas específicas'), durationMs: 0 });
     }
-    suites.push({ key: 'acceptance', name: 'Aceptación', cases: acceptance });
+    suites.push({ key: 'acceptance', name: t('Aceptación'), cases: acceptance });
 
     // 5) Seguridad
     const security: CaseResult[] = [];
     for (const integ of after.integrations) {
       security.push(
-        await time(`Integración "${integ.name}" apunta a un destino público y seguro`, async () => {
+        await time(t('Integración "{name}" apunta a un destino público y seguro', { name: integ.name }), async () => {
           const u = new URL(integ.url);
-          if (u.protocol !== 'https:') return 'Debe usar HTTPS';
-          if (isPrivateHostname(u.hostname)) return 'No se permiten destinos internos o privados (protección SSRF)';
+          if (u.protocol !== 'https:') return t('Debe usar HTTPS');
+          if (isPrivateHostname(u.hostname)) return t('No se permiten destinos internos o privados (protección SSRF)');
           const pii = after.modules.flatMap((m) => m.fields.filter((f) => ['email', 'phone'].includes(f.type)).map((f) => f.key));
           if (!integ.includeFields || integ.includeFields.some((k) => pii.includes(k))) {
-            return { warn: 'La integración puede enviar datos personales (email/teléfono): revisa la base legal (RGPD)' };
+            return { warn: t('La integración puede enviar datos personales (email/teléfono): revisa la base legal (RGPD)') };
           }
           return null;
         }),
       );
     }
     for (const form of after.forms.filter((f) => f.public)) {
-      security.push({ name: `Formulario público "${form.name}"`, passed: true, warning: true, message: 'Acepta datos de Internet: protegido con validación, límite de peticiones y campos permitidos', durationMs: 0 });
+      security.push({ name: t('Formulario público "{name}"', { name: form.name }), passed: true, warning: true, message: t('Acepta datos de Internet: protegido con validación, límite de peticiones y campos permitidos'), durationMs: 0 });
     }
     for (const script of after.scripts) {
       const users = after.automations.filter((a) => a.actions.some((x) => x.type === 'run_script' && x.script === script.key));
       const mod = users.length ? findModule(after, users[0].trigger.module) : undefined;
       security.push(
-        await time(`Script "${script.name}": se ejecuta aislado y tolera datos mínimos`, async () => {
-          if (!mod) return { warn: 'Ninguna automatización lo ejecuta' };
+        await time(t('Script "{name}": se ejecuta aislado y tolera datos mínimos', { name: script.name }), async () => {
+          if (!mod) return { warn: t('Ninguna automatización lo ejecuta') };
           // Ejecución real en el sandbox QuickJS (sin red ni archivos) sobre un registro con datos mínimos.
           const sb = new Sandbox(after, input.members, start, tz);
           const rec = await makeRecord(sb, mod);
@@ -455,39 +465,39 @@ export async function simulateChangeSet(input: SimulationInput): Promise<Simulat
     const css = after.appearance?.customCss;
     if (css !== undefined && css.trim()) {
       security.push(
-        await time('CSS personalizado: solo CSS plano, sin recursos externos ni código', async () => {
+        await time(t('CSS personalizado: solo CSS plano, sin recursos externos ni código'), async () => {
           const r = sanitizeCustomCss(css);
-          if (!r.ok) return r.errors.join('; ');
-          return { warn: 'Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.' };
+          if (!r.ok) return r.errors.map((e) => tk(e)).join('; ');
+          return { warn: t('Puede ocultar o imitar elementos de la interfaz: revísalo antes de aprobar. Nunca se aplica en EVOLVE, Ajustes ni Plataforma.') };
         }),
       );
     }
     for (const page of changedPages(after, input.changeSet)) {
       security.push(
-        await time(`Página «${page.label}»: cada rol solo ve los bloques de los módulos que puede leer`, async () => {
+        await time(t('Página «{page}»: cada rol solo ve los bloques de los módulos que puede leer', { page: page.label }), async () => {
           for (const role of ROLES) {
             const visible = blueprintForRole(after, role);
             const p = visible.pages.find((x) => x.key === page.key);
             if (!hasRole(role, page.minRole)) {
-              if (p) return `El rol ${ROLE_LABELS[role]} vería la página aunque su rol mínimo es ${ROLE_LABELS[page.minRole]}`;
+              if (p) return t('El rol {role} vería la página aunque su rol mínimo es {minRole}', { role: tk(ROLE_LABELS[role]), minRole: tk(ROLE_LABELS[page.minRole]) });
               continue;
             }
             const readable = new Set(visible.modules.map((m) => m.key));
-            if (p?.blocks.some((b) => blockModules(after, b).some((k) => !readable.has(k)))) return `El rol ${ROLE_LABELS[role]} vería datos de un módulo que no puede leer`;
+            if (p?.blocks.some((b) => blockModules(after, b).some((k) => !readable.has(k)))) return t('El rol {role} vería datos de un módulo que no puede leer', { role: tk(ROLE_LABELS[role]) });
           }
           return null;
         }),
       );
     }
     security.push(
-      await time('Ninguna operación desactiva protecciones del sistema', async () => {
+      await time(t('Ninguna operación desactiva protecciones del sistema'), async () => {
         // El change set no puede expresar cambios en auditoría, aprobaciones, RLS ni autenticación:
         // se verifica que solo contiene operaciones tipadas conocidas.
         const unknown = input.changeSet.operations.filter((o) => typeof o.op !== 'string');
-        return unknown.length ? 'Operaciones desconocidas' : null;
+        return unknown.length ? t('Operaciones desconocidas') : null;
       }),
     );
-    suites.push({ key: 'security', name: 'Seguridad', cases: security });
+    suites.push({ key: 'security', name: t('Seguridad'), cases: security });
   }
 
   const all = suites.flatMap((s) => s.cases);

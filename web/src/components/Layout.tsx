@@ -7,6 +7,7 @@ import { useBlueprint, useHotkeys, useTheme } from '../lib/hooks';
 import { ModuleIcon } from '../lib/icons';
 import { errorMessage, get, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
+import { browserTimeZone, msg, t, tk } from '../lib/i18n';
 import { applyAppearance, cacheAppearance, cachedAppearance, resetAppearance, setCustomCss, sidebarClass } from '../lib/theme';
 import { ROLE_LABELS, hasRole } from '../../../shared/constants';
 import { Avatar, Button, cx, ErrorState, IconButton, Input, Kbd, Modal, PageLoader, Spinner, useEscapeLayer } from './ui';
@@ -63,13 +64,13 @@ function WorkspaceSwitcher() {
     }
   };
   const create = useMutation({
-    mutationFn: () => post('/auth/workspaces', { name }),
+    mutationFn: () => post('/auth/workspaces', { name, timezone: browserTimeZone() }),
     onSuccess: (next) => {
       setMe(next);
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
       setCreating(false);
       setName('');
-      toast('Organización creada');
+      toast(t('Organización creada'));
       navigate('/');
     },
     onError: (e) => toast((e as Error).message, 'error'),
@@ -81,7 +82,7 @@ function WorkspaceSwitcher() {
         <span className="flex size-7 items-center justify-center rounded-md bg-zinc-900 text-xs font-bold text-white dark:bg-white dark:text-zinc-900">{me.workspace.name.slice(0, 1).toUpperCase()}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{me.workspace.name}</span>
-          <span className="block text-[11px] text-zinc-500">{ROLE_LABELS[me.workspace.role]}</span>
+          <span className="block text-[11px] text-zinc-500">{tk(ROLE_LABELS[me.workspace.role])}</span>
         </span>
         <ChevronsUpDown className="size-3.5 text-zinc-400" />
       </button>
@@ -95,12 +96,12 @@ function WorkspaceSwitcher() {
           ))}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
           <button onClick={() => { setCreating(true); setOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
-            <Plus className="size-3.5" /> Nueva organización
+            <Plus className="size-3.5" /> {t('Nueva organización')}
           </button>
         </div>
       )}
-      <Modal open={creating} onClose={() => setCreating(false)} title="Nueva organización" description="Cada organización tiene sus propios datos, usuarios y configuración, totalmente aislados." footer={<><Button onClick={() => setCreating(false)}>Cancelar</Button><Button variant="primary" loading={create.isPending} disabled={name.trim().length < 2} onClick={() => create.mutate()}>Crear</Button></>}>
-        <Input placeholder="Nombre de la organización" value={name} onChange={(e) => setName(e.target.value)} />
+      <Modal open={creating} onClose={() => setCreating(false)} title={t('Nueva organización')} description={t('Cada organización tiene sus propios datos, usuarios y configuración, totalmente aislados.')} footer={<><Button onClick={() => setCreating(false)}>{t('Cancelar')}</Button><Button variant="primary" loading={create.isPending} disabled={name.trim().length < 2} onClick={() => create.mutate()}>{t('Crear')}</Button></>}>
+        <Input placeholder={t('Nombre de la organización')} value={name} onChange={(e) => setName(e.target.value)} />
       </Modal>
     </div>
   );
@@ -127,7 +128,7 @@ function NavEntryLink({ entry }: { entry: NavEntry }) {
       <a href={entry.href} target="_blank" rel="noopener noreferrer" className={cx(NAV_LINK_BASE, NAV_LINK_IDLE)}>
         {entry.icon}
         <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-        <ExternalLink className="size-3 shrink-0 text-zinc-400" aria-label="(se abre en otra pestaña)" />
+        <ExternalLink className="size-3 shrink-0 text-zinc-400" aria-label={t('(se abre en otra pestaña)')} />
       </a>
     );
   }
@@ -191,9 +192,9 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
       <WorkspaceSwitcher />
       <div className="space-y-0.5">
-        <NavItem to="/" end icon={homePage ? <ModuleIcon name={homePage.icon} className="size-4" /> : <LayoutDashboard className="size-4" />} label={homePage?.label ?? 'Panel'} active={(location.pathname === '/' && !panel) || (!!homePage && location.pathname === `/p/${homePage.key}`)} />
-        {homePage && dashboards.length > 0 && !navHasDashboards && <NavItem to={`/?panel=${encodeURIComponent(dashboards[0].key)}`} icon={<LayoutDashboard className="size-4" />} label={dashboards.length > 1 ? 'Paneles' : dashboards[0].label} active={!!panel} />}
-        <NavItem to="/reports" icon={<BarChart3 className="size-4" />} label="Informes" />
+        <NavItem to="/" end icon={homePage ? <ModuleIcon name={homePage.icon} className="size-4" /> : <LayoutDashboard className="size-4" />} label={homePage?.label ?? t('Panel')} active={(location.pathname === '/' && !panel) || (!!homePage && location.pathname === `/p/${homePage.key}`)} />
+        {homePage && dashboards.length > 0 && !navHasDashboards && <NavItem to={`/?panel=${encodeURIComponent(dashboards[0].key)}`} icon={<LayoutDashboard className="size-4" />} label={dashboards.length > 1 ? t('Paneles') : dashboards[0].label} active={!!panel} />}
+        <NavItem to="/reports" icon={<BarChart3 className="size-4" />} label={t('Informes')} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         {moduleCount > 12 && (
@@ -203,8 +204,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
-              placeholder="Filtrar el menú…"
-              aria-label="Filtrar el menú"
+              placeholder={t('Filtrar el menú…')}
+              aria-label={t('Filtrar el menú')}
               className="h-8 w-full rounded-lg bg-zinc-900/[0.04] pl-8 pr-2 text-[13px] outline-none ring-1 ring-transparent placeholder:text-zinc-400 focus:ring-brand-500 dark:bg-white/5"
             />
           </div>
@@ -232,19 +233,19 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               </div>
             );
           })}
-          {term && !visible.length && <p className="px-2 text-xs text-zinc-500">Nada coincide con «{filter.trim()}»</p>}
+          {term && !visible.length && <p className="px-2 text-xs text-zinc-500">{t('Nada coincide con «{query}»', { query: filter.trim() })}</p>}
         </div>
-        <div className="mb-1 mt-5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Evolución</div>
+        <div className="mb-1 mt-5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{t('Evolución')}</div>
         <div className="space-y-0.5">
           <NavItem to="/evolve" end icon={<Sparkles className="size-4 text-fuchsia-500" />} label="EVOLVE AI ENGINE" />
-          <NavItem to="/evolve/releases" icon={<History className="size-4" />} label="Versiones" />
-          {can('admin') && <NavItem to="/evolve/security" icon={<ShieldCheck className="size-4" />} label="Seguridad" />}
+          <NavItem to="/evolve/releases" icon={<History className="size-4" />} label={t('Versiones')} />
+          {can('admin') && <NavItem to="/evolve/security" icon={<ShieldCheck className="size-4" />} label={t('Seguridad')} />}
         </div>
       </div>
       <div className="space-y-0.5 border-t border-zinc-200/70 pt-3 dark:border-zinc-800">
-        <NavItem to="/settings/general" icon={<Settings className="size-4" />} label="Ajustes" />
-        {me?.user.isPlatformAdmin && <NavItem to="/settings/platform" icon={<GitBranch className="size-4" />} label="Plataforma" />}
-        {me?.user.isPlatformAdmin && <NavItem to="/platform/code" icon={<Code2 className="size-4" />} label="Código fuente" />}
+        <NavItem to="/settings/general" icon={<Settings className="size-4" />} label={t('Ajustes')} />
+        {me?.user.isPlatformAdmin && <NavItem to="/settings/platform" icon={<GitBranch className="size-4" />} label={t('Plataforma')} />}
+        {me?.user.isPlatformAdmin && <NavItem to="/platform/code" icon={<Code2 className="size-4" />} label={t('Código fuente')} />}
       </div>
     </nav>
   );
@@ -283,17 +284,17 @@ function Notifications() {
   };
   return (
     <div className="relative" ref={ref}>
-      <IconButton label="Notificaciones" onClick={() => setOpen((o) => !o)} className="relative">
+      <IconButton label={t('Notificaciones')} onClick={() => setOpen((o) => !o)} className="relative">
         <Bell className="size-4" />
         {!!q.data?.unread && <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">{q.data.unread > 9 ? '9+' : q.data.unread}</span>}
       </IconButton>
       {open && (
         <div className="fixed inset-x-2 top-14 z-30 origin-top rounded-xl bg-white shadow-xl ring-1 ring-zinc-200 animate-pop sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[360px] sm:origin-top-right dark:bg-zinc-900 dark:ring-zinc-800">
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
-            <span className="text-sm font-semibold">Notificaciones</span>
+            <span className="text-sm font-semibold">{t('Notificaciones')}</span>
             {!!q.data?.unread && (
               <button className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400" onClick={readAll}>
-                Marcar todo como leído
+                {t('Marcar todo como leído')}
               </button>
             )}
           </div>
@@ -303,7 +304,7 @@ function Notifications() {
             ) : q.error && !q.data ? (
               <ErrorState error={q.error} onRetry={() => q.refetch()} className="py-6" />
             ) : !q.data?.items.length ? (
-              <p className="px-4 py-8 text-center text-sm text-zinc-500">No tienes notificaciones</p>
+              <p className="px-4 py-8 text-center text-sm text-zinc-500">{t('No tienes notificaciones')}</p>
             ) : (
               q.data.items.map((n) => (
                 <button key={n.id} onClick={() => read(n)} className="flex w-full gap-3 border-b border-zinc-50 px-4 py-3 text-left transition last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/50">
@@ -337,7 +338,7 @@ function UserMenu() {
   if (!me) return null;
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} className="rounded-full" aria-label="Menú de usuario">
+      <button onClick={() => setOpen((o) => !o)} className="rounded-full" aria-label={t('Menú de usuario')}>
         <Avatar name={me.user.name} />
       </button>
       {open && (
@@ -348,10 +349,10 @@ function UserMenu() {
           </div>
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
           <button className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => { setOpen(false); navigate('/settings/account'); }}>
-            <Settings className="size-4" /> Mi cuenta y seguridad
+            <Settings className="size-4" /> {t('Mi cuenta y seguridad')}
           </button>
           <button className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" onClick={async () => { await logout(); navigate('/login'); }}>
-            <LogOut className="size-4" /> Cerrar sesión
+            <LogOut className="size-4" /> {t('Cerrar sesión')}
           </button>
         </div>
       )}
@@ -359,15 +360,16 @@ function UserMenu() {
   );
 }
 
+// Teclas y descripciones marcadas con msg(): se traducen al mostrarlas (tk).
 const SHORTCUTS: [string, string][] = [
-  ['⌘/Ctrl + K', 'Búsqueda global y comandos'],
-  ['⌘/Ctrl + J', 'Abrir/cerrar EVOLVE AI'],
-  ['G luego D', 'Ir al panel'],
-  ['G luego E', 'Ir a EVOLVE AI ENGINE'],
-  ['G luego R', 'Ir a informes'],
-  ['G luego S', 'Ir a ajustes'],
-  ['C', 'Crear registro (en un módulo)'],
-  ['?', 'Ver atajos de teclado'],
+  ['⌘/Ctrl + K', msg('Búsqueda global y comandos')],
+  ['⌘/Ctrl + J', msg('Abrir/cerrar EVOLVE AI')],
+  [msg('G luego D'), msg('Ir al panel')],
+  [msg('G luego E'), msg('Ir a EVOLVE AI ENGINE')],
+  [msg('G luego R'), msg('Ir a informes')],
+  [msg('G luego S'), msg('Ir a ajustes')],
+  ['C', msg('Crear registro (en un módulo)')],
+  ['?', msg('Ver atajos de teclado')],
 ];
 
 const isWide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches;
@@ -484,12 +486,12 @@ export function AppLayout() {
         {/* relative z-30: backdrop-blur crea un contexto de apilamiento propio; sin un z-index, los desplegables de la
             cabecera (notificaciones, usuario) quedaban debajo del panel de IA o de elementos fijos del contenido. */}
         <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200/70 bg-white/80 px-3 backdrop-blur sm:px-5 dark:border-zinc-800 dark:bg-zinc-950/80">
-          <IconButton label="Menú" className="lg:hidden" onClick={() => setMobileNav(true)}>
+          <IconButton label={t('Menú')} className="lg:hidden" onClick={() => setMobileNav(true)}>
             <Menu className="size-5" />
           </IconButton>
           <button onClick={() => setPaletteOpen(true)} className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-zinc-100/80 px-3 text-sm text-zinc-500 ring-1 ring-transparent transition hover:ring-zinc-200 sm:max-w-md dark:bg-zinc-900 dark:hover:ring-zinc-700">
             <Search className="size-4 shrink-0" />
-            <span className="truncate">Buscar o ejecutar un comando…</span>
+            <span className="truncate">{t('Buscar o ejecutar un comando…')}</span>
             <span className="ml-auto hidden sm:block"><Kbd>⌘K</Kbd></span>
           </button>
           <div className="ml-auto flex items-center gap-1">
@@ -501,7 +503,7 @@ export function AppLayout() {
             <IconButton label="EVOLVE AI" className="sm:hidden" onClick={() => setAiOpen((o) => !o)}>
               <Sparkles className="size-4 text-fuchsia-500" />
             </IconButton>
-            <IconButton label={`Tema: ${theme === 'system' ? 'sistema' : theme === 'dark' ? 'oscuro' : 'claro'}`} onClick={() => setTheme(theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light')}>
+            <IconButton label={theme === 'system' ? t('Tema: sistema') : theme === 'dark' ? t('Tema: oscuro') : t('Tema: claro')} onClick={() => setTheme(theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light')}>
               <ThemeIcon className="size-4" />
             </IconButton>
             <Notifications />
@@ -517,12 +519,12 @@ export function AppLayout() {
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onAskAi={() => setAiOpen(true)} />
-      <Modal open={shortcuts} onClose={() => setShortcuts(false)} title="Atajos de teclado" size="sm">
+      <Modal open={shortcuts} onClose={() => setShortcuts(false)} title={t('Atajos de teclado')} size="sm">
         <ul className="divide-y divide-zinc-100 text-sm dark:divide-zinc-800">
           {SHORTCUTS.map(([k, d]) => (
             <li key={k} className="flex items-center justify-between py-2">
-              <span className="text-zinc-600 dark:text-zinc-400">{d}</span>
-              <Kbd>{k}</Kbd>
+              <span className="text-zinc-600 dark:text-zinc-400">{tk(d)}</span>
+              <Kbd>{tk(k)}</Kbd>
             </li>
           ))}
         </ul>
@@ -536,7 +538,7 @@ function VerifyBanner() {
   const [sent, setSent] = useState(false);
   return (
     <div className="flex items-center justify-center gap-3 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-      Verifica tu correo para proteger tu cuenta.
+      {t('Verifica tu correo para proteger tu cuenta.')}
       <button
         disabled={sent}
         className="font-semibold underline disabled:no-underline disabled:opacity-60"
@@ -544,13 +546,13 @@ function VerifyBanner() {
           try {
             await post('/auth/verify-email/resend');
             setSent(true);
-            toast('Te hemos enviado un nuevo enlace de verificación');
+            toast(t('Te hemos enviado un nuevo enlace de verificación'));
           } catch (e) {
             toast((e as Error).message, 'error');
           }
         }}
       >
-        {sent ? 'Enviado' : 'Reenviar enlace'}
+        {sent ? t('Enviado') : t('Reenviar enlace')}
       </button>
     </div>
   );
@@ -560,19 +562,19 @@ function NoWorkspace() {
   const { setMe, logout } = useSession();
   const [name, setName] = useState('');
   const toast = useToast();
-  const create = useMutation({ mutationFn: () => post('/auth/workspaces', { name }), onSuccess: (me) => setMe(me), onError: (e) => toast((e as Error).message, 'error') });
+  const create = useMutation({ mutationFn: () => post('/auth/workspaces', { name, timezone: browserTimeZone() }), onSuccess: (me) => setMe(me), onError: (e) => toast((e as Error).message, 'error') });
   return (
     <div className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
         <Logo />
-        <h1 className="mt-6 text-lg font-semibold">No perteneces a ninguna organización</h1>
-        <p className="mt-1 text-sm text-zinc-500">Crea una nueva o pide a un administrador que te invite.</p>
-        <Input className="mt-4" placeholder="Nombre de la organización" value={name} onChange={(e) => setName(e.target.value)} />
+        <h1 className="mt-6 text-lg font-semibold">{t('No perteneces a ninguna organización')}</h1>
+        <p className="mt-1 text-sm text-zinc-500">{t('Crea una nueva o pide a un administrador que te invite.')}</p>
+        <Input className="mt-4" placeholder={t('Nombre de la organización')} value={name} onChange={(e) => setName(e.target.value)} />
         <Button variant="primary" className="mt-3 w-full" loading={create.isPending} disabled={name.trim().length < 2} onClick={() => create.mutate()}>
-          Crear organización
+          {t('Crear organización')}
         </Button>
         <button className="mt-3 w-full text-center text-sm text-zinc-500 hover:underline" onClick={() => logout()}>
-          Cerrar sesión
+          {t('Cerrar sesión')}
         </button>
       </div>
     </div>

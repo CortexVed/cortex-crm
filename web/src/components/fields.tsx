@@ -6,6 +6,7 @@ import type { Field, Module, Refs } from '../lib/types';
 import { get, uploadFile, errorMessage } from '../lib/api';
 import { formatBytes, formatCurrency, formatDate, formatNumber, formatPercent, toLocalInput } from '../lib/format';
 import { useDebounced, useMembers } from '../lib/hooks';
+import { t, tp } from '../lib/i18n';
 import { Avatar, Badge, cx, Field as FieldWrap, Input, Select, Textarea, Toggle, useEscapeLayer } from './ui';
 import { useToast } from './toast';
 
@@ -20,7 +21,7 @@ export function FieldValue({ field, value, refs, compact, plain }: { field: Fiel
   if (empty(value)) return <Dash />;
   if (plain) {
     if (field.type === 'email' || field.type === 'phone' || field.type === 'url') return <span className="truncate">{String(value)}</span>;
-    if (field.type === 'relation') return <span className="truncate font-medium">{refs?.records[value as string]?.title ?? 'Registro'}</span>;
+    if (field.type === 'relation') return <span className="truncate font-medium">{refs?.records[value as string]?.title ?? t('Registro')}</span>;
     if (field.type === 'file') return <span className="inline-flex items-center gap-1 text-xs"><Paperclip className="size-3" /> {(value as string[]).length}</span>;
   }
   switch (field.type) {
@@ -31,7 +32,7 @@ export function FieldValue({ field, value, refs, compact, plain }: { field: Fiel
     case 'percent':
       return <span className="tabular-nums">{formatPercent(value as number)}</span>;
     case 'formula': {
-      if (field.formula?.resultType === 'boolean') return <span>{value ? 'Sí' : 'No'}</span>;
+      if (field.formula?.resultType === 'boolean') return <span>{value ? t('Sí') : t('No')}</span>;
       if (typeof value === 'number') return <span className="tabular-nums">{field.currency ? formatCurrency(value, field.currency) : formatNumber(value)}</span>;
       return <span>{String(value)}</span>;
     }
@@ -40,7 +41,7 @@ export function FieldValue({ field, value, refs, compact, plain }: { field: Fiel
     case 'datetime':
       return <span>{formatDate(value as string, true)}</span>;
     case 'boolean':
-      return <Badge color={value ? 'emerald' : 'slate'}>{value ? 'Sí' : 'No'}</Badge>;
+      return <Badge color={value ? 'emerald' : 'slate'}>{value ? t('Sí') : t('No')}</Badge>;
     case 'email':
       return <a href={`mailto:${value}`} className="text-brand-600 hover:underline dark:text-brand-400" onClick={(e) => e.stopPropagation()}>{String(value)}</a>;
     case 'phone':
@@ -75,12 +76,12 @@ export function FieldValue({ field, value, refs, compact, plain }: { field: Fiel
       const ref = refs?.records[value as string];
       return (
         <Link to={`/m/${field.relation?.module}/${value}`} className="font-medium text-zinc-800 hover:text-brand-600 hover:underline dark:text-zinc-200 dark:hover:text-brand-400" onClick={(e) => e.stopPropagation()}>
-          {ref?.title ?? 'Registro'}
+          {ref?.title ?? t('Registro')}
         </Link>
       );
     }
     case 'user': {
-      const name = refs?.users[value as string] ?? 'Usuario';
+      const name = refs?.users[value as string] ?? t('Usuario');
       return (
         <span className="inline-flex items-center gap-1.5">
           <Avatar name={name} size="sm" />
@@ -102,7 +103,7 @@ export function FieldValue({ field, value, refs, compact, plain }: { field: Fiel
         <span className="flex flex-wrap gap-1.5">
           {(value as string[]).map((id) => (
             <a key={id} href={`/api/files/${id}`} className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700" onClick={(e) => e.stopPropagation()}>
-              <Paperclip className="size-3" /> {refs?.files[id]?.name ?? 'Archivo'}
+              <Paperclip className="size-3" /> {refs?.files[id]?.name ?? t('Archivo')}
             </a>
           ))}
         </span>
@@ -136,20 +137,20 @@ function RelationPicker({ module, value, onChange, initialTitle, invalid }: { mo
     <div className="relative" ref={ref}>
       {value && !open ? (
         <div className={cx('flex h-9 items-center justify-between rounded-lg bg-white px-3 text-sm ring-1 ring-inset dark:bg-zinc-900', invalid ? 'ring-red-400' : 'ring-zinc-200 dark:ring-zinc-700')}>
-          <button type="button" className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setOpen(true)}>{title || 'Registro seleccionado'}</button>
-          <button type="button" aria-label="Quitar" className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { onChange(null); setTitle(''); }}>
+          <button type="button" className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setOpen(true)}>{title || t('Registro seleccionado')}</button>
+          <button type="button" aria-label={t('Quitar')} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { onChange(null); setTitle(''); }}>
             <X className="size-4" />
           </button>
         </div>
       ) : (
-        <Input autoFocus={open} placeholder="Buscar…" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} invalid={invalid} />
+        <Input autoFocus={open} placeholder={t('Buscar…')} value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} invalid={invalid} />
       )}
       {open && (
         <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg bg-white p-1 shadow-xl ring-1 ring-zinc-200 scrollbar-thin dark:bg-zinc-900 dark:ring-zinc-800">
           {results.isLoading ? (
             <div className="flex justify-center p-3"><Loader2 className="size-4 animate-spin text-zinc-400" /></div>
           ) : !results.data?.length ? (
-            <p className="p-3 text-center text-xs text-zinc-500">Sin resultados</p>
+            <p className="p-3 text-center text-xs text-zinc-500">{t('Sin resultados')}</p>
           ) : (
             results.data.map((r) => (
               <button type="button" key={r.id} className="block w-full truncate rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => { onChange(r.id); setTitle(r.title); setOpen(false); setQ(''); }}>
@@ -193,9 +194,9 @@ function FileInput({ value, onChange, refs, recordId, fieldKey, max }: { value: 
       {value.map((id) => (
         <div key={id} className="flex items-center gap-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 text-sm ring-1 ring-zinc-200 dark:bg-zinc-800/60 dark:ring-zinc-700">
           <FileText className="size-4 text-zinc-400" />
-          <a href={`/api/files/${id}`} className="min-w-0 flex-1 truncate hover:underline">{names[id] ?? refs?.files[id]?.name ?? 'Archivo'}</a>
+          <a href={`/api/files/${id}`} className="min-w-0 flex-1 truncate hover:underline">{names[id] ?? refs?.files[id]?.name ?? t('Archivo')}</a>
           {refs?.files[id] && <span className="text-xs text-zinc-400">{formatBytes(refs.files[id].size)}</span>}
-          <button type="button" aria-label="Quitar" className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400" onClick={() => onChange(value.filter((x) => x !== id).length ? value.filter((x) => x !== id) : null)}>
+          <button type="button" aria-label={t('Quitar')} className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400" onClick={() => onChange(value.filter((x) => x !== id).length ? value.filter((x) => x !== id) : null)}>
             <X className="size-4" />
           </button>
         </div>
@@ -203,7 +204,7 @@ function FileInput({ value, onChange, refs, recordId, fieldKey, max }: { value: 
       {value.length < max && (
         <label className={cx('flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 px-3 py-2.5 text-sm text-zinc-500 hover:border-brand-400 hover:text-brand-600 dark:border-zinc-700', busy && 'pointer-events-none opacity-60')}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
-          {busy ? 'Subiendo…' : 'Adjuntar archivos'}
+          {busy ? t('Subiendo…') : t('Adjuntar archivos')}
           <input
             type="file"
             multiple
@@ -281,11 +282,11 @@ export function FieldInput({ field, value, onChange, refs, invalid, recordId }: 
     case 'phone':
       return <Input type="tel" value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)} />;
     case 'url':
-      return <Input type="url" placeholder="https://" value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)} />;
+      return <Input type="url" placeholder="https://" value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)} />; // i18n-ignore (esquema de URL)
     case 'select':
       return (
         <Select value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">— Sin seleccionar —</option>
+          <option value="">{t('— Sin seleccionar —')}</option>
           {field.options?.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
@@ -311,7 +312,7 @@ export function FieldInput({ field, value, onChange, refs, invalid, recordId }: 
     case 'user':
       return (
         <Select value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">— Sin asignar —</option>
+          <option value="">{t('— Sin asignar —')}</option>
           {members.data?.map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
@@ -321,7 +322,7 @@ export function FieldInput({ field, value, onChange, refs, invalid, recordId }: 
       return (
         <div className="flex gap-1">
           {[1, 2, 3, 4, 5].map((i) => (
-            <button type="button" key={i} aria-label={`${i} estrellas`} onClick={() => onChange(value === i ? null : i)} className="text-amber-400">
+            <button type="button" key={i} aria-label={tp(i, '{count} estrella', '{count} estrellas')} onClick={() => onChange(value === i ? null : i)} className="text-amber-400">
               <Star className={cx('size-5', i <= ((value as number) ?? 0) ? 'fill-current' : 'text-zinc-300 dark:text-zinc-700')} />
             </button>
           ))}
@@ -330,7 +331,7 @@ export function FieldInput({ field, value, onChange, refs, invalid, recordId }: 
     case 'file':
       return <FileInput value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} refs={refs} recordId={recordId} fieldKey={field.key} max={field.maxFiles ?? 10} />;
     case 'formula':
-      return <div className="flex h-9 items-center rounded-lg bg-zinc-50 px-3 text-sm text-zinc-500 dark:bg-zinc-800/60">{empty(value) ? 'Se calcula automáticamente' : <FieldValue field={field} value={value} />}</div>;
+      return <div className="flex h-9 items-center rounded-lg bg-zinc-50 px-3 text-sm text-zinc-500 dark:bg-zinc-800/60">{empty(value) ? t('Se calcula automáticamente') : <FieldValue field={field} value={value} />}</div>;
     default:
       return <Input value={str} invalid={invalid} onChange={(e) => onChange(e.target.value || null)} />;
   }
@@ -347,10 +348,10 @@ export function moduleSections(mod: Module) {
       return { title: s.title, columns: s.columns ?? 2, fields };
     });
     const rest = visible.filter((f) => !used.has(f.key));
-    if (rest.length) sections.push({ title: 'Otros campos', columns: 2, fields: rest });
+    if (rest.length) sections.push({ title: t('Otros campos'), columns: 2, fields: rest });
     return sections.filter((s) => s.fields.length);
   }
-  return [{ title: 'Datos', columns: 2, fields: visible }];
+  return [{ title: t('Datos'), columns: 2, fields: visible }];
 }
 
 type Values = Record<string, unknown>;

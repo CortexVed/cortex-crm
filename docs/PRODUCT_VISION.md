@@ -33,7 +33,7 @@
 3. **Nada simulado.** Las integraciones se activan con credenciales reales; lo que no está construido se dice.
 4. **Sin dependencia de un proveedor de IA.** El mismo producto funciona con cualquiera de los proveedores soportados y cambia de uno a otro si falla.
 5. **Aislamiento y privacidad por defecto.** Cada organización está aislada a nivel de base de datos; las claves se cifran y nunca vuelven al navegador; a la IA se le envía lo mínimo. Los cambios de una organización, scripts incluidos, solo la afectan a ella, se ejecutan dentro de la plataforma y nunca se publican en un repositorio.
-6. **En español y para España por defecto.** Interfaz en español, zona horaria `Europe/Madrid`, moneda EUR y formato `es-ES` (configurables por organización).
+6. **En el idioma de cada persona.** Interfaz en español, inglés, portugués de Brasil, francés, alemán, italiano y japonés: cada persona elige el suyo y, si no, usa el de su organización. Por defecto, español, zona horaria `Europe/Madrid`, moneda EUR y formato `es-ES` (configurables por organización).
 
 ## 5. Qué ofrece hoy
 

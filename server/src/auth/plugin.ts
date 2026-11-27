@@ -4,6 +4,7 @@ import type { Db } from '../db/db';
 import { safeEqual, sha256 } from '../lib/crypto';
 import { forbidden, unauthorized } from '../lib/errors';
 import type { AppConfig } from '../config';
+import { applyIdentityLocale, t } from '../i18n';
 
 export const SESSION_COOKIE = 'evolve_session';
 export const SESSION_TTL_DAYS = 14;
@@ -69,9 +70,11 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: AppCo
       if (!token.startsWith('evk_')) throw unauthorized('Token inválido');
       // La clave solo es válida mientras su creador siga siendo miembro, y nunca con más rol que él.
       const r = await deps.db.query(
-        `SELECT k.id, k.workspace_id, k.role, k.created_by, k.last_used_at, k.name AS key_name, u.email, m.role AS creator_role
+        `SELECT k.id, k.workspace_id, k.role, k.created_by, k.last_used_at, k.name AS key_name, u.email, u.locale AS user_locale, m.role AS creator_role,
+                w.settings->>'locale' AS org_locale
          FROM api_keys k
          JOIN memberships m ON m.workspace_id = k.workspace_id AND m.user_id = k.created_by
+         JOIN workspaces w ON w.id = k.workspace_id
          LEFT JOIN users u ON u.id = k.created_by
          WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
         [sha256(token)],
@@ -79,9 +82,10 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: AppCo
       const k = r.rows[0];
       if (!k) throw unauthorized('API key inválida o revocada');
       const effectiveRole: Role = ROLE_RANK[k.role as Role] <= ROLE_RANK[k.creator_role as Role] ? k.role : k.creator_role;
+      applyIdentityLocale(req, k.user_locale, k.org_locale);
       req.auth = {
         userId: k.created_by,
-        userName: `API: ${k.key_name ?? 'integración'}`,
+        userName: `API: ${k.key_name ?? t('integración')}`,
         email: k.email ?? '',
         workspaceId: k.workspace_id,
         role: effectiveRole,
@@ -103,9 +107,11 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: AppCo
       const sid = sha256(token);
       const r = await deps.db.query(
         `SELECT s.id, s.user_id, s.workspace_id, s.csrf_token, s.created_at, s.expires_at, s.last_seen_at,
-                u.name, u.email, u.email_verified_at, u.is_platform_admin, m.role
+                u.name, u.email, u.email_verified_at, u.is_platform_admin, u.locale AS user_locale, m.role,
+                w.settings->>'locale' AS org_locale
          FROM sessions s JOIN users u ON u.id = s.user_id
          LEFT JOIN memberships m ON m.workspace_id = s.workspace_id AND m.user_id = s.user_id
+         LEFT JOIN workspaces w ON w.id = s.workspace_id AND m.role IS NOT NULL
          WHERE s.id = $1 AND s.expires_at > now()`,
         [sid],
       );
@@ -125,6 +131,7 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: AppCo
           csrfToken: s.csrf_token,
           emailVerified: !!s.email_verified_at,
         };
+        applyIdentityLocale(req, s.user_locale, s.role ? s.org_locale : null);
         // Caducidad deslizante con máximo absoluto.
         const now = Date.now();
         const exp = new Date(s.expires_at).getTime();

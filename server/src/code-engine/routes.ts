@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { hasRole } from '../../../shared/constants';
+import { CONFIRM_WORDS, hasRole } from '../../../shared/constants';
 import type { AppDeps } from '../deps';
 import { requirePlatformAdmin, type AuthContext } from '../auth/plugin';
+import { msg, t, tk } from '../i18n';
 import { audit } from '../lib/audit';
 import { newId } from '../lib/crypto';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors';
@@ -23,8 +24,10 @@ import { ACTIVE_STATUSES, CANCELLABLE, enqueueCodeJob, getChange, nudgeIfStalled
 
 const ID = z.object({ id: z.string().uuid() });
 const limit = (max: number) => ({ config: { rateLimit: { max, timeWindow: '1 minute' } } });
-const ACTIVE_MSG = 'Ya hay un cambio del código fuente en curso: espera a que termine o cancélalo';
-const NO_RAILWAY = 'No se detecta Railway (faltan RAILWAY_PROJECT_ID y RAILWAY_ENVIRONMENT_ID): el motor de código solo funciona en una instalación desplegada en Railway';
+const ACTIVE_MSG = msg('Ya hay un cambio del código fuente en curso: espera a que termine o cancélalo');
+const NO_RAILWAY = msg('No se detecta Railway (faltan RAILWAY_PROJECT_ID y RAILWAY_ENVIRONMENT_ID): el motor de código solo funciona en una instalación desplegada en Railway');
+/** Pasos del motor con su nombre en el idioma de la petición. */
+const codeSteps = () => CODE_STEPS.map((s) => ({ key: s.key, label: tk(s.label, { word: tk(CONFIRM_WORDS.deploy) }) }));
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === '23505';
 
@@ -59,7 +62,10 @@ async function assertAiCapacity(deps: AppDeps, ws: string) {
   const { limits } = await deps.ai.getSettings(ws);
   if (limits.maxRequestsPerHour < MIN_AI_REQUESTS_PER_HOUR) {
     throw conflict(
-      `La organización activa permite ${limits.maxRequestsPerHour} peticiones de IA por hora y un cambio de código puede necesitar más de ${MIN_AI_REQUESTS_PER_HOUR}. Súbelo en Ajustes › Proveedores de IA › Límites y control de gasto («Peticiones por hora») de esa organización y vuelve a intentarlo.`,
+      t('La organización activa permite {perHour} peticiones de IA por hora y un cambio de código puede necesitar más de {min}. Súbelo en Ajustes › Proveedores de IA › Límites y control de gasto («Peticiones por hora») de esa organización y vuelve a intentarlo.', {
+        perHour: limits.maxRequestsPerHour,
+        min: MIN_AI_REQUESTS_PER_HOUR,
+      }),
     );
   }
 }
@@ -85,7 +91,7 @@ async function createChange(deps: AppDeps, req: FastifyRequest, a: AuthContext, 
           tree.label,
           tree.hash,
           JSON.stringify([{ role: 'request', content: input.prompt, by: a.userId, byName: a.userName, at: now }]),
-          JSON.stringify([progressEntry('prepare', 'running', 'En cola', deps.now())]),
+          JSON.stringify([progressEntry('prepare', 'running', t('En cola'), deps.now())]),
         ],
       );
       await enqueueCodeJob(q, 'code.plan', id);
@@ -106,7 +112,7 @@ function isStalled(c: SourceChange, now = Date.now()) {
 export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
   app.get('/platform/code/steps', async (req) => {
     requirePlatformAdmin(req);
-    return CODE_STEPS;
+    return codeSteps();
   });
 
   // ------------------------------------------------------------------ configuración de Railway
@@ -118,7 +124,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
 
   app.put('/platform/code/settings', limit(10), async (req) => {
     const a = requirePlatformAdmin(req);
-    const { token } = z.object({ token: z.string().trim().min(16).max(400).regex(/^\S+$/, 'El token no puede contener espacios') }).parse(req.body);
+    const { token } = z.object({ token: z.string().trim().min(16).max(400).regex(/^\S+$/, msg('El token no puede contener espacios')) }).parse(req.body);
     const cfg = deps.config.railway;
     if (!cfg.projectId || !cfg.environmentId) throw conflict(NO_RAILWAY);
     let scope: { projectId: string; environmentId: string };
@@ -126,7 +132,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
       scope = await new RailwayClient(token, deps.fetchImpl).projectToken();
     } catch (e) {
       if (!(e instanceof RailwayError)) throw e;
-      throw badRequest(e.code === 'unavailable' ? `No se ha podido comprobar el token: ${e.message}` : 'El token no es válido: debe ser un token de PROYECTO de Railway (Proyecto › Settings › Tokens) de este proyecto y entorno');
+      throw badRequest(e.code === 'unavailable' ? t('No se ha podido comprobar el token: {error}', { error: e.message }) : t('El token no es válido: debe ser un token de PROYECTO de Railway (Proyecto › Settings › Tokens) de este proyecto y entorno'));
     }
     if (scope.projectId !== cfg.projectId || scope.environmentId !== cfg.environmentId) {
       throw badRequest('El token pertenece a otro proyecto o entorno de Railway: créalo en este proyecto, para el entorno en el que corre la instalación');
@@ -198,13 +204,13 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
       testsAdded: patch.testsAdded ?? [],
       requested_by_name: names[0]?.name ?? null,
       workspace_name: ws?.name ?? null,
-      steps: CODE_STEPS,
+      steps: codeSteps(),
       policy: {
         runningVersion: tree.label,
         baseMatches: c.base_tree_hash === tree.hash,
-        approveConfirmation: 'DESPLEGAR',
+        approveConfirmation: CONFIRM_WORDS.deploy,
         canApprove: c.status === 'ready_for_review' && last?.status === 'passed' && !!c.guards?.ok && c.base_tree_hash === tree.hash,
-        rollbackConfirmation: 'REVERTIR',
+        rollbackConfirmation: CONFIRM_WORDS.revert,
         canRollback: (c.status === 'deployed' && latest === c.id && tree.version?.id === c.deploy.sourceVersion?.id) || stalled,
         canRefine: (REFINABLE as readonly string[]).includes(c.status),
         canCancel: (CANCELLABLE as readonly string[]).includes(c.status),
@@ -226,7 +232,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     // Si la instalación ha cambiado de versión, el cambio se reconstruye desde la versión actual (mismo hilo).
     const rebase = c.base_tree_hash !== tree.hash;
     const conversation = [...c.conversation, { role: 'feedback', content: feedback, by: a.userId, byName: a.userName, at: deps.now().toISOString() }];
-    const progress = [progressEntry('develop', 'running', rebase ? 'Refinado: se reconstruye sobre la versión actual de la instalación' : 'Refinado con nuevas indicaciones', deps.now())];
+    const progress = [progressEntry('develop', 'running', rebase ? t('Refinado: se reconstruye sobre la versión actual de la instalación') : t('Refinado con nuevas indicaciones'), deps.now())];
     try {
       await deps.db.tx(async (q) => {
         const r = await q.query(
@@ -252,7 +258,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     const a = requirePlatformAdmin(req);
     const { id } = ID.parse(req.params);
     const body = z.object({ confirmation: z.string().max(40).optional(), comment: z.string().trim().max(2000).optional() }).parse(req.body ?? {});
-    if (body.confirmation !== 'DESPLEGAR') throw badRequest('Escribe DESPLEGAR para confirmar el despliegue');
+    if (body.confirmation !== CONFIRM_WORDS.deploy) throw badRequest(t('Escribe {word} para confirmar el despliegue', { word: CONFIRM_WORDS.deploy }));
     const c = await getChange(deps.db, id);
     if (!c) throw notFound('Cambio no encontrado');
     if (c.status !== 'ready_for_review') throw conflict('Solo se puede aprobar un cambio listo para revisión');
@@ -263,7 +269,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     if (c.base_tree_hash !== tree.hash) throw conflict('La instalación ya no está en la versión sobre la que se preparó y probó el cambio: refínalo para reconstruirlo sobre la versión actual');
     await requireConfigured(deps);
     const now = deps.now().toISOString();
-    const approval = { userId: a.userId, name: a.userName, at: now, ...(body.comment ? { comment: body.comment } : {}), confirmation: 'DESPLEGAR', attempt: last.n, treeHash: last.treeHash };
+    const approval = { userId: a.userId, name: a.userName, at: now, ...(body.comment ? { comment: body.comment } : {}), confirmation: CONFIRM_WORDS.deploy, attempt: last.n, treeHash: last.treeHash };
     try {
       await deps.db.tx(async (q) => {
         const r = await q.query(
@@ -272,7 +278,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
           [
             JSON.stringify([approval]),
             JSON.stringify({ phase: 'pending', requestedAt: now, requestedBy: a.userId, attempt: last.n }),
-            JSON.stringify([progressEntry('approve', 'done', `Aprobado por ${a.userName} (DESPLEGAR)`, deps.now())]),
+            JSON.stringify([progressEntry('approve', 'done', t('Aprobado por {name} ({word})', { name: a.userName, word: tk(CONFIRM_WORDS.deploy) }), deps.now())]),
             id,
           ],
         );
@@ -291,7 +297,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     const a = requirePlatformAdmin(req);
     const { id } = ID.parse(req.params);
     const body = z.object({ confirmation: z.string().max(40).optional() }).parse(req.body ?? {});
-    if (body.confirmation !== 'REVERTIR') throw badRequest('Escribe REVERTIR para confirmar el rollback');
+    if (body.confirmation !== CONFIRM_WORDS.revert) throw badRequest(t('Escribe {word} para confirmar el rollback', { word: CONFIRM_WORDS.revert }));
     const c = await getChange(deps.db, id);
     if (!c) throw notFound('Cambio no encontrado');
     const stalled = isStalled(c);
@@ -307,15 +313,15 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     if (!client) throw conflict('Falta el token de proyecto de Railway');
     const services: ('web' | 'worker')[] = c.status === 'deploying' && !c.deploy.web ? ['worker'] : ['web', 'worker'];
     const results = await rollbackServices(client, c.deploy, services);
-    if (!results.some((r) => r.ok)) throw new AppError(502, 'railway_error', `Railway no ha aceptado el rollback: ${results.map((r) => r.error ?? r.service).join(' · ')}`);
-    const deploy = { ...c.deploy, phase: 'rollback_verify', rollback: { reason: 'manual', requestedAt: deps.now().toISOString(), by: a.userId, message: `Revertido por ${a.userName}`, services: results } };
+    if (!results.some((r) => r.ok)) throw new AppError(502, 'railway_error', t('Railway no ha aceptado el rollback: {errors}', { errors: results.map((r) => r.error ?? r.service).join(' · ') }));
+    const deploy = { ...c.deploy, phase: 'rollback_verify', rollback: { reason: 'manual', requestedAt: deps.now().toISOString(), by: a.userId, message: t('Revertido por {name}', { name: a.userName }), services: results } };
     let updated = 0;
     try {
       updated = await deps.db.tx(async (q) => {
         const r = await q.query(
           `UPDATE source_changes SET status = 'rolling_back', deploy = $1, lease_token = NULL, lease_until = NULL, progress = progress || $2::jsonb, updated_at = now()
            WHERE id = $3 AND status = $4 RETURNING id`,
-          [JSON.stringify(deploy), JSON.stringify([progressEntry('rollback', 'running', `Rollback (REVERTIR) por ${a.userName}: ${results.map((r) => `${r.service} ${r.ok ? '✓' : '✗'}`).join(', ')}`, deps.now())]), id, c.status],
+          [JSON.stringify(deploy), JSON.stringify([progressEntry('rollback', 'running', t('Rollback ({word}) por {name}: {services}', { word: tk(CONFIRM_WORDS.revert), name: a.userName, services: results.map((r) => `${r.service} ${r.ok ? '✓' : '✗'}`).join(', ') }), deps.now())]), id, c.status],
         );
         if (r.rowCount) await enqueueCodeJob(q, 'code.deploy', id);
         return r.rowCount;
@@ -336,7 +342,7 @@ export async function codeEngineRoutes(app: FastifyInstance, deps: AppDeps): Pro
     if (!c) throw notFound('Cambio no encontrado');
     if (!(CANCELLABLE as readonly string[]).includes(c.status)) throw conflict('No se puede cancelar un cambio que se está desplegando, ya desplegado o revertido');
     const r = await deps.db.query(`UPDATE source_changes SET status = 'cancelled', progress = progress || $1::jsonb, updated_at = now() WHERE id = $2 AND status = ANY($3::text[]) RETURNING id`, [
-      JSON.stringify([progressEntry('present', 'skipped', `Cancelado por ${a.userName}`, deps.now())]),
+      JSON.stringify([progressEntry('present', 'skipped', t('Cancelado por {name}', { name: a.userName }), deps.now())]),
       id,
       [...CANCELLABLE],
     ]);

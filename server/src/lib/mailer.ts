@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config';
+import { currentLocale } from '../i18n';
 
 export interface MailMessage {
   to: string;
@@ -43,8 +44,9 @@ export function createMailer(config: AppConfig, log: { info: (o: object, m: stri
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+/** Plantilla de los correos: recibe los textos ya traducidos (se redactan con t() en el idioma de la petición). */
 export function emailTemplate(title: string, intro: string, cta: { label: string; url: string }, outro = ''): { html: string; text: string } {
-  const html = `<!doctype html><html><body style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f6f6f9;padding:32px">
+  const html = `<!doctype html><html lang="${currentLocale()}"><body style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f6f6f9;padding:32px">
 <div style="max-width:520px;margin:auto;background:#fff;border-radius:16px;padding:32px;border:1px solid #e7e7ee">
 <div style="font-weight:700;font-size:18px;color:#5b3df5;margin-bottom:24px">Cortex CRM</div>
 <h1 style="font-size:20px;color:#111;margin:0 0 12px">${esc(title)}</h1>

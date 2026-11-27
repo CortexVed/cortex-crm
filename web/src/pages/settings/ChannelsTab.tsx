@@ -6,6 +6,7 @@ import { del, errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { useBlueprint } from '../../lib/hooks';
 import { formatDate, relativeTime } from '../../lib/format';
+import { msg, t, tk, tp, tx } from '../../lib/i18n';
 import { useToast } from '../../components/toast';
 import { Alert, Badge, Button, Card, ConfirmDialog, cx, EmptyState, ErrorState, Field, IconButton, Input, Modal, Skeleton } from '../../components/ui';
 import type { Color } from '../../../../shared/constants';
@@ -71,28 +72,26 @@ const FALLBACK_STYLE = { icon: Plug, tone: 'bg-zinc-100 text-zinc-600 dark:bg-zi
 
 const CHANNEL_NAMES: Record<string, string> = { whatsapp: 'WhatsApp', telegram: 'Telegram', gmail: 'Gmail', outlook: 'Outlook', slack: 'Slack' };
 
+// Etiquetas marcadas con msg(): se traducen al mostrarlas con tk().
 const STATUS: Record<string, { label: string; color: Color }> = {
-  active: { label: 'Activo', color: 'emerald' },
-  pending: { label: 'Pendiente', color: 'amber' },
-  error: { label: 'Con errores', color: 'red' },
-  disabled: { label: 'Desactivado', color: 'slate' },
+  active: { label: msg('Activo'), color: 'emerald' },
+  pending: { label: msg('Pendiente'), color: 'amber' },
+  error: { label: msg('Con errores'), color: 'red' },
+  disabled: { label: msg('Desactivado'), color: 'slate' },
 };
 
-// Lo que hay que preparar en cada proveedor antes de pegar las credenciales.
-const SETUP_HINTS: Record<string, ReactNode> = {
-  whatsapp: (
-    <>
-      Necesitas una app en Meta for Developers con el producto WhatsApp. Copia el <b>Phone number ID</b> (WhatsApp › Configuración de la API), un <b>token de acceso permanente</b> de un usuario del sistema y el <b>App secret</b> (Configuración de la app › Básica).
-    </>
-  ),
-  telegram: (
-    <>
-      Crea un bot con <b>@BotFather</b> en Telegram y pega aquí su token. La aplicación debe estar publicada con una URL pública HTTPS (APP_URL) para que Telegram pueda entregar los mensajes.
-    </>
-  ),
+const bold = (c: ReactNode) => <b>{c}</b>;
+
+// Lo que hay que preparar en cada proveedor antes de pegar las credenciales (se traduce al pintar).
+const setupHint = (type: string): ReactNode => {
+  if (type === 'whatsapp')
+    return tx('Necesitas una app en Meta for Developers con el producto WhatsApp. Copia el <b>Phone number ID</b> (WhatsApp › Configuración de la API), un <b>token de acceso permanente</b> de un usuario del sistema y el <b>App secret</b> (Configuración de la app › Básica).', { b: bold });
+  if (type === 'telegram')
+    return tx('Crea un bot con <b>@BotFather</b> en Telegram y pega aquí su token. La aplicación debe estar publicada con una URL pública HTTPS (APP_URL) para que Telegram pueda entregar los mensajes.', { b: bold });
+  return null;
 };
 
-const DEFAULT_NAMES: Record<string, string> = { whatsapp: 'WhatsApp Business', telegram: 'Bot de Telegram' };
+const DEFAULT_NAMES: Record<string, string> = { whatsapp: 'WhatsApp Business', telegram: msg('Bot de Telegram') };
 
 function TypeIcon({ type, muted }: { type: string; muted?: boolean }) {
   const s = TYPE_STYLES[type] ?? FALLBACK_STYLE;
@@ -108,7 +107,7 @@ function StatusBadge({ status }: { status: string }) {
   const s = STATUS[status] ?? { label: status, color: 'slate' as Color };
   return (
     <Badge color={s.color} dot>
-      {s.label}
+      {tk(s.label)}
     </Badge>
   );
 }
@@ -176,8 +175,8 @@ export default function ChannelsTab() {
   }
 
   const { types, connectors } = q.data;
-  const available = types.filter((t) => t.status === 'available');
-  const planned = types.filter((t) => t.status !== 'available');
+  const available = types.filter((def) => def.status === 'available');
+  const planned = types.filter((def) => def.status !== 'available');
   const countOf = (type: string) => connectors.filter((c) => c.type === type).length;
 
   return (
@@ -186,10 +185,10 @@ export default function ChannelsTab() {
 
       {available.length > 0 && (
         <section className="space-y-3">
-          <SectionTitle title="Canales disponibles" description="Conecta tus propias cuentas: los mensajes llegan a la ficha del contacto y puedes responder desde el CRM." />
+          <SectionTitle title={t('Canales disponibles')} description={t('Conecta tus propias cuentas: los mensajes llegan a la ficha del contacto y puedes responder desde el CRM.')} />
           <div className="grid gap-4 md:grid-cols-2">
-            {available.map((t) => (
-              <TypeCard key={t.type} t={t} connected={countOf(t.type)} canConnect={isAdmin} onConnect={() => setConnecting(t)} />
+            {available.map((def) => (
+              <TypeCard key={def.type} def={def} connected={countOf(def.type)} canConnect={isAdmin} onConnect={() => setConnecting(def)} />
             ))}
           </div>
         </section>
@@ -197,10 +196,10 @@ export default function ChannelsTab() {
 
       {planned.length > 0 && (
         <section className="space-y-3">
-          <SectionTitle title="Próximamente" description="Integraciones en preparación. No se pueden activar hasta que funcionen de verdad con el proveedor." />
+          <SectionTitle title={t('Próximamente')} description={t('Integraciones en preparación. No se pueden activar hasta que funcionen de verdad con el proveedor.')} />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {planned.map((t) => (
-              <TypeCard key={t.type} t={t} connected={0} canConnect={false} />
+            {planned.map((def) => (
+              <TypeCard key={def.type} def={def} connected={0} canConnect={false} />
             ))}
           </div>
         </section>
@@ -213,48 +212,50 @@ export default function ChannelsTab() {
   );
 }
 
-function TypeCard({ t, connected, canConnect, onConnect }: { t: ConnectorType; connected: number; canConnect: boolean; onConnect?: () => void }) {
-  const isAvailable = t.status === 'available';
+function TypeCard({ def, connected, canConnect, onConnect }: { def: ConnectorType; connected: number; canConnect: boolean; onConnect?: () => void }) {
+  const isAvailable = def.status === 'available';
   return (
     <div className="flex flex-col rounded-xl bg-white p-4 shadow-xs ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800">
       <div className="flex items-start gap-3">
-        <TypeIcon type={t.type} muted={!isAvailable} />
+        <TypeIcon type={def.type} muted={!isAvailable} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t.label}</h4>
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{def.label}</h4>
             {!isAvailable ? (
-              <Badge color="slate">Planificado</Badge>
+              <Badge color="slate">{t('Planificado')}</Badge>
             ) : connected > 0 ? (
               <Badge color="emerald" dot>
-                {connected === 1 ? 'Conectado' : `${connected} conectados`}
+                {tp(connected, 'Conectado', '{count} conectados')}
               </Badge>
             ) : (
-              <Badge color="sky">Disponible</Badge>
+              <Badge color="sky">{t('Disponible')}</Badge>
             )}
           </div>
-          <p className="mt-1 text-sm text-zinc-500">{t.description}</p>
+          <p className="mt-1 text-sm text-zinc-500">{def.description}</p>
         </div>
       </div>
-      {!isAvailable && t.plannedReason && (
+      {!isAvailable && def.plannedReason && (
         <div className="mt-3 flex gap-2 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600 ring-1 ring-inset ring-zinc-100 dark:bg-zinc-800/50 dark:text-zinc-400 dark:ring-zinc-800">
           <Clock className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">Por qué aún no está disponible: </span>
-            {t.plannedReason}
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              {t('Por qué aún no está disponible:')}{' '}
+            </span>
+            {def.plannedReason}
           </span>
         </div>
       )}
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4">
-        <a href={t.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
-          Documentación oficial <ExternalLink className="size-3" />
+        <a href={def.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
+          {t('Documentación oficial')} <ExternalLink className="size-3" />
         </a>
         {isAvailable &&
           (canConnect && onConnect ? (
             <Button size="sm" variant="primary" icon={<Plug className="size-3.5" />} onClick={onConnect}>
-              {connected ? 'Conectar otro' : 'Conectar'}
+              {connected ? t('Conectar otro') : t('Conectar')}
             </Button>
           ) : (
-            <span className="text-xs text-zinc-500">Solo los administradores pueden conectarlo</span>
+            <span className="text-xs text-zinc-500">{t('Solo los administradores pueden conectarlo')}</span>
           ))}
       </div>
     </div>
@@ -271,20 +272,20 @@ function ConnectedCard({ connectors, types }: { connectors: Connector[]; types: 
     mutationFn: (c: Connector) => del(`/comms/connectors/${c.id}`),
     onSuccess: (_r, c) => {
       setDeleting(null);
-      toast(`Canal «${c.name}» eliminado`);
+      toast(t('Canal «{name}» eliminado', { name: c.name }));
       qc.invalidateQueries({ queryKey: CONNECTORS_KEY });
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
-  const typeLabel = (type: string) => CHANNEL_NAMES[type] ?? types.find((t) => t.type === type)?.label ?? type;
+  const typeLabel = (type: string) => CHANNEL_NAMES[type] ?? types.find((def) => def.type === type)?.label ?? type;
 
   return (
-    <Card padded={false} title="Canales conectados" description="Cuentas de mensajería activas en esta organización.">
+    <Card padded={false} title={t('Canales conectados')} description={t('Cuentas de mensajería activas en esta organización.')}>
       {!connectors.length ? (
         <EmptyState
           icon={<Plug className="size-5" />}
-          title="Ningún canal conectado todavía"
-          description={isAdmin ? 'Elige un canal disponible y conéctalo con las credenciales de tu cuenta.' : 'Un administrador puede conectar WhatsApp o Telegram para recibir mensajes en el CRM.'}
+          title={t('Ningún canal conectado todavía')}
+          description={isAdmin ? t('Elige un canal disponible y conéctalo con las credenciales de tu cuenta.') : t('Un administrador puede conectar WhatsApp o Telegram para recibir mensajes en el CRM.')}
         />
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -300,23 +301,23 @@ function ConnectedCard({ connectors, types }: { connectors: Connector[]; types: 
                       <StatusBadge status={c.status} />
                     </div>
                     <div className="mt-0.5 text-xs text-zinc-500">
-                      {[typeLabel(c.type), detail, c.lastEventAt ? `Último mensaje ${relativeTime(c.lastEventAt)}` : 'Sin mensajes todavía', `Conectado el ${formatDate(c.createdAt)}`].filter(Boolean).join(' · ')}
+                      {[typeLabel(c.type), detail, c.lastEventAt ? t('Último mensaje {time}', { time: relativeTime(c.lastEventAt) }) : t('Sin mensajes todavía'), t('Conectado el {date}', { date: formatDate(c.createdAt) })].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                   {c.lastError && (
-                    <Alert tone="danger" title="Último error">
+                    <Alert tone="danger" title={t('Último error')}>
                       {c.lastError}
                     </Alert>
                   )}
                   {c.webhookUrl && (
                     <div className="max-w-2xl">
-                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">URL del webhook</div>
-                      <CopyField size="sm" value={c.webhookUrl} label={`URL del webhook de ${c.name}`} />
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{t('URL del webhook')}</div>
+                      <CopyField size="sm" value={c.webhookUrl} label={t('URL del webhook de {name}', { name: c.name })} />
                     </div>
                   )}
                 </div>
                 {isAdmin && (
-                  <IconButton label={`Eliminar el canal ${c.name}`} onClick={() => setDeleting(c)}>
+                  <IconButton label={t('Eliminar el canal {name}', { name: c.name })} onClick={() => setDeleting(c)}>
                     <Trash2 className="size-4" />
                   </IconButton>
                 )}
@@ -331,9 +332,13 @@ function ConnectedCard({ connectors, types }: { connectors: Connector[]; types: 
         onConfirm={() => deleting && remove.mutate(deleting)}
         loading={remove.isPending}
         danger
-        confirmLabel="Eliminar canal"
-        title={`¿Eliminar el canal «${deleting?.name ?? ''}»?`}
-        description={`Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan.${deleting?.type === 'telegram' ? ' También se retirará el webhook del bot en Telegram.' : ''}`}
+        confirmLabel={t('Eliminar canal')}
+        title={t('¿Eliminar el canal «{name}»?', { name: deleting?.name ?? '' })}
+        description={
+          deleting?.type === 'telegram'
+            ? t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan. También se retirará el webhook del bot en Telegram.')
+            : t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan.')
+        }
       />
     </Card>
   );
@@ -344,7 +349,7 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
   const toast = useToast();
   const formId = useId();
   const blank = () => Object.fromEntries(def.fields.map((f) => [f.key, ''])) as Record<string, string>;
-  const [name, setName] = useState(DEFAULT_NAMES[def.type] ?? def.label);
+  const [name, setName] = useState(() => tk(DEFAULT_NAMES[def.type] ?? def.label));
   const [creds, setCreds] = useState<Record<string, string>>(blank);
   const [show, setShow] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -360,7 +365,7 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
       setResult({ ...r, name: v.name });
       setCreds(blank()); // no conservar secretos en memoria más de lo necesario
       setServerError(null);
-      toast(`Canal «${v.name}» conectado`);
+      toast(t('Canal «{name}» conectado', { name: v.name }));
       qc.invalidateQueries({ queryKey: CONNECTORS_KEY });
     },
     onError: (e) => {
@@ -382,8 +387,8 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
     e.preventDefault();
     const errs: Record<string, string> = {};
     const n = name.trim();
-    if (n.length < 2) errs.name = 'Indica un nombre de al menos 2 caracteres';
-    for (const f of def.fields) if (!creds[f.key]?.trim()) errs[f.key] = `Falta «${f.label}»`;
+    if (n.length < 2) errs.name = t('Indica un nombre de al menos 2 caracteres');
+    for (const f of def.fields) if (!creds[f.key]?.trim()) errs[f.key] = t('Falta «{field}»', { field: f.label });
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setServerError(null);
@@ -391,34 +396,35 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
   };
 
   const whatsappSteps: ReactNode[] = [
-    <>En Meta for Developers, abre tu app y ve a <b>WhatsApp › Configuración</b>.</>,
-    <>En «Webhook», pulsa <b>Editar</b>, pega la URL de devolución de llamada y el token de verificación, y pulsa <b>Verificar y guardar</b>.</>,
-    <>En los campos del webhook, suscríbete a <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">messages</code>.</>,
-    <>Los mensajes entrantes se asignarán al contacto cuyo teléfono coincida con el del remitente.</>,
+    tx('En Meta for Developers, abre tu app y ve a <b>WhatsApp › Configuración</b>.', { b: bold }),
+    tx('En «Webhook», pulsa <b>Editar</b>, pega la URL de devolución de llamada y el token de verificación, y pulsa <b>Verificar y guardar</b>.', { b: bold }),
+    tx('En los campos del webhook, suscríbete a {field}.', { field: <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">messages</code> }),
+    t('Los mensajes entrantes se asignarán al contacto cuyo teléfono coincida con el del remitente.'),
   ];
   const telegramSteps: ReactNode[] = [
-    <>El webhook se ha configurado automáticamente en Telegram: no tienes que hacer nada más.</>,
-    <>Escribe a tu bot para probarlo. Los mensajes se vinculan al contacto cuyo campo «telegram» coincida con el usuario del remitente.</>,
-    <>Telegram no permite iniciar conversaciones: el contacto debe escribir primero al bot para poder responderle.</>,
+    t('El webhook se ha configurado automáticamente en Telegram: no tienes que hacer nada más.'),
+    t('Escribe a tu bot para probarlo. Los mensajes se vinculan al contacto cuyo campo «telegram» coincida con el usuario del remitente.'),
+    t('Telegram no permite iniciar conversaciones: el contacto debe escribir primero al bot para poder responderle.'),
   ];
+  const hint = setupHint(def.type);
 
   return (
     <Modal
       open
       onClose={close}
       size="lg"
-      title={result ? `${def.label}: conectado` : `Conectar ${def.label}`}
+      title={result ? t('{channel}: conectado', { channel: def.label }) : t('Conectar {channel}', { channel: def.label })}
       description={result ? undefined : def.description}
       footer={
         result ? (
           <Button variant={warned && !tokenCopied ? 'danger' : 'primary'} onClick={close}>
-            {warned && !tokenCopied ? 'Cerrar sin copiar el token' : 'Listo'}
+            {warned && !tokenCopied ? t('Cerrar sin copiar el token') : t('Listo')}
           </Button>
         ) : (
           <>
-            <Button onClick={close}>Cancelar</Button>
+            <Button onClick={close}>{t('Cancelar')}</Button>
             <Button type="submit" form={formId} variant="primary" icon={<Plug className="size-4" />} loading={create.isPending}>
-              Conectar
+              {t('Conectar')}
             </Button>
           </>
         )
@@ -426,30 +432,30 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
     >
       {result ? (
         <div className="space-y-4">
-          <Alert tone="success" title={`«${result.name}» está activo`}>
-            Hemos comprobado las credenciales con el proveedor y las hemos guardado cifradas.
+          <Alert tone="success" title={t('«{name}» está activo', { name: result.name })}>
+            {t('Hemos comprobado las credenciales con el proveedor y las hemos guardado cifradas.')}
           </Alert>
           <div>
-            <Label>URL de devolución de llamada (webhook)</Label>
-            <CopyField value={result.webhookUrl} label="URL del webhook" />
+            <Label>{t('URL de devolución de llamada (webhook)')}</Label>
+            <CopyField value={result.webhookUrl} label={t('URL del webhook')} />
           </div>
           {result.verifyToken && (
             <div>
-              <Label>Token de verificación</Label>
-              <CopyField value={result.verifyToken} label="Token de verificación" onCopied={() => setTokenCopied(true)} />
-              <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">Solo se muestra ahora. Cópialo antes de cerrar este diálogo.</p>
+              <Label>{t('Token de verificación')}</Label>
+              <CopyField value={result.verifyToken} label={t('Token de verificación')} onCopied={() => setTokenCopied(true)} />
+              <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">{t('Solo se muestra ahora. Cópialo antes de cerrar este diálogo.')}</p>
             </div>
           )}
           {def.type === 'whatsapp' && <Steps items={whatsappSteps} />}
           {def.type === 'telegram' && <Steps items={telegramSteps} />}
           {warned && !tokenCopied && (
-            <Alert tone="danger">Aún no has copiado el token de verificación. Sin él no podrás completar la configuración en Meta y tendrías que eliminar y volver a conectar el canal.</Alert>
+            <Alert tone="danger">{t('Aún no has copiado el token de verificación. Sin él no podrás completar la configuración en Meta y tendrías que eliminar y volver a conectar el canal.')}</Alert>
           )}
         </div>
       ) : (
         <form id={formId} onSubmit={submit} className="space-y-4" noValidate autoComplete="off">
-          {SETUP_HINTS[def.type] && <Alert tone="info">{SETUP_HINTS[def.type]}</Alert>}
-          <Field label="Nombre del canal" required error={errors.name} hint="Para identificarlo en el CRM, p. ej. «Ventas España».">
+          {hint && <Alert tone="info">{hint}</Alert>}
+          <Field label={t('Nombre del canal')} required error={errors.name} hint={t('Para identificarlo en el CRM, p. ej. «Ventas España».')}>
             <Input
               value={name}
               maxLength={80}
@@ -483,11 +489,11 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
           {hasSecrets && (
             <button type="button" className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100" onClick={() => setShow((s) => !s)}>
               {show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-              {show ? 'Ocultar valores secretos' : 'Mostrar valores secretos'}
+              {show ? t('Ocultar valores secretos') : t('Mostrar valores secretos')}
             </button>
           )}
           {serverError && (
-            <Alert tone="danger" title="No se ha podido conectar">
+            <Alert tone="danger" title={t('No se ha podido conectar')}>
               {serverError}
             </Alert>
           )}
@@ -505,15 +511,15 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
   const [showAll, setShowAll] = useState(false);
   const messages = q.data ?? [];
   const shown = showAll ? messages : messages.slice(0, INBOX_PREVIEW);
-  const channelName = (ch: string) => CHANNEL_NAMES[ch] ?? types.find((t) => t.type === ch)?.label ?? ch;
+  const channelName = (ch: string) => CHANNEL_NAMES[ch] ?? types.find((def) => def.type === ch)?.label ?? ch;
 
   return (
     <Card
       padded={false}
-      title="Mensajes recientes"
-      description="Últimos mensajes recibidos y enviados por los canales conectados."
+      title={t('Mensajes recientes')}
+      description={t('Últimos mensajes recibidos y enviados por los canales conectados.')}
       actions={
-        <IconButton label="Actualizar mensajes" onClick={() => q.refetch()} disabled={q.isFetching}>
+        <IconButton label={t('Actualizar mensajes')} onClick={() => q.refetch()} disabled={q.isFetching}>
           <RefreshCw className={cx('size-4', q.isFetching && 'animate-spin')} />
         </IconButton>
       }
@@ -527,7 +533,7 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !messages.length ? (
-        <EmptyState icon={<Inbox className="size-5" />} title="Sin mensajes todavía" description="Cuando tus clientes escriban por un canal conectado, sus mensajes aparecerán aquí y en su ficha." />
+        <EmptyState icon={<Inbox className="size-5" />} title={t('Sin mensajes todavía')} description={t('Cuando tus clientes escriban por un canal conectado, sus mensajes aparecerán aquí y en su ficha.')} />
       ) : (
         <>
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -537,13 +543,13 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
                 <li key={m.id} className="flex gap-3 px-4 py-3">
                   <span
                     className={cx('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full', inbound ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}
-                    title={inbound ? 'Recibido' : 'Enviado'}
+                    title={inbound ? t('Recibido') : t('Enviado')}
                   >
                     {inbound ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                      <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{inbound ? m.from_address || 'Remitente desconocido' : 'Respuesta desde el CRM'}</span>
+                      <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{inbound ? m.from_address || t('Remitente desconocido') : t('Respuesta desde el CRM')}</span>
                       <span className="shrink-0 text-xs text-zinc-400">{channelName(m.channel)}</span>
                       <span className="ml-auto shrink-0 text-xs text-zinc-400" title={formatDate(m.created_at, true)}>
                         {relativeTime(m.created_at)}
@@ -554,13 +560,19 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
                       {m.record_id ? (
                         contactsLinkable ? (
                           <Link to={`/m/contacts/${m.record_id}`} className="font-medium text-brand-600 hover:underline dark:text-brand-400">
-                            Ver ficha del contacto
+                            {t('Ver ficha del contacto')}
                           </Link>
                         ) : (
-                          <span className="text-zinc-500">Vinculado a una ficha</span>
+                          <span className="text-zinc-500">{t('Vinculado a una ficha')}</span>
                         )
                       ) : (
-                        <span className="text-amber-700 dark:text-amber-400">Sin vincular: ningún contacto tiene ese {m.channel === 'whatsapp' ? 'teléfono' : m.channel === 'telegram' ? 'usuario de Telegram' : 'remitente'}</span>
+                        <span className="text-amber-700 dark:text-amber-400">
+                          {m.channel === 'whatsapp'
+                            ? t('Sin vincular: ningún contacto tiene ese teléfono')
+                            : m.channel === 'telegram'
+                              ? t('Sin vincular: ningún contacto tiene ese usuario de Telegram')
+                              : t('Sin vincular: ningún contacto tiene ese remitente')}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -571,7 +583,7 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
           {messages.length > INBOX_PREVIEW && (
             <div className="border-t border-zinc-100 px-4 py-2.5 text-center dark:border-zinc-800">
               <button type="button" className="text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100" onClick={() => setShowAll((s) => !s)}>
-                {showAll ? 'Mostrar menos' : `Mostrar los ${messages.length} mensajes`}
+                {showAll ? t('Mostrar menos') : t('Mostrar los {count} mensajes', { count: messages.length })}
               </button>
             </div>
           )}

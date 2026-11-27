@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ApiError, errorMessage, get } from '../../../lib/api';
+import { getIntlTag, msg, t, tp } from '../../../lib/i18n';
 import { cx } from '../../../components/ui';
 import { useToast } from '../../../components/toast';
 import type { ModelInfo, ModelsResponse, ProviderState } from './types';
@@ -46,7 +47,7 @@ export function useRefreshModels() {
     onSuccess: (data, provider) => {
       qc.setQueryData(AI_KEYS.models(provider), data);
       qc.invalidateQueries({ queryKey: AI_KEYS.providers });
-      toast(`Catálogo actualizado: ${data.models.length} modelos`);
+      toast(tp(data.models.length, 'Catálogo actualizado: {count} modelo', 'Catálogo actualizado: {count} modelos'));
     },
     onError: (e) => toast(describeError(e), 'error'),
   });
@@ -90,10 +91,11 @@ export function describeError(e: unknown): string {
 
 const usdFormatters = new Map<string, Intl.NumberFormat>();
 function usd(min: number, max: number) {
-  const k = `${min}-${max}`;
+  const tag = getIntlTag();
+  const k = `${tag}|${min}-${max}`;
   let f = usdFormatters.get(k);
   if (!f) {
-    f = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: min, maximumFractionDigits: max });
+    f = new Intl.NumberFormat(tag, { style: 'currency', currency: 'USD', minimumFractionDigits: min, maximumFractionDigits: max });
     usdFormatters.set(k, f);
   }
   return f;
@@ -111,26 +113,38 @@ export function formatUsd(n: number | null | undefined): string {
 
 /** Precio por millón de tokens. */
 export function formatPerM(n: number): string {
-  if (n === 0) return 'Gratis';
+  if (n === 0) return t('Gratis');
   return usd(0, 4).format(n);
 }
 
-const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
-const nf0 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
+// Formato del idioma activo (o de la región de la organización), uno por etiqueta y número de decimales.
+const decimalFormatters = new Map<string, Intl.NumberFormat>();
+function decimals(max: number) {
+  const tag = getIntlTag();
+  const k = `${tag}|${max}`;
+  let f = decimalFormatters.get(k);
+  if (!f) {
+    f = new Intl.NumberFormat(tag, { maximumFractionDigits: max });
+    decimalFormatters.set(k, f);
+  }
+  return f;
+}
+const nf1 = () => decimals(1);
+const nf0 = () => decimals(0);
 
 /** Tamaño de contexto o recuento de tokens compacto: 200K, 1M, 1,5M. */
 export function formatTokens(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  if (n >= 1_000_000) return `${nf1.format(n / 1_000_000)}M`;
-  if (n >= 10_000) return `${nf0.format(n / 1000)}K`;
-  if (n >= 1000) return `${nf1.format(n / 1000)}K`;
-  return nf0.format(n);
+  if (n >= 1_000_000) return `${nf1().format(n / 1_000_000)}M`;
+  if (n >= 10_000) return `${nf0().format(n / 1000)}K`;
+  if (n >= 1000) return `${nf1().format(n / 1000)}K`;
+  return nf0().format(n);
 }
 
 export function formatMs(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   if (n < 1000) return `${Math.round(n)} ms`;
-  return `${nf1.format(n / 1000)} s`;
+  return `${nf1().format(n / 1000)} s`;
 }
 
 export function providerName(providers: ProviderState[] | undefined, id: string): string {
@@ -142,16 +156,17 @@ export function isUsable(p: ProviderState): boolean {
   return p.configured && p.enabled && !!p.defaultModel;
 }
 
+/** Etiquetas de los códigos de error (marcadas con msg(): se traducen al mostrarlas con tk()). */
 export const ERROR_CODE_LABELS: Record<string, string> = {
-  auth: 'Clave rechazada',
-  rate_limit: 'Límite del proveedor',
-  invalid_request: 'Petición inválida',
-  unavailable: 'No disponible',
-  timeout: 'Tiempo agotado',
-  refusal: 'Contenido bloqueado',
-  not_configured: 'Sin configurar',
-  limit_exceeded: 'Límite superado',
-  bad_response: 'Respuesta inválida',
+  auth: msg('Clave rechazada'),
+  rate_limit: msg('Límite del proveedor'),
+  invalid_request: msg('Petición inválida'),
+  unavailable: msg('No disponible'),
+  timeout: msg('Tiempo agotado'),
+  refusal: msg('Contenido bloqueado'),
+  not_configured: msg('Sin configurar'),
+  limit_exceeded: msg('Límite superado'),
+  bad_response: msg('Respuesta inválida'),
 };
 
 // ---------------------------------------------------------------- UI

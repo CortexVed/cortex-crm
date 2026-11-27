@@ -5,6 +5,7 @@ import { CircleCheck, FileX, Lock, Send, Star } from 'lucide-react';
 import { Alert, Button, ErrorState, Field, Input, Select, Skeleton, Textarea, cx } from '../components/ui';
 import { ApiError, errorMessage, get, post } from '../lib/api';
 import { useTheme } from '../lib/hooks';
+import { effectiveLocale, msg, setLocale, t, tk, tx } from '../lib/i18n';
 import type { FieldType } from '../../../shared/constants';
 
 interface PublicField {
@@ -18,6 +19,8 @@ interface PublicField {
 
 interface PublicFormDef {
   organization: string;
+  /** «Idioma y región» de la organización. */
+  locale?: string;
   name: string;
   submitLabel: string;
   fields: PublicField[];
@@ -33,9 +36,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const INPUTS: Partial<Record<FieldType, { type: string; inputMode?: InputHTMLAttributes<HTMLInputElement>['inputMode']; autoComplete?: string; placeholder?: string; step?: string; suffix?: string }>> = {
   text: { type: 'text' },
-  email: { type: 'email', inputMode: 'email', autoComplete: 'email', placeholder: 'nombre@empresa.com' },
+  // Los placeholder se muestran con tk() (el del email está marcado con msg() para traducirlo).
+  email: { type: 'email', inputMode: 'email', autoComplete: 'email', placeholder: msg('nombre@empresa.com') },
   phone: { type: 'tel', inputMode: 'tel', autoComplete: 'tel', placeholder: '+34 600 000 000' },
-  url: { type: 'url', inputMode: 'url', autoComplete: 'url', placeholder: 'https://' },
+  url: { type: 'url', inputMode: 'url', autoComplete: 'url', placeholder: 'https://' }, // i18n-ignore (esquema de URL)
   number: { type: 'number', inputMode: 'decimal', step: 'any' },
   currency: { type: 'number', inputMode: 'decimal', step: 'any' },
   percent: { type: 'number', inputMode: 'decimal', step: 'any', suffix: '%' },
@@ -67,15 +71,15 @@ function validate(fields: PublicField[], values: Values): Record<string, string>
   for (const f of fields) {
     const v = values[f.key];
     if (f.type === 'boolean') {
-      if (f.required && v !== true) errs[f.key] = 'Debes marcar esta casilla para continuar';
+      if (f.required && v !== true) errs[f.key] = t('Debes marcar esta casilla para continuar');
       continue;
     }
     const empty = v === null || v === undefined || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && v.length === 0);
     if (empty) {
-      if (f.required) errs[f.key] = 'Este campo es obligatorio';
+      if (f.required) errs[f.key] = t('Este campo es obligatorio');
       continue;
     }
-    if (f.type === 'email' && typeof v === 'string' && !EMAIL_RE.test(v.trim())) errs[f.key] = 'Introduce un email válido';
+    if (f.type === 'email' && typeof v === 'string' && !EMAIL_RE.test(v.trim())) errs[f.key] = t('Introduce un email válido');
   }
   return errs;
 }
@@ -127,6 +131,12 @@ export default function PublicForm() {
   const url = `/public/forms/${encodeURIComponent(slug)}/${encodeURIComponent(form)}`;
   const q = useQuery({ queryKey: ['public-form', slug, form], queryFn: () => get<PublicFormDef>(url), staleTime: 5 * 60_000 });
 
+  // El formulario se muestra en el idioma de la organización (el de sus campos), sin recordarlo en el navegador.
+  const orgTag = q.data?.locale;
+  useEffect(() => {
+    if (orgTag) void setLocale(effectiveLocale(null, orgTag), { orgTag, persist: false });
+  }, [orgTag]);
+
   useEffect(() => {
     if (!q.data) return;
     const prev = document.title;
@@ -155,9 +165,7 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
         <footer className="mt-6 flex items-center justify-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500">
           <img src="/favicon.svg" alt="" className="size-4" />
-          <span>
-            Con la tecnología de <span className="font-semibold text-zinc-500 dark:text-zinc-400">Cortex CRM</span>
-          </span>
+          <span>{tx('Con la tecnología de {brand}', { brand: <span className="font-semibold text-zinc-500 dark:text-zinc-400">Cortex CRM</span> })}</span>
         </footer>
       </main>
     </div>
@@ -166,7 +174,7 @@ function Shell({ children }: { children: ReactNode }) {
 
 function FormSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Cargando formulario">
+    <div className="space-y-5" aria-busy="true" aria-label={t('Cargando formulario')}>
       <div className="space-y-2">
         <Skeleton className="h-3 w-28" />
         <Skeleton className="h-7 w-64 max-w-full" />
@@ -188,8 +196,8 @@ function Unavailable() {
       <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
         <FileX className="size-7" />
       </div>
-      <h1 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-white">Formulario no disponible</h1>
-      <p className="mx-auto mt-1.5 max-w-sm text-sm text-zinc-500">Puede que el enlace no sea correcto o que el formulario ya no acepte respuestas. Si crees que es un error, contacta con quien te lo envió.</p>
+      <h1 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-white">{t('Formulario no disponible')}</h1>
+      <p className="mx-auto mt-1.5 max-w-sm text-sm text-zinc-500">{t('Puede que el enlace no sea correcto o que el formulario ya no acepte respuestas. Si crees que es un error, contacta con quien te lo envió.')}</p>
     </div>
   );
 }
@@ -200,10 +208,10 @@ function Success({ message, onAgain }: { message: string; onAgain: () => void })
       <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20">
         <CircleCheck className="size-7" />
       </div>
-      <h1 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-white">Formulario enviado</h1>
+      <h1 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-white">{t('Formulario enviado')}</h1>
       <p className="mx-auto mt-1.5 max-w-sm whitespace-pre-line text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
       <Button className="mt-6" onClick={onAgain}>
-        Enviar otra respuesta
+        {t('Enviar otra respuesta')}
       </Button>
     </div>
   );
@@ -226,14 +234,14 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
 
   const m = useMutation({
     mutationFn: (payload: { values: Record<string, unknown>; website: string }) => post<{ ok: boolean; message: string }>(url, payload),
-    onSuccess: (res) => setDone(res.message || '¡Gracias! Hemos recibido tus datos.'),
+    onSuccess: (res) => setDone(res.message || t('¡Gracias! Hemos recibido tus datos.')),
     onError: (e) => {
       if (e instanceof ApiError && e.status === 429) {
-        setNotice({ tone: 'warning', title: 'Demasiados envíos seguidos', text: 'Por seguridad limitamos los envíos por minuto. Espera un momento y vuelve a intentarlo: tus respuestas se mantienen.' });
+        setNotice({ tone: 'warning', title: t('Demasiados envíos seguidos'), text: t('Por seguridad limitamos los envíos por minuto. Espera un momento y vuelve a intentarlo: tus respuestas se mantienen.') });
         return;
       }
       if (e instanceof ApiError && e.status === 404) {
-        setNotice({ tone: 'danger', title: 'Formulario no disponible', text: 'Este formulario ya no acepta respuestas.' });
+        setNotice({ tone: 'danger', title: t('Formulario no disponible'), text: t('Este formulario ya no acepta respuestas.') });
         return;
       }
       const fieldErrors = e instanceof ApiError ? e.fieldErrors : {};
@@ -243,11 +251,11 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
         // Errores de campos que no se muestran en el formulario: se indican con su etiqueta.
         const other = keys.filter((k) => !(k in shown)).map((k) => `${def.fields.find((f) => f.key === k)?.label ?? k}: ${fieldErrors[k]}`);
         setErrors(shown);
-        setNotice({ tone: 'danger', title: 'Revisa los campos marcados', text: other.length ? other.join(' · ') : undefined });
+        setNotice({ tone: 'danger', title: t('Revisa los campos marcados'), text: other.length ? other.join(' · ') : undefined });
         focusFirst(Object.keys(shown));
         return;
       }
-      setNotice({ tone: 'danger', title: 'No se ha podido enviar el formulario', text: errorMessage(e) });
+      setNotice({ tone: 'danger', title: t('No se ha podido enviar el formulario'), text: errorMessage(e) });
     },
   });
 
@@ -275,7 +283,7 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
     const errs = validate(fields, values);
     setErrors(errs);
     if (Object.keys(errs).length) {
-      setNotice({ tone: 'danger', title: 'Revisa los campos marcados' });
+      setNotice({ tone: 'danger', title: t('Revisa los campos marcados') });
       focusFirst(Object.keys(errs));
       return;
     }
@@ -298,9 +306,7 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
         <p className="text-xs font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-400">{def.organization}</p>
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl dark:text-white">{def.name}</h1>
         {fields.some((f) => f.required) && (
-          <p className="mt-1.5 text-xs text-zinc-500">
-            Los campos marcados con <span className="text-red-500">*</span> son obligatorios.
-          </p>
+          <p className="mt-1.5 text-xs text-zinc-500">{tx('Los campos marcados con {mark} son obligatorios.', { mark: <span className="text-red-500">*</span> })}</p>
         )}
       </header>
 
@@ -310,7 +316,7 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
 
       {/* Honeypot anti-bots: invisible para personas y lectores de pantalla; si llega relleno, el servidor descarta el envío. */}
       <div aria-hidden="true" className="pointer-events-none absolute left-[-10000px] top-auto size-px overflow-hidden opacity-0">
-        <label htmlFor="pf-website">Sitio web</label>
+        <label htmlFor="pf-website">{t('Sitio web')}</label>
         <input id="pf-website" type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" value={website} onChange={(e) => setWebsite(e.target.value)} />
       </div>
 
@@ -321,10 +327,10 @@ function FormBody({ def, url }: { def: PublicFormDef; url: string }) {
       )}
 
       <Button type="submit" variant="primary" className="w-full" loading={m.isPending} icon={<Send className="size-4" />}>
-        {def.submitLabel || 'Enviar'}
+        {def.submitLabel || t('Enviar@@formulario')}
       </Button>
       <p className="flex items-start justify-center gap-1.5 text-center text-xs text-zinc-500">
-        <Lock className="mt-0.5 size-3 shrink-0" /> Tus datos se enviarán de forma segura a {def.organization}.
+        <Lock className="mt-0.5 size-3 shrink-0" /> {t('Tus datos se enviarán de forma segura a {organization}.', { organization: def.organization })}
       </p>
     </form>
   );
@@ -415,7 +421,7 @@ function FormField({ field: f, value, error, disabled, onChange }: { field: Publ
                 type="button"
                 role="radio"
                 aria-checked={current === n}
-                aria-label={`${n} de 5`}
+                aria-label={t('{n} de 5', { n })}
                 disabled={disabled}
                 onClick={() => onChange(current === n ? null : n)}
                 className="rounded-md p-1 text-zinc-300 transition hover:text-amber-400 dark:text-zinc-600 dark:hover:text-amber-400"
@@ -432,7 +438,7 @@ function FormField({ field: f, value, error, disabled, onChange }: { field: Publ
       return (
         <Field label={f.label} required={f.required} error={error} hint={f.helpText}>
           <Select id={id} disabled={disabled} invalid={invalid} aria-invalid={invalid || undefined} value={str} onChange={(e) => onChange(e.target.value)}>
-            <option value="">Selecciona una opción…</option>
+            <option value="">{t('Selecciona una opción…')}</option>
             {(f.options ?? []).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -459,7 +465,7 @@ function FormField({ field: f, value, error, disabled, onChange }: { field: Publ
               type={cfg.type}
               inputMode={cfg.inputMode}
               autoComplete={cfg.autoComplete ?? (f.type === 'text' ? textAutoComplete(f.key) : undefined)}
-              placeholder={cfg.placeholder}
+              placeholder={cfg.placeholder && tk(cfg.placeholder)}
               step={cfg.step}
               disabled={disabled}
               invalid={invalid}

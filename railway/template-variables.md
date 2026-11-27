@@ -19,7 +19,7 @@ deploys the template does not need to type anything.
 |---|---|
 | `APP_ENCRYPTION_KEY` | Generated automatically. Encrypts the stored AI keys, tokens and webhook secrets. Never change it after the first deploy, or those secrets become unreadable. |
 | `DATABASE_URL` | Filled in automatically from the Postgres service. Private connection string Cortex uses for the database. |
-| `PLATFORM_ADMIN_SETUP_TOKEN` | Generated automatically. One-time token: after signing up, paste it in Ajustes › Mi cuenta to become the platform administrator. |
+| `PLATFORM_ADMIN_SETUP_TOKEN` | Generated automatically. One-time token: after signing up, paste it in Settings › My account to become the platform administrator. |
 | `S3_ENDPOINT` | Filled in automatically from the Bucket. S3 endpoint where file attachments are stored. |
 | `S3_BUCKET` | Filled in automatically from the Bucket. Name of the private bucket for file attachments. |
 | `S3_ACCESS_KEY_ID` | Filled in automatically from the Bucket. Access key Cortex uses to store and read files. |

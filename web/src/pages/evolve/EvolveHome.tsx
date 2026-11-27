@@ -5,22 +5,23 @@ import { ArrowRight, Brain, CheckCircle2, FlaskConical, GitBranch, Lightbulb, Ro
 import { errorMessage, get, post } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { relativeTime } from '../../lib/format';
+import { msg, t, tk, tx } from '../../lib/i18n';
 import type { EvolutionRequestSummary } from '../../lib/types';
 import { Alert, Badge, Button, Card, cx, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useToast } from '../../components/toast';
 import { EXAMPLES, RiskBadge, RUNNING, StatusBadge } from './shared';
 
 const STEPS = [
-  { icon: Brain, label: 'Interpretar' },
-  { icon: ScanSearch, label: 'Analizar' },
-  { icon: Workflow, label: 'Planificar' },
-  { icon: GitBranch, label: 'Desarrollar aislado' },
-  { icon: FlaskConical, label: 'Probar' },
-  { icon: Lightbulb, label: 'Presentar' },
-  { icon: UserCheck, label: 'Autorizar' },
-  { icon: Rocket, label: 'Desplegar' },
-  { icon: CheckCircle2, label: 'Verificar' },
-  { icon: RotateCcw, label: 'Recuperar' },
+  { icon: Brain, label: msg('Interpretar') },
+  { icon: ScanSearch, label: msg('Analizar') },
+  { icon: Workflow, label: msg('Planificar') },
+  { icon: GitBranch, label: msg('Desarrollar aislado') },
+  { icon: FlaskConical, label: msg('Probar') },
+  { icon: Lightbulb, label: msg('Presentar') },
+  { icon: UserCheck, label: msg('Autorizar') },
+  { icon: Rocket, label: msg('Desplegar') },
+  { icon: CheckCircle2, label: msg('Verificar') },
+  { icon: RotateCcw, label: msg('Recuperar') },
 ];
 
 function Advice() {
@@ -40,13 +41,13 @@ function Advice() {
   const report = detail.data?.status === 'ready_for_review' ? detail.data.impact : null;
   const running = detail.data && RUNNING.has(detail.data.status);
   return (
-    <Card title={<span className="flex items-center gap-2"><Lightbulb className="size-4 text-amber-500" /> Propuestas de mejora</span>} description="La IA analiza la estructura y el uso real (sin datos personales) y propone mejoras del propio CRM." actions={<Button size="sm" loading={run.isPending || !!running} onClick={() => run.mutate()}>{current ? 'Volver a analizar' : 'Analizar mi CRM'}</Button>}>
+    <Card title={<span className="flex items-center gap-2"><Lightbulb className="size-4 text-amber-500" /> {t('Propuestas de mejora')}</span>} description={t('La IA analiza la estructura y el uso real (sin datos personales) y propone mejoras del propio CRM.')} actions={<Button size="sm" loading={run.isPending || !!running} onClick={() => run.mutate()}>{current ? t('Volver a analizar') : t('Analizar mi CRM')}</Button>}>
       {latest.isLoading ? (
         <Skeleton className="h-20" />
       ) : !current ? (
-        <p className="text-sm text-zinc-500">Todavía no hay análisis. Pulsa «Analizar mi CRM».</p>
+        <p className="text-sm text-zinc-500">{t('Todavía no hay análisis. Pulsa «Analizar mi CRM».')}</p>
       ) : running ? (
-        <p className="text-sm text-zinc-500">Analizando… esto puede tardar un minuto.</p>
+        <p className="text-sm text-zinc-500">{t('Analizando… esto puede tardar un minuto.')}</p>
       ) : detail.data?.status === 'failed' ? (
         <Alert tone="danger">{detail.data.error}</Alert>
       ) : report ? (
@@ -56,11 +57,11 @@ function Advice() {
             <div key={i} className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200/70 dark:bg-zinc-800/40 dark:ring-zinc-800">
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm font-medium">{s.title}</div>
-                <Badge color={s.impact === 'alto' ? 'fuchsia' : s.impact === 'medio' ? 'amber' : 'slate'}>Impacto {s.impact}</Badge>
+                <Badge color={s.impact === 'alto' ? 'fuchsia' : s.impact === 'medio' ? 'amber' : 'slate'}>{s.impact === 'alto' ? t('Impacto alto') : s.impact === 'medio' ? t('Impacto medio') : s.impact === 'bajo' ? t('Impacto bajo') : t('Impacto {impact}', { impact: s.impact })}</Badge>
               </div>
               <p className="mt-1 text-sm text-zinc-500">{s.description}</p>
               <Button size="sm" variant="ghost" className="mt-1.5 -ml-2" icon={<Wand2 className="size-3.5 text-brand-500" />} loading={use.isPending && use.variables === s.prompt} onClick={() => use.mutate(s.prompt)}>
-                Preparar este cambio
+                {t('Preparar este cambio')}
               </Button>
             </div>
           ))}
@@ -110,12 +111,12 @@ export default function EvolveHome() {
           <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80 ring-1 ring-white/15">
             <Sparkles className="size-3.5 text-fuchsia-300" /> EVOLVE AI ENGINE
           </div>
-          <h1 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">¿Cómo quieres que evolucione tu CRM?</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-400">Descríbelo con tus palabras. La IA lo interpreta, analiza tu configuración, planifica los cambios, los desarrolla y prueba en un entorno aislado y te los presenta. Nada llega a producción sin tu aprobación, y todo se puede revertir.</p>
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">{t('¿Cómo quieres que evolucione tu CRM?')}</h1>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-400">{t('Descríbelo con tus palabras. La IA lo interpreta, analiza tu configuración, planifica los cambios, los desarrolla y prueba en un entorno aislado y te los presenta. Nada llega a producción sin tu aprobación, y todo se puede revertir.')}</p>
           {status.data && !status.data.configured && (
             <Alert tone="warning" onDark className="mt-4">
-              No hay ningún proveedor de IA configurado. {can('admin') ? <Link to="/settings/ai" className="font-semibold underline">Configurar ahora</Link> : 'Pide a un administrador que configure uno.'}
-              {can('admin') && <> También puedes hacer cambios sin IA desde <Link to="/settings/customization" className="font-semibold underline">Personalización</Link>.</>}
+              {t('No hay ningún proveedor de IA configurado.')} {can('admin') ? <Link to="/settings/ai" className="font-semibold underline">{t('Configurar ahora')}</Link> : t('Pide a un administrador que configure uno.')}
+              {can('admin') && <> {tx('También puedes hacer cambios sin IA desde <link>Personalización</link>.', { link: (c) => <Link to="/settings/customization" className="font-semibold underline">{c}</Link> })}</>}
             </Alert>
           )}
           {can('builder') ? (
@@ -133,37 +134,40 @@ export default function EvolveHome() {
                       if (prompt.trim().length >= 8 && !submit.isPending && status.data?.configured !== false) submit.mutate();
                     }
                   }}
-                  aria-label="Describe el cambio"
-                  placeholder="Ej.: Quiero un módulo para gestionar contratos con fechas de vencimiento, documentos adjuntos y avisos automáticos 30 días antes…"
+                  aria-label={t('Describe el cambio')}
+                  placeholder={t('Ej.: Quiero un módulo para gestionar contratos con fechas de vencimiento, documentos adjuntos y avisos automáticos 30 días antes…')}
                   className="block min-h-20 w-full resize-y rounded-lg bg-transparent px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
                 />
                 <div className="flex items-center justify-between gap-2 px-1 pb-1">
-                  <span className="text-[11px] text-zinc-500">⌘/Ctrl + Enter para enviar</span>
-                  <Button type="submit" variant="ai" loading={submit.isPending} disabled={prompt.trim().length < 8 || status.data?.configured === false} icon={<Wand2 className="size-4" />}>Planificar cambio</Button>
+                  <span className="text-[11px] text-zinc-500">{t('⌘/Ctrl + Enter para enviar')}</span>
+                  <Button type="submit" variant="ai" loading={submit.isPending} disabled={prompt.trim().length < 8 || status.data?.configured === false} icon={<Wand2 className="size-4" />}>{t('Planificar cambio')}</Button>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} type="button" onClick={() => setPrompt(ex)} className="max-w-full truncate rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white">
-                    {ex.length > 70 ? ex.slice(0, 68) + '…' : ex}
-                  </button>
-                ))}
+                {EXAMPLES.map((key) => {
+                  const ex = tk(key);
+                  return (
+                    <button key={key} type="button" onClick={() => setPrompt(ex)} className="max-w-full truncate rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white">
+                      {ex.length > 70 ? ex.slice(0, 68) + '…' : ex}
+                    </button>
+                  );
+                })}
               </div>
             </form>
           ) : (
-            <p className="mt-5 text-sm text-zinc-400">Tu rol permite consultar la evolución del CRM. Para pedir cambios necesitas el rol Constructor o superior.</p>
+            <p className="mt-5 text-sm text-zinc-400">{t('Tu rol permite consultar la evolución del CRM. Para pedir cambios necesitas el rol Constructor o superior.')}</p>
           )}
         </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <Card title="Peticiones de evolución" padded={false} actions={<Link to="/evolve/releases" className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">Ver versiones</Link>}>
+        <Card title={t('Peticiones de evolución')} padded={false} actions={<Link to="/evolve/releases" className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">{t('Ver versiones')}</Link>}>
           {list.isLoading ? (
             <div className="space-y-2 p-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div>
           ) : list.error ? (
             <ErrorState error={list.error} onRetry={() => list.refetch()} />
           ) : !list.data!.length ? (
-            <EmptyState icon={<Wand2 className="size-5" />} title="Aún no has pedido ningún cambio" description="Describe arriba lo que necesitas o usa uno de los ejemplos." />
+            <EmptyState icon={<Wand2 className="size-5" />} title={t('Aún no has pedido ningún cambio')} description={t('Describe arriba lo que necesitas o usa uno de los ejemplos.')} />
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {list.data!.map((r) => (
@@ -174,7 +178,7 @@ export default function EvolveHome() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{r.title ?? r.prompt}</span>
-                      <span className="mt-0.5 block truncate text-xs text-zinc-500">{r.requested_by_name ?? '—'} · {relativeTime(r.created_at)}{r.source === 'manual' ? ' · cambio manual' : ''}</span>
+                      <span className="mt-0.5 block truncate text-xs text-zinc-500">{r.requested_by_name ?? '—'} · {relativeTime(r.created_at)}{r.source === 'manual' ? ` · ${t('cambio manual')}` : ''}</span>
                     </span>
                     <span className="hidden flex-col items-end gap-1 sm:flex">
                       <StatusBadge status={r.status} />
@@ -188,21 +192,21 @@ export default function EvolveHome() {
           )}
         </Card>
         <div className="space-y-6">
-          <Card title="Así funciona">
+          <Card title={t('Así funciona')}>
             <ol className="space-y-2.5">
               {STEPS.map((s, i) => (
                 <li key={s.label} className="flex items-center gap-3 text-sm">
                   <span className={cx('flex size-7 items-center justify-center rounded-lg text-xs font-semibold', i < 6 ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : i === 6 ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300')}>
                     <s.icon className="size-3.5" />
                   </span>
-                  <span className="flex-1">{s.label}</span>
-                  <span className="text-[11px] text-zinc-400">{i < 6 ? 'IA' : i === 6 ? 'Tú' : 'Sistema'}</span>
+                  <span className="flex-1">{tk(s.label)}</span>
+                  <span className="text-[11px] text-zinc-400">{i < 6 ? t('IA') : i === 6 ? t('Tú') : t('Sistema')}</span>
                 </li>
               ))}
             </ol>
             <div className="mt-4 flex items-start gap-2 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-500 dark:bg-zinc-800/40">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-              La IA nunca modifica producción directamente: los cambios se prueban en un sandbox, quedan auditados y requieren tu aprobación.
+              {t('La IA nunca modifica producción directamente: los cambios se prueban en un sandbox, quedan auditados y requieren tu aprobación.')}
             </div>
           </Card>
           {can('builder') && status.data?.configured && <Advice />}

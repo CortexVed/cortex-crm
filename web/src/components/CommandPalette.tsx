@@ -5,6 +5,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { BarChart3, CornerDownLeft, History, LayoutDashboard, Plus, Search, Settings, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
 import { get } from '../lib/api';
 import { useBlueprint, useDebounced } from '../lib/hooks';
+import { t } from '../lib/i18n';
 import { ModuleIcon } from '../lib/icons';
 import { useSession } from '../lib/session';
 import { cx, Spinner, useEscapeLayer } from './ui';
@@ -45,18 +46,19 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
       onClose();
     };
     const modules = (data?.blueprint.modules ?? []).filter((m) => !m.archived);
+    const navGroup = t('Navegación');
     const nav: Item[] = [
-      { id: 'nav-home', group: 'Navegación', label: 'Panel', icon: <LayoutDashboard className="size-4" />, run: go('/') },
-      ...modules.map((m) => ({ id: `nav-${m.key}`, group: 'Navegación', label: m.labelPlural, icon: <ModuleIcon name={m.icon} className="size-4" />, run: go(`/m/${m.key}`) })),
-      ...(data?.blueprint.pages ?? []).map((p) => ({ id: `page-${p.key}`, group: 'Navegación', label: p.label, hint: 'Página', icon: <ModuleIcon name={p.icon} className="size-4" />, run: go(`/p/${p.key}`) })),
-      { id: 'nav-reports', group: 'Navegación', label: 'Informes', icon: <BarChart3 className="size-4" />, run: go('/reports') },
-      { id: 'nav-evolve', group: 'Navegación', label: 'EVOLVE AI ENGINE', icon: <Sparkles className="size-4" />, run: go('/evolve') },
-      { id: 'nav-releases', group: 'Navegación', label: 'Historial de versiones', icon: <History className="size-4" />, run: go('/evolve/releases') },
-      ...(can('admin') ? [{ id: 'nav-security', group: 'Navegación', label: 'Seguridad', icon: <ShieldCheck className="size-4" />, run: go('/evolve/security') }] : []),
-      { id: 'nav-settings', group: 'Navegación', label: 'Ajustes', icon: <Settings className="size-4" />, run: go('/settings/general') },
+      { id: 'nav-home', group: navGroup, label: t('Panel'), icon: <LayoutDashboard className="size-4" />, run: go('/') },
+      ...modules.map((m) => ({ id: `nav-${m.key}`, group: navGroup, label: m.labelPlural, icon: <ModuleIcon name={m.icon} className="size-4" />, run: go(`/m/${m.key}`) })),
+      ...(data?.blueprint.pages ?? []).map((p) => ({ id: `page-${p.key}`, group: navGroup, label: p.label, hint: t('Página'), icon: <ModuleIcon name={p.icon} className="size-4" />, run: go(`/p/${p.key}`) })),
+      { id: 'nav-reports', group: navGroup, label: t('Informes'), icon: <BarChart3 className="size-4" />, run: go('/reports') },
+      { id: 'nav-evolve', group: navGroup, label: 'EVOLVE AI ENGINE', icon: <Sparkles className="size-4" />, run: go('/evolve') },
+      { id: 'nav-releases', group: navGroup, label: t('Historial de versiones'), icon: <History className="size-4" />, run: go('/evolve/releases') },
+      ...(can('admin') ? [{ id: 'nav-security', group: navGroup, label: t('Seguridad'), icon: <ShieldCheck className="size-4" />, run: go('/evolve/security') }] : []),
+      { id: 'nav-settings', group: navGroup, label: t('Ajustes'), icon: <Settings className="size-4" />, run: go('/settings/general') },
     ];
     const create: Item[] = can('member')
-      ? modules.filter((m) => can(m.permissions.create)).map((m) => ({ id: `new-${m.key}`, group: 'Crear', label: `Nuevo: ${m.label}`, icon: <Plus className="size-4" />, run: go(`/m/${m.key}?new=1`) }))
+      ? modules.filter((m) => can(m.permissions.create)).map((m) => ({ id: `new-${m.key}`, group: t('Crear'), label: t('Nuevo: {name}', { name: m.label }), icon: <Plus className="size-4" />, run: go(`/m/${m.key}?new=1`) }))
       : [];
     const term = q.trim().toLowerCase();
     const filtered = [...nav, ...create].filter((i) => !term || i.label.toLowerCase().includes(term));
@@ -64,8 +66,8 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
       ? [
           {
             id: 'ai-ask',
-            group: 'Inteligencia artificial',
-            label: `Preguntar a EVOLVE AI: «${q.trim()}»`,
+            group: t('Inteligencia artificial'),
+            label: t('Preguntar a EVOLVE AI: «{question}»', { question: q.trim() }),
             icon: <Sparkles className="size-4 text-fuchsia-500" />,
             run: () => {
               sessionStorage.setItem('evolve-ai-prefill', q.trim());
@@ -79,8 +81,8 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
             ? [
                 {
                   id: 'ai-evolve',
-                  group: 'Inteligencia artificial',
-                  label: `Pedir este cambio al CRM: «${q.trim()}»`,
+                  group: t('Inteligencia artificial'),
+                  label: t('Pedir este cambio al CRM: «{request}»', { request: q.trim() }),
                   icon: <Wand2 className="size-4 text-brand-500" />,
                   run: () => {
                     sessionStorage.setItem('evolve-prefill', q.trim());
@@ -113,7 +115,7 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
   return createPortal(
     // En un portal y por encima de los modales (z-60): con ⌘K dentro de un modal, la paleta no queda debajo.
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-zinc-950/40 p-4 pt-[12vh] backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800" role="dialog" aria-label="Paleta de comandos">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 animate-pop dark:bg-zinc-900 dark:ring-zinc-800" role="dialog" aria-label={t('Paleta de comandos')}>
         <div className="flex items-center gap-2 border-b border-zinc-100 px-4 dark:border-zinc-800">
           <Search className="size-4 text-zinc-400" />
           <input
@@ -132,13 +134,13 @@ export function CommandPalette({ open, onClose, onAskAi }: { open: boolean; onCl
                 items[active]?.run();
               }
             }}
-            placeholder="Busca registros, módulos o escribe una pregunta…"
+            placeholder={t('Busca registros, módulos o escribe una pregunta…')}
             className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
           />
           {search.isFetching && <Spinner className="size-4" />}
         </div>
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-2 scrollbar-thin">
-          {!items.length && <p className="px-3 py-8 text-center text-sm text-zinc-500">Sin resultados</p>}
+          {!items.length && <p className="px-3 py-8 text-center text-sm text-zinc-500">{t('Sin resultados')}</p>}
           {Object.entries(groups).map(([group, list]) => (
             <div key={group} className="mb-1">
               <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{group}</div>

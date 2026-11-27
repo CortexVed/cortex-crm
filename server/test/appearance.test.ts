@@ -182,7 +182,7 @@ describe('validación de referencias', () => {
     expect(messages).toMatch(/El botón «A» enlaza a la página inexistente "nope"/);
     expect(messages).toMatch(/El botón «B» enlaza al panel inexistente "nope"/);
     expect(messages).toMatch(/El botón «C» usa un módulo inexistente "nope"/);
-    expect(messages).toMatch(/Página duplicado: "rota"/);
+    expect(messages).toMatch(/Página duplicada: "rota"/);
     expect(messages).toMatch(/La página de inicio "nope" no existe/);
     expect(messages).toMatch(/Grupo del menú duplicado: "g"/);
     expect(messages).toMatch(/El menú \(«G»\) usa un módulo inexistente "nope"/);

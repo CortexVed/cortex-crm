@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { t } from '../i18n';
 
 /**
  * DEPENDENCIAS NUEVAS DEL MOTOR DE CÓDIGO. El agente puede añadir o actualizar paquetes en package.json
@@ -61,12 +62,12 @@ export function dependencyProblems(after: Json, changes: DependencyChange[]): st
   const problems: string[] = [];
   for (const field of DEPENDENCY_FIELDS) {
     const v = after[field];
-    if (v !== undefined && (!isPlainObject(v) || Object.values(v).some((x) => typeof x !== 'string'))) problems.push(`package.json: "${field}" debe ser un objeto { "paquete": "versión" }`);
+    if (v !== undefined && (!isPlainObject(v) || Object.values(v).some((x) => typeof x !== 'string'))) problems.push(t('package.json: "{field}" debe ser un objeto { "paquete": "versión" }', { field }));
   }
   for (const c of changes) {
     if (c.to === null) continue;
-    if (c.name.length > 214 || !NPM_NAME.test(c.name)) problems.push(`package.json: nombre de paquete no válido «${c.name.slice(0, 80)}»`);
-    if (!NPM_VERSION.test(c.to)) problems.push(`package.json: ${c.name}@${c.to.slice(0, 60)}: solo versiones del registro de npm (1.2.3, ^1.2.3 o ~1.2.3); nada de git, URL, file:, link:, npm: ni workspace:`);
+    if (c.name.length > 214 || !NPM_NAME.test(c.name)) problems.push(t('package.json: nombre de paquete no válido «{name}»', { name: c.name.slice(0, 80) }));
+    if (!NPM_VERSION.test(c.to)) problems.push(t('package.json: {name}@{version}: solo versiones del registro de npm (1.2.3, ^1.2.3 o ~1.2.3); nada de git, URL, file:, link:, npm: ni workspace:', { name: c.name, version: c.to.slice(0, 60) }));
   }
   return problems;
 }
@@ -88,28 +89,28 @@ export function verifyLockfile(packageJson: string, lockJson: string): string[] 
     pkg = JSON.parse(packageJson);
     lock = JSON.parse(lockJson);
   } catch {
-    return ['package-lock.json o package.json no son JSON válido'];
+    return [t('package-lock.json o package.json no son JSON válido')];
   }
-  if (!isPlainObject(pkg) || !isPlainObject(lock)) return ['package-lock.json no es válido'];
+  if (!isPlainObject(pkg) || !isPlainObject(lock)) return [t('package-lock.json no es válido')];
   const problems: string[] = [];
-  if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) problems.push('package-lock.json debe tener lockfileVersion 2 o 3');
+  if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) problems.push(t('package-lock.json debe tener lockfileVersion 2 o 3'));
   const packages = isPlainObject(lock.packages) ? lock.packages : null;
-  if (!packages) return [...problems, 'package-lock.json no tiene la sección "packages"'];
+  if (!packages) return [...problems, t('package-lock.json no tiene la sección "packages"')];
   const root = isPlainObject(packages['']) ? packages[''] : {};
   for (const field of DEPENDENCY_FIELDS) {
-    if (!sameDeps(root[field], pkg[field])) problems.push(`package-lock.json no corresponde a package.json (${field})`);
+    if (!sameDeps(root[field], pkg[field])) problems.push(t('package-lock.json no corresponde a package.json ({field})', { field }));
   }
   for (const [key, raw] of Object.entries(packages)) {
     if (!key) continue;
     if (!isPlainObject(raw)) {
-      problems.push(`package-lock.json: entrada no válida (${key.slice(0, 80)})`);
+      problems.push(t('package-lock.json: entrada no válida ({key})', { key: key.slice(0, 80) }));
       continue;
     }
-    if (raw.link) problems.push(`package-lock.json: ${key.slice(0, 80)} es un enlace local (no permitido)`);
+    if (raw.link) problems.push(t('package-lock.json: {key} es un enlace local (no permitido)', { key: key.slice(0, 80) }));
     else if (raw.inBundle) continue;
     else {
-      if (typeof raw.resolved !== 'string' || !raw.resolved.startsWith(REGISTRY)) problems.push(`package-lock.json: ${key.slice(0, 80)} no viene del registro oficial de npm`);
-      if (typeof raw.integrity !== 'string' || !raw.integrity.startsWith('sha512-')) problems.push(`package-lock.json: ${key.slice(0, 80)} no tiene hash de integridad sha512`);
+      if (typeof raw.resolved !== 'string' || !raw.resolved.startsWith(REGISTRY)) problems.push(t('package-lock.json: {key} no viene del registro oficial de npm', { key: key.slice(0, 80) }));
+      if (typeof raw.integrity !== 'string' || !raw.integrity.startsWith('sha512-')) problems.push(t('package-lock.json: {key} no tiene hash de integridad sha512', { key: key.slice(0, 80) }));
     }
     if (problems.length > 20) break;
   }
@@ -157,13 +158,16 @@ export async function resolveLockfileWithNpm(packageJson: string, baseLock: stri
       child.on('error', (e) => {
         clearTimeout(timer);
         opts.signal?.removeEventListener('abort', onAbort);
-        reject(new LockfileError(`No se ha podido ejecutar npm: ${e.message}`));
+        reject(new LockfileError(t('No se ha podido ejecutar npm: {error}', { error: e.message })));
       });
       child.on('close', (code, sig) => {
         clearTimeout(timer);
         opts.signal?.removeEventListener('abort', onAbort);
         if (code === 0) resolve();
-        else reject(new LockfileError(`npm no ha podido resolver las dependencias${sig ? ` (${sig})` : ''}:\n${clip(output) || `código ${code}`}`));
+        else {
+          const detail = clip(output) || t('código {code}', { code: String(code) });
+          reject(new LockfileError(sig ? t('npm no ha podido resolver las dependencias ({signal}):\n{detail}', { signal: sig, detail }) : t('npm no ha podido resolver las dependencias:\n{detail}', { detail })));
+        }
       });
     });
     return await readFile(path.join(dir, 'package-lock.json'), 'utf8');

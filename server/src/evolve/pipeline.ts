@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Role } from '../../../shared/constants';
+import { RISK_LABELS, type Role } from '../../../shared/constants';
 import { activeModules, findModule, type Blueprint } from '../../../shared/blueprint';
 import { CHANGESET_LIMITS, ChangeSetSchema, type ChangeSet, type Operation, type OutlinePart } from '../../../shared/changeset';
 import { describeModules } from '../crm/ai-features';
@@ -13,18 +13,20 @@ import { ProviderError } from '../ai/types';
 import { simulateChangeSet, type TestReport } from './simulator';
 import { assessRisk } from './risk';
 import { buildImpact } from './impact';
-import { PLANNER_SYSTEM, REVIEW_SYSTEM, SCRIPT_CODE_SYSTEM, selfHealMessage } from './prompts';
+import { plannerSystem, reviewSystem, scriptCodeSystem, selfHealMessage } from './prompts';
 import { plannerMessage, plannerPartMessage, type PlannerContextInput } from './planner-context';
 import type { Issue } from './validate';
+import { inSentence, msg, t, tk, tp } from '../i18n';
 
+/** Pasos del pipeline. Las etiquetas se traducen al mostrarlas (tk). */
 export const PIPELINE_STEPS = [
-  { key: 'interpret', label: 'Interpretar la petición' },
-  { key: 'analyze', label: 'Analizar arquitectura, módulos, datos y permisos' },
-  { key: 'plan', label: 'Planificar cambios' },
-  { key: 'develop', label: 'Desarrollar en entorno aislado' },
-  { key: 'test', label: 'Probar (unitarias, integración, compatibilidad, seguridad)' },
-  { key: 'review', label: 'Revisión cruzada con otro modelo' },
-  { key: 'present', label: 'Presentar para aprobación' },
+  { key: 'interpret', label: msg('Interpretar la petición') },
+  { key: 'analyze', label: msg('Analizar arquitectura, módulos, datos y permisos') },
+  { key: 'plan', label: msg('Planificar cambios') },
+  { key: 'develop', label: msg('Desarrollar en entorno aislado') },
+  { key: 'test', label: msg('Probar (unitarias, integración, compatibilidad, seguridad)') },
+  { key: 'review', label: msg('Revisión cruzada con otro modelo') },
+  { key: 'present', label: msg('Presentar para aprobación') },
 ] as const;
 
 type StepKey = (typeof PIPELINE_STEPS)[number]['key'];
@@ -40,8 +42,32 @@ const MAX_SELF_HEAL = 2;
 /** Tope del change set que ve el revisor cruzado (un plan muy grande se le muestra recortado). */
 const REVIEW_MAX_CHARS = 150_000;
 
-const AUTOMATION_HINTS =
-  /\b(automatiza\w*|automátic\w*|automatic\w*|recordatori\w*|recu[eé]rda\w*|av[ií]s\w*|notifica\w*|alerta\w*|webhook\w*|cada (d[ií]a|semana|mes|lunes|martes|mi[eé]rcoles|jueves|viernes)|cuando (se |un |una |el |la |ganemos|perdamos|cambie|pase|llegue|venza|lleve))/i;
+/**
+ * Palabras que delatan una petición de automatización, en los siete idiomas de Cortex. Es un único patrón lineal
+ * (sin cuantificadores anidados). \b no sirve para el japonés, que no separa las palabras con espacios: va aparte.
+ */
+const AUTOMATION_HINTS = new RegExp(
+  String.raw`\b(` +
+    [
+      // español
+      String.raw`automatiza\w*|automátic\w*|automatic\w*|recordatori\w*|recu[eé]rda\w*|av[ií]s\w*|notifica\w*|alerta\w*|webhook\w*|cada (d[ií]a|semana|mes|lunes|martes|mi[eé]rcoles|jueves|viernes)|cuando (se |un |una |el |la |ganemos|perdamos|cambie|pase|llegue|venza|lleve)`,
+      // inglés
+      String.raw`automat\w*|remind\w*|notif\w*|alert\w*|every (day|week|month|morning|time|monday|tuesday|wednesday|thursday|friday)|whenever|when (a |an |the |someone|we win|we lose)`,
+      // portugués de Brasil
+      String.raw`lembr\w*|todo dia|todos os dias|toda semana|todas as semanas|todo m[eê]s|todos os meses|toda (segunda|ter[çc]a|quarta|quinta|sexta)|toda vez|sempre que`,
+      // portugués e italiano («quando …»)
+      String.raw`quando (um |uma |o |a |un |un'|una |il |la |lo |l'|algu[eé]m|qualcuno|ganharmos|perdermos|vinciamo|perdiamo)`,
+      // francés
+      String.raw`rappel\w*|chaque (jour|semaine|mois|matin|fois|lundi|mardi|mercredi|jeudi|vendredi)|tous les (jours|mois|matins|lundis|mardis|mercredis|jeudis|vendredis)|toutes les semaines|lorsqu\w*|quand (un |une |le |la |l'|on gagne|on perd|quelqu'un)`,
+      // alemán
+      String.raw`erinner\w*|benachrichtig\w*|warnung\w*|jeden (tag|monat|morgen|montag|dienstag|mittwoch|donnerstag|freitag)|jede woche|jedes mal|sobald|wenn (ein |eine |einer |der |die |das |jemand|wir )`,
+      // italiano
+      String.raw`promemoria|ricord\w*|avvis\w*|ogni (giorno|settimana|mese|mattina|volta|luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì])`,
+    ].join('|') +
+    // japonés (sin \b)
+    String.raw`)|自動(?!車)|リマインド|リマインダ|通知|アラート|毎[日週月朝]|したら|されたら|になったら|のとき`,
+  'i',
+);
 
 /** Tarea del AI PROVIDER MANAGER con la que se planifica la petición (determina el modelo usado). */
 export function planningTask(prompt: string): 'automations' | 'feature_creation' {
@@ -76,7 +102,7 @@ async function developScripts(
       ws,
       {
         task: 'code_modification',
-        system: SCRIPT_CODE_SYSTEM,
+        system: scriptCodeSystem(),
         userId: input.userId,
         ref: input.requestId,
         maxTokens: 8000,
@@ -234,17 +260,23 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
       const counts = Object.fromEntries((await q.query<{ module_key: string; n: number }>(`SELECT module_key, count(*)::int AS n FROM records WHERE workspace_id = $1 AND deleted_at IS NULL GROUP BY 1`, [ws])).rows.map((r) => [r.module_key, r.n]));
       return { loaded, members, releases, memory, counts };
     });
-    await progress(deps, ws, requestId, { step: 'interpret', status: 'done', detail: req.source === 'manual' ? 'Cambio manual (sin IA)' : 'Petición recibida' });
+    await progress(deps, ws, requestId, { step: 'interpret', status: 'done', detail: req.source === 'manual' ? t('Cambio manual (sin IA)') : t('Petición recibida') });
     await progress(deps, ws, requestId, {
       step: 'analyze',
       status: 'done',
-      detail: `${ctx.loaded.blueprint.modules.length} módulos, ${ctx.loaded.blueprint.automations.length} automatizaciones, ${Object.values(ctx.counts).reduce((a, b) => a + b, 0)} registros, ${ctx.members.length} miembros, versión ${ctx.loaded.version}`,
+      detail: [
+        tp(ctx.loaded.blueprint.modules.length, '{count} módulo', '{count} módulos'),
+        tp(ctx.loaded.blueprint.automations.length, '{count} automatización', '{count} automatizaciones'),
+        tp(Object.values(ctx.counts).reduce((a, b) => a + b, 0), '{count} registro', '{count} registros'),
+        tp(ctx.members.length, '{count} miembro', '{count} miembros'),
+        t('versión {version}', { version: ctx.loaded.version }),
+      ].join(', '),
     });
 
     // 3) Planificar. Las peticiones centradas en automatizaciones usan el modelo configurado para la tarea
     // "automations"; el resto, el de "feature_creation" (cada organización elige el modelo de cada tarea).
     const planTask = planningTask(req.prompt);
-    await progress(deps, ws, requestId, { step: 'plan', status: 'running', detail: planTask === 'automations' ? 'Petición de automatización' : undefined });
+    await progress(deps, ws, requestId, { step: 'plan', status: 'running', detail: planTask === 'automations' ? t('Petición de automatización') : undefined });
     let changeSet: ChangeSet;
     const conversation: { role: 'user' | 'assistant'; content: string }[] = [];
     const feedback: string[] = (Array.isArray(req.conversation) ? req.conversation : []).filter((c: any) => c.role === 'feedback').map((c: any) => c.content);
@@ -272,7 +304,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
           ws,
           {
             task: planTask,
-            system: PLANNER_SYSTEM,
+            system: plannerSystem(),
             messages: [{ role: 'user', content: plannerPartMessage({ ...plannerInput, blueprint: base, outline: outlineSet!.outline!, part, problems: lastProblems }) }],
             maxTokens: 32_000,
             userId: req.requested_by,
@@ -298,7 +330,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
       changeSet = ChangeSetSchema.parse(req.change_set);
     } else {
       conversation.push({ role: 'user', content: plannerMessage(plannerInput) });
-      const planned = await deps.ai.runJson(ws, { task: planTask, system: PLANNER_SYSTEM, messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
+      const planned = await deps.ai.runJson(ws, { task: planTask, system: plannerSystem(), messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
       changeSet = planned.value;
       conversation.push({ role: 'assistant', content: JSON.stringify(planned.value) });
       saveLlm({ phase: 'plan', provider: planned.result.provider, model: planned.result.model, costUsd: planned.result.costUsd, latencyMs: planned.result.latencyMs, rounds: planned.rounds });
@@ -307,16 +339,17 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
         parts = [];
         const total = outlineSet.outline!.length;
         for (let i = 0; i < total; i++) {
-          await progress(deps, ws, requestId, { step: 'plan', status: 'running', detail: `Plan por partes: ${i + 1}/${total} · ${outlineSet.outline![i].title}` });
+          await progress(deps, ws, requestId, { step: 'plan', status: 'running', detail: t('Plan por partes: {part}/{total} · {title}', { part: i + 1, total, title: outlineSet.outline![i].title }) });
           await generatePart(i);
         }
         changeSet = mergeParts(outlineSet, parts);
       }
     }
+    const planSize = [tp(changeSet.operations.length, '{count} operación', '{count} operaciones'), tp(changeSet.tests.length, '{count} prueba', '{count} pruebas')].join(', ');
     await progress(deps, ws, requestId, {
       step: 'plan',
       status: 'done',
-      detail: `${changeSet.operations.length} operación(es), ${changeSet.tests.length} prueba(s)${outlineSet ? ` en ${parts.length} partes` : ''}`,
+      detail: outlineSet ? tp(parts.length, '{plan} en {count} parte', '{plan} en {count} partes', { plan: planSize }) : planSize,
     });
 
     // 4-5) Desarrollar en sandbox y probar, con auto-corrección
@@ -324,7 +357,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     const develop = async (problems: string[]) => {
       if (req.source === 'manual') return;
       const written = await developScripts(deps, ws, { requestId, userId: req.requested_by, prompt: req.prompt, before: ctx.loaded.blueprint, changeSet, problems }, saveLlm);
-      if (written) await progress(deps, ws, requestId, { step: 'develop', status: 'running', detail: `Código escrito para ${written} script(s) de la organización` });
+      if (written) await progress(deps, ws, requestId, { step: 'develop', status: 'running', detail: tp(written, 'Código escrito para {count} script de la organización', 'Código escrito para {count} scripts de la organización') });
     };
     let sim = await (async () => {
       await progress(deps, ws, requestId, { step: 'develop', status: 'running' }, 'testing');
@@ -335,7 +368,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     while (req.source !== 'manual' && attempt < MAX_SELF_HEAL && changeSet.operations.length > 0 && (!sim.report.passed || !sim.after)) {
       attempt++;
       const problems = problemsFrom(sim.issues, sim.report);
-      await progress(deps, ws, requestId, { step: 'test', status: 'failed', detail: `Intento ${attempt}: ${problems.length} problema(s). Auto-corrección en curso…` });
+      await progress(deps, ws, requestId, { step: 'test', status: 'failed', detail: tp(problems.length, 'Intento {attempt}: {count} problema. Auto-corrección en curso…', 'Intento {attempt}: {count} problemas. Auto-corrección en curso…', { attempt }) });
       if (outlineSet) {
         // Plan por partes: solo se regeneran las partes a las que apuntan los problemas (si no se pueden
         // atribuir, la última), así un plan grande no tiene que reescribirse entero.
@@ -351,7 +384,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
         changeSet = mergeParts(outlineSet, parts);
       } else {
         conversation.push({ role: 'user', content: selfHealMessage(problems) });
-        const fixed = await deps.ai.runJson(ws, { task: planTask, system: PLANNER_SYSTEM, messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
+        const fixed = await deps.ai.runJson(ws, { task: planTask, system: plannerSystem(), messages: conversation, maxTokens: 32_000, userId: req.requested_by, ref: requestId }, ChangeSetSchema);
         changeSet = fixed.value;
         conversation.push({ role: 'assistant', content: JSON.stringify(fixed.value) });
         saveLlm({ phase: `self_heal_${attempt}`, provider: fixed.result.provider, model: fixed.result.model, costUsd: fixed.result.costUsd, latencyMs: fixed.result.latencyMs, rounds: fixed.rounds });
@@ -360,11 +393,12 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
       const samples = await deps.db.tenant(ws, (q) => loadSamples(q, ws, ctx.loaded.blueprint, changeSet));
       sim = await simulateChangeSet({ before: ctx.loaded.blueprint, changeSet, samples, members: ctx.members, tz: ctx.loaded.settings.timezone, now: deps.now() });
     }
-    await progress(deps, ws, requestId, { step: 'develop', status: sim.after ? 'done' : 'failed', detail: sim.after ? 'Cambios aplicados en una copia aislada del blueprint' : 'El plan no se puede aplicar' });
+    await progress(deps, ws, requestId, { step: 'develop', status: sim.after ? 'done' : 'failed', detail: sim.after ? t('Cambios aplicados en una copia aislada del blueprint') : t('El plan no se puede aplicar') });
+    const testsPassed = t('{passed}/{total} pruebas superadas', { passed: sim.report.total - sim.report.failed, total: sim.report.total });
     await progress(deps, ws, requestId, {
       step: 'test',
       status: sim.report.passed ? 'done' : 'failed',
-      detail: `${sim.report.total - sim.report.failed}/${sim.report.total} pruebas superadas${sim.report.warnings ? `, ${sim.report.warnings} aviso(s)` : ''}`,
+      detail: sim.report.warnings ? [testsPassed, tp(sim.report.warnings, '{count} aviso', '{count} avisos')].join(', ') : testsPassed,
     });
 
     // 6) Revisión cruzada con un modelo de OTRO proveedor (multi-LLM)
@@ -374,7 +408,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     const planner = llmLog.length ? (llmLog[llmLog.length - 1] as { provider?: string }).provider : undefined;
     if (req.source !== 'manual' && changeSet.operations.length && sim.report.passed) {
       const reviewJson = JSON.stringify(changeSet);
-      const candidates = (await deps.ai.plan(ws, 'code_review')).filter((t) => t.provider !== planner);
+      const candidates = (await deps.ai.plan(ws, 'code_review')).filter((target) => target.provider !== planner);
       if (candidates.length) {
         await progress(deps, ws, requestId, { step: 'review', status: 'running' });
         try {
@@ -382,7 +416,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
             ws,
             {
               task: 'code_review',
-              system: REVIEW_SYSTEM,
+              system: reviewSystem(),
               target: candidates[0],
               messages: [{ role: 'user', content: `Petición: ${req.prompt}\n\nChange set${reviewJson.length > REVIEW_MAX_CHARS ? ' (recortado por tamaño; revisa con más atención el impacto y los riesgos calculados)' : ''}:\n${reviewJson.slice(0, REVIEW_MAX_CHARS)}\n\nImpacto calculado:\n${JSON.stringify({ risk: risk.items, tables: impact.tables, permissions: impact.permissions }).slice(0, 60_000)}` }],
               maxTokens: 8000,
@@ -394,15 +428,16 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
           );
           crossReview = { ...rev.value, provider: rev.result.provider, model: rev.result.model };
           saveLlm({ phase: 'cross_review', provider: rev.result.provider, model: rev.result.model, costUsd: rev.result.costUsd, latencyMs: rev.result.latencyMs });
-          await progress(deps, ws, requestId, { step: 'review', status: 'done', detail: `${rev.result.provider}/${rev.result.model}: ${rev.value.verdict === 'approve' ? 'sin objeciones' : `${rev.value.concerns.length} observación(es)`}` });
+          const verdict = rev.value.verdict === 'approve' ? t('sin objeciones') : tp(rev.value.concerns.length, '{count} observación', '{count} observaciones');
+          await progress(deps, ws, requestId, { step: 'review', status: 'done', detail: `${rev.result.provider}/${rev.result.model}: ${verdict}` });
         } catch (e) {
-          await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: `No se pudo completar: ${(e as Error).message.slice(0, 200)}` });
+          await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: t('No se pudo completar: {error}', { error: tk((e as Error).message).slice(0, 200) }) });
         }
       } else {
-        await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: 'Configura un segundo proveedor de IA para activar la revisión cruzada' });
+        await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: t('Configura un segundo proveedor de IA para activar la revisión cruzada') });
       }
     } else {
-      await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: req.source === 'manual' ? 'Cambio manual' : 'No aplica' });
+      await progress(deps, ws, requestId, { step: 'review', status: 'skipped', detail: req.source === 'manual' ? t('Cambio manual') : t('No aplica') });
     }
 
     // 7) Presentar
@@ -421,7 +456,7 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
           crossReview ? JSON.stringify(crossReview) : null,
           JSON.stringify(llmLog),
           finalStatus,
-          finalStatus === 'failed' ? 'El plan no supera las pruebas del sandbox. Revisa el informe y refina la petición.' : null,
+          finalStatus === 'failed' ? t('El plan no supera las pruebas del sandbox. Revisa el informe y refina la petición.') : null,
           changeSet.requiresPlatformChange && changeSet.operations.length === 0 ? 'platform' : changeSet.operations.some((o) => o.op === 'upsert_script') ? 'script' : 'config',
           requestId,
           ws,
@@ -431,18 +466,19 @@ export async function runEvolutionPipeline(deps: AppDeps, workspaceId: string, r
     await progress(deps, ws, requestId, {
       step: 'present',
       status: finalStatus === 'ready_for_review' ? 'done' : finalStatus === 'needs_input' ? 'skipped' : 'failed',
-      detail: finalStatus === 'ready_for_review' ? `Listo para revisión · riesgo ${risk.level}` : finalStatus === 'needs_input' ? 'Se necesita más información' : 'No se puede presentar',
+      detail: finalStatus === 'ready_for_review' ? t('Listo para revisión · {risk}', { risk: inSentence(tk(RISK_LABELS[risk.level] ?? risk.level)) }) : finalStatus === 'needs_input' ? t('Se necesita más información') : t('No se puede presentar'),
     });
   } catch (e) {
     if (e instanceof PipelineStopped) return;
-    const msg = e instanceof ProviderError ? e.message : `Error interno del motor: ${(e as Error).message}`;
+    // Los mensajes de los proveedores de IA son textos fijos (claves del catálogo) o ya traducidos.
+    const errorText = e instanceof ProviderError ? tk(e.message) : t('Error interno del motor: {error}', { error: tk((e as Error).message) });
     await deps.db.tenant(ws, async (q) => {
       const cur = (await q.query<{ progress: unknown }>(`SELECT progress FROM evolution_requests WHERE id = $1 AND workspace_id = $2 FOR UPDATE`, [requestId, ws])).rows[0];
       // El paso que estaba trabajando se marca como fallido (antes se quedaba «en curso» para siempre).
-      const closing = closeOpenSteps(cur?.progress, 'failed', 'Interrumpido por un error', deps.now().toISOString());
+      const closing = closeOpenSteps(cur?.progress, 'failed', t('Interrumpido por un error'), deps.now().toISOString());
       await q.query(
         `UPDATE evolution_requests SET status = 'failed', error = $1, llm = $2, progress = progress || $5::jsonb, updated_at = now() WHERE id = $3 AND workspace_id = $4 AND status IN ('queued','planning','testing')`,
-        [msg.slice(0, 2000), JSON.stringify(llmLog), requestId, ws, JSON.stringify(closing)],
+        [errorText.slice(0, 2000), JSON.stringify(llmLog), requestId, ws, JSON.stringify(closing)],
       );
     });
     if (!(e instanceof ProviderError)) throw e;

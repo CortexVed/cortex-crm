@@ -1,3 +1,9 @@
+import { msg } from '../../../shared/i18n';
+
+/**
+ * Error con estado HTTP. `message` es un texto fijo en español (clave del catálogo: el manejador de errores lo
+ * traduce al idioma de la petición) o un texto ya traducido con t() cuando lleva datos.
+ */
 export class AppError extends Error {
   constructor(
     public readonly status: number,
@@ -11,12 +17,12 @@ export class AppError extends Error {
 }
 
 export const badRequest = (message: string, details?: unknown) => new AppError(400, 'bad_request', message, details);
-export const unauthorized = (message = 'Necesitas iniciar sesión') => new AppError(401, 'unauthorized', message);
-export const forbidden = (message = 'No tienes permisos para esta acción') => new AppError(403, 'forbidden', message);
-export const notFound = (message = 'No encontrado') => new AppError(404, 'not_found', message);
+export const unauthorized = (message: string = msg('Necesitas iniciar sesión')) => new AppError(401, 'unauthorized', message);
+export const forbidden = (message: string = msg('No tienes permisos para esta acción')) => new AppError(403, 'forbidden', message);
+export const notFound = (message: string = msg('No encontrado')) => new AppError(404, 'not_found', message);
 export const conflict = (message: string, details?: unknown) => new AppError(409, 'conflict', message, details);
 export const unprocessable = (message: string, details?: unknown) => new AppError(422, 'validation_failed', message, details);
-export const tooMany = (message = 'Demasiadas peticiones, inténtalo más tarde') => new AppError(429, 'rate_limited', message);
+export const tooMany = (message: string = msg('Demasiadas peticiones, inténtalo más tarde')) => new AppError(429, 'rate_limited', message);
 export const unavailable = (message: string, details?: unknown) => new AppError(503, 'unavailable', message, details);
 
 const SENSITIVE_KEY = /pass(word)?|secret|token|api[_-]?key|authorization|cookie|ciphertext|credential/i;

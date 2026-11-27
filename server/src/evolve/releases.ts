@@ -10,6 +10,7 @@ import { audit } from '../lib/audit';
 import { newId } from '../lib/crypto';
 import { conflict, notFound, unprocessable } from '../lib/errors';
 import { enqueue } from '../lib/jobs';
+import { contextLocale, t, tk } from '../i18n';
 import { loadWorkspace } from '../crm/context';
 import { PgSideEffects } from '../crm/effects';
 import { PgRecordStore, conditionsToSql } from '../crm/store';
@@ -55,16 +56,16 @@ export async function deployRequest(deps: AppDeps, ws: string, requestId: string
   });
   if (!pre.r) throw notFound('Petición no encontrada');
   if (pre.r.status === 'approved' && pre.r.base_version !== pre.r.blueprint_version) {
-    const msg = `La configuración del CRM cambió (v${pre.r.base_version} → v${pre.r.blueprint_version}) desde que se probó y aprobó este cambio. Refínalo o créalo de nuevo para probarlo y aprobarlo sobre la versión actual.`;
-    await deps.db.tenant(ws, (q) => q.query(`UPDATE evolution_requests SET status = 'failed', error = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [msg, requestId, ws]));
-    throw conflict(msg);
+    const message = t('La configuración del CRM cambió (v{from} → v{to}) desde que se probó y aprobó este cambio. Refínalo o créalo de nuevo para probarlo y aprobarlo sobre la versión actual.', { from: pre.r.base_version, to: pre.r.blueprint_version });
+    await deps.db.tenant(ws, (q) => q.query(`UPDATE evolution_requests SET status = 'failed', error = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [message, requestId, ws]));
+    throw conflict(message);
   }
   if (pre.r.status === 'approved' && (!pre.approval || Date.now() - new Date(pre.approval.created_at).getTime() > APPROVAL_TTL_DAYS * 86_400_000)) {
     await deps.db.tenant(ws, async (q) => {
       await q.query(`DELETE FROM evolution_approvals WHERE request_id = $1`, [requestId]);
       await q.query(`UPDATE evolution_requests SET status = 'ready_for_review', updated_at = now() WHERE id = $1 AND workspace_id = $2`, [requestId, ws]);
     });
-    throw conflict(`La aprobación ha caducado (más de ${APPROVAL_TTL_DAYS} días). Vuelve a revisarla y aprobarla.`);
+    throw conflict(t('La aprobación ha caducado (más de {days} días). Vuelve a revisarla y aprobarla.', { days: APPROVAL_TTL_DAYS }));
   }
 
   const result = await deps.db.tenant(ws, async (q) => {
@@ -87,7 +88,7 @@ export async function deployRequest(deps: AppDeps, ws: string, requestId: string
     // Copia de seguridad si hay migraciones de datos o cambios destructivos.
     const destructive = !!req.impact?.destructive;
     const migrated = cs.operations.filter((o) => o.op === 'backfill_field').map((o) => (o as { module: string }).module);
-    const backupId = destructive || migrated.length ? await snapshot(q, ws, [...new Set(migrated.length ? migrated : cs.operations.filter((o) => 'module' in o && typeof o.module === 'string').map((o) => (o as any).module))], `Antes de publicar: ${cs.title}`, releaseId, actor.userId) : null;
+    const backupId = destructive || migrated.length ? await snapshot(q, ws, [...new Set(migrated.length ? migrated : cs.operations.filter((o) => 'module' in o && typeof o.module === 'string').map((o) => (o as any).module))], t('Antes de publicar: {title}', { title: cs.title }), releaseId, actor.userId) : null;
 
     // Migraciones de datos (reversibles: se guarda el valor anterior de cada registro).
     const dataChanges: DataChange[] = [];
@@ -96,12 +97,12 @@ export async function deployRequest(deps: AppDeps, ws: string, requestId: string
       const mod = findModule(next, op.module)!;
       const field = mod.fields.find((f) => f.key === op.field)!;
       const norm = normalizeValue(field, resolveTemplate(op.value, { now, tz: current.settings.timezone }));
-      if (!norm.ok) throw unprocessable(`Valor de migración inválido para ${op.module}.${op.field}: ${norm.message}`);
+      if (!norm.ok) throw unprocessable(t('Valor de migración inválido para {module}.{field}: {message}', { module: op.module, field: op.field, message: tk(norm.message) }));
       const params: unknown[] = [ws, op.module, op.field];
       const where = ['workspace_id = $1', 'module_key = $2', 'deleted_at IS NULL', ...conditionsToSql(mod, op.where, params, { now, tz: current.settings.timezone })];
       if (op.onlyEmpty) where.push(`(data->$3 IS NULL OR data->$3 = 'null'::jsonb OR data->>$3 = '')`);
       const rows = (await q.query(`SELECT id, data->$3 AS before FROM records WHERE ${where.join(' AND ')} LIMIT 5001`, params)).rows;
-      if (rows.length > 5000) throw conflict(`La migración de ${op.module}.${op.field} afecta a más de 5000 registros; divídela con condiciones`);
+      if (rows.length > 5000) throw conflict(t('La migración de {module}.{field} afecta a más de 5000 registros; divídela con condiciones', { module: op.module, field: op.field }));
       if (rows.length) {
         await q.query(`UPDATE records SET data = jsonb_set(data, ARRAY[$1::text], $2::jsonb, true), updated_at = now() WHERE workspace_id = $3 AND id = ANY($4::uuid[])`, [
           op.field,
@@ -140,7 +141,7 @@ export async function deployRequest(deps: AppDeps, ws: string, requestId: string
     await q.query(`UPDATE evolution_requests SET status = 'applied', release_id = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [releaseId, requestId, ws]);
     await addMemory(q, ws, { scope: 'org', kind: 'decision', content: `v${newVersion} · ${cs.title}: ${cs.summary.slice(0, 600)}`, source: 'release', sourceRef: releaseId, createdBy: actor.userId });
     await audit(q, { workspaceId: ws, actorId: actor.userId, action: 'evolve.deployed', targetType: 'release', targetId: releaseId, ip, meta: { version: newVersion, title: cs.title, dataChanges: dataChanges.map((d) => ({ module: d.module, field: d.field, rows: d.records.length })) } });
-    await notifyAdmins(q, ws, `Nueva versión v${newVersion} publicada`, cs.title, `/evolve/releases`);
+    await notifyAdmins(q, ws, t('Nueva versión v{version} publicada', { version: newVersion }), cs.title, `/evolve/releases`);
     // Recalcular fórmulas afectadas por migraciones de datos.
     if (dataChanges.length) await q.query(`INSERT INTO jobs (id, workspace_id, type, payload) VALUES ($1,$2,'formulas.recompute','{}')`, [newId(), ws]);
     return { releaseId, version: newVersion, tests: cs.tests };
@@ -149,7 +150,7 @@ export async function deployRequest(deps: AppDeps, ws: string, requestId: string
   // PASO 9 — Verificar (y PASO 10 — recuperar automáticamente si falla).
   const verification = await verifyRelease(deps, ws, result.releaseId);
   if (!verification.ok) {
-    await rollbackRelease(deps, ws, result.releaseId, { userId: actor.userId, role: 'owner' }, 'Verificación posterior a la publicación fallida', ip);
+    await rollbackRelease(deps, ws, result.releaseId, { userId: actor.userId, role: 'owner' }, t('Verificación posterior a la publicación fallida'), ip);
   }
   return { ...result, verification };
 }
@@ -162,7 +163,7 @@ export async function verifyRelease(deps: AppDeps, ws: string, releaseId: string
     if (!rel) throw notFound('Versión no encontrada');
     const loaded = await loadWorkspace(q, ws);
     const errors = validateBlueprint(loaded.blueprint).filter((i) => i.level === 'error');
-    checks.push({ name: `Blueprint v${loaded.version} cargado y coherente`, passed: errors.length === 0, message: errors.map((e) => e.message).join('; ') || undefined });
+    checks.push({ name: t('Blueprint v{version} cargado y coherente', { version: loaded.version }), passed: errors.length === 0, message: errors.map((e) => e.message).join('; ') || undefined });
     const store = new PgRecordStore(q, ws);
     const req = rel.request_id ? (await q.query(`SELECT change_set FROM evolution_requests WHERE id = $1`, [rel.request_id])).rows[0] : null;
     const touched = new Set<string>();
@@ -171,18 +172,19 @@ export async function verifyRelease(deps: AppDeps, ws: string, releaseId: string
       const mod = findModule(loaded.blueprint, key);
       if (!mod || mod.archived) continue;
       for (const view of mod.views) {
+        const name = t('Consulta real de «{module} › {view}»', { module: mod.labelPlural, view: view.label });
         try {
           await store.list(mod, { filters: view.filters, sort: view.sort, limit: 1, offset: 0 }, { now: deps.now(), tz: loaded.settings.timezone });
-          checks.push({ name: `Consulta real de «${mod.labelPlural} › ${view.label}»`, passed: true });
+          checks.push({ name, passed: true });
         } catch (e) {
-          checks.push({ name: `Consulta real de «${mod.labelPlural} › ${view.label}»`, passed: false, message: (e as Error).message });
+          checks.push({ name, passed: false, message: tk((e as Error).message) });
         }
       }
     }
     if (req?.change_set?.tests?.length) {
       const members = (await q.query<{ user_id: string; role: Role }>(`SELECT user_id, role FROM memberships WHERE workspace_id = $1`, [ws])).rows.map((m) => ({ id: m.user_id, role: m.role }));
       const results = await runAcceptanceTests(loaded.blueprint, ChangeSetSchema.parse(req.change_set).tests, members, loaded.settings.timezone, deps.now());
-      for (const r of results) checks.push({ name: `Prueba de aceptación sobre la versión publicada: ${r.name}`, passed: r.passed, message: r.message });
+      for (const r of results) checks.push({ name: t('Prueba de aceptación sobre la versión publicada: {name}', { name: r.name }), passed: r.passed, message: r.message });
     }
     ok = checks.every((c) => c.passed);
     await q.query(`UPDATE releases SET status = $1, verification = $2 WHERE id = $3 AND workspace_id = $4`, [ok ? 'verified' : 'failed', JSON.stringify({ ok, checks, at: deps.now().toISOString() }), releaseId, ws]);
@@ -221,12 +223,12 @@ export async function rollbackRelease(deps: AppDeps, ws: string, releaseId: stri
     await q.query(
       `INSERT INTO releases (id, workspace_id, request_id, kind, status, from_version, to_version, title, summary, validation, applied_by, approved_by)
        VALUES ($1,$2,$3,'rollback','verified',$4,$5,$6,$7,$8,$9,$9)`,
-      [rollbackId, ws, rel.request_id, rel.to_version, newVersion, `Rollback: ${rel.title}`, reason, JSON.stringify({ revertedRecords: reverted, skippedRecords: skipped }), actor.userId],
+      [rollbackId, ws, rel.request_id, rel.to_version, newVersion, t('Rollback: {title}', { title: rel.title }), reason, JSON.stringify({ revertedRecords: reverted, skippedRecords: skipped }), actor.userId],
     );
     if (rel.request_id) await q.query(`UPDATE evolution_requests SET status = 'rolled_back', updated_at = now() WHERE id = $1 AND workspace_id = $2`, [rel.request_id, ws]);
-    await addMemory(q, ws, { scope: 'org', kind: 'decision', content: `v${newVersion} · Rollback de «${rel.title}»: ${reason}`, source: 'rollback', sourceRef: rollbackId, createdBy: actor.userId });
+    await addMemory(q, ws, { scope: 'org', kind: 'decision', content: t('v{version} · Rollback de «{title}»: {reason}', { version: newVersion, title: rel.title, reason }), source: 'rollback', sourceRef: rollbackId, createdBy: actor.userId });
     await audit(q, { workspaceId: ws, actorId: actor.userId, action: 'evolve.rolled_back', targetType: 'release', targetId: releaseId, ip, meta: { reason, newVersion, reverted, skipped } });
-    await notifyAdmins(q, ws, `Rollback a v${newVersion}`, `Se revirtió «${rel.title}»: ${reason}`, `/evolve/releases`);
+    await notifyAdmins(q, ws, t('Rollback a v{version}', { version: newVersion }), t('Se revirtió «{title}»: {reason}', { title: rel.title, reason }), `/evolve/releases`);
     return { version: newVersion, revertedRecords: reverted, skippedRecords: skipped };
   });
 }
@@ -246,7 +248,7 @@ export async function restoreVersion(deps: AppDeps, ws: string, version: number,
     await q.query(`UPDATE workspaces SET blueprint_version = $1 WHERE id = $2`, [newVersion, ws]);
     await q.query(
       `INSERT INTO releases (id, workspace_id, kind, status, from_version, to_version, title, summary, applied_by, approved_by) VALUES ($1,$2,'restore','verified',$3,$4,$5,$6,$7,$7)`,
-      [releaseId, ws, wsRow.blueprint_version, newVersion, `Restaurada la versión v${version}`, `Se restauró la configuración de la versión ${version}. Los datos no se modifican.`, actor.userId],
+      [releaseId, ws, wsRow.blueprint_version, newVersion, t('Restaurada la versión v{version}', { version }), t('Se restauró la configuración de la versión {version}. Los datos no se modifican.', { version }), actor.userId],
     );
     await audit(q, { workspaceId: ws, actorId: actor.userId, action: 'evolve.version_restored', targetType: 'version', targetId: String(version), ip, meta: { newVersion } });
     return { version: newVersion };
@@ -254,6 +256,6 @@ export async function restoreVersion(deps: AppDeps, ws: string, version: number,
 }
 
 export async function enqueuePipeline(q: Queryable, ws: string, requestId: string) {
-  await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts) VALUES ($1,$2,'evolve.plan',$3,1)`, [newId(), ws, JSON.stringify({ requestId })]);
+  await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts, locale) VALUES ($1,$2,'evolve.plan',$3,1,$4)`, [newId(), ws, JSON.stringify({ requestId }), contextLocale()]);
 }
 void enqueue;

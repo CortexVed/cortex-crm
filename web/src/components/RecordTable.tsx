@@ -1,11 +1,12 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { relativeTime } from '../lib/format';
+import { msg, tk } from '../lib/i18n';
 import type { Module, RecordItem, RecordList } from '../lib/types';
 import { recordTitle } from '../../../shared/records';
 import { FieldValue } from './fields';
 import { cx } from './ui';
 
-export const SYSTEM_COLS: Record<string, string> = { created_at: 'Creado', updated_at: 'Actualizado', last_activity_at: 'Última actividad' };
+export const SYSTEM_COLS: Record<string, string> = { created_at: msg('Creado'), updated_at: msg('Actualizado'), last_activity_at: msg('Última actividad') };
 
 export type TableSort = { field: string; dir: 'asc' | 'desc' };
 
@@ -27,7 +28,7 @@ export function tableColumns(mod: Module, columns?: string[]): string[] {
  */
 export function RecordTable({ mod, columns, data, sort, setSort, onOpen, bare, fit }: { mod: Module; columns?: string[]; data: RecordList; sort: TableSort | null; setSort?: (s: TableSort) => void; onOpen: (r: RecordItem) => void; bare?: boolean; fit?: boolean }) {
   const cols = tableColumns(mod, columns);
-  const label = (c: string) => SYSTEM_COLS[c] ?? mod.fields.find((f) => f.key === c)?.label ?? c;
+  const label = (c: string) => (SYSTEM_COLS[c] ? tk(SYSTEM_COLS[c]) : (mod.fields.find((f) => f.key === c)?.label ?? c));
   return (
     <div className={cx('overflow-x-auto', !bare && 'rounded-xl bg-white ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800')}>
       <table className={cx('w-full text-sm', fit ? 'min-w-full' : 'min-w-[720px]')}>

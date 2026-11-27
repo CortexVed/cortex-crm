@@ -7,11 +7,14 @@ import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors';
 import { requireUserSession, requireWorkspace } from '../auth/plugin';
 import { hasRole, type Role } from '../../../shared/constants';
 import { findModule } from '../../../shared/blueprint';
+import { effectiveLocale } from '../../../shared/i18n';
+import { isUuid } from '../../../shared/records';
 import type { Queryable } from '../db/db';
+import { inSentence, t, withLocale } from '../i18n';
 import { loadWorkspace } from '../crm/context';
 import { PgSideEffects } from '../crm/effects';
 import {
-  CONNECTOR_TYPES,
+  connectorTypes,
   phoneDigits,
   telegramDeleteWebhook,
   telegramSend,
@@ -35,7 +38,7 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
     const rows = await deps.db.tenant(a.workspaceId, async (q) => (await q.query(`SELECT id, type, name, status, config, last_error, last_event_at, created_at, webhook_token FROM connectors WHERE workspace_id = $1 ORDER BY created_at`, [a.workspaceId])).rows);
     const base = appBaseUrl(deps, req);
     return {
-      types: CONNECTOR_TYPES,
+      types: connectorTypes(),
       connectors: rows.map((r: any) => ({
         id: r.id,
         type: r.type,
@@ -54,10 +57,10 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
     const a = requireWorkspace(req, 'admin');
     requireUserSession(req);
     const body = z.object({ type: z.string().max(30), name: z.string().trim().min(2).max(80), credentials: z.record(z.string(), z.string().max(1000)) }).parse(req.body);
-    const def = CONNECTOR_TYPES.find((t) => t.type === body.type);
+    const def = connectorTypes().find((ct) => ct.type === body.type);
     if (!def) throw badRequest('Tipo de canal desconocido');
-    if (def.status !== 'available') throw badRequest(`${def.label} todavía no está disponible: ${def.plannedReason}`);
-    for (const f of def.fields) if (!body.credentials[f.key]?.trim()) throw badRequest(`Falta "${f.label}"`);
+    if (def.status !== 'available') throw badRequest(t('{name} todavía no está disponible: {reason}', { name: def.label, reason: def.plannedReason }));
+    for (const f of def.fields) if (!body.credentials[f.key]?.trim()) throw badRequest(t('Falta "{field}"', { field: f.label }));
     const id = newId();
     const webhookToken = randomToken(24);
     const base = appBaseUrl(deps, req);
@@ -113,7 +116,7 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
     const mod = rec ? findModule(ws.blueprint, rec.module_key) : undefined;
     // Misma respuesta si no existe o no se puede leer: no revela qué registros existen.
     if (!rec || !mod || !hasRole(a.role, mod.permissions.read)) throw notFound('Registro no encontrado');
-    if (!hasRole(a.role, mod.permissions.update)) throw forbidden(`Tu rol no puede editar ${mod.labelPlural.toLowerCase()}`);
+    if (!hasRole(a.role, mod.permissions.update)) throw forbidden(t('Tu rol no puede editar {module}', { module: inSentence(mod.labelPlural) }));
     return rec;
   };
 
@@ -207,8 +210,16 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
           const owner = r.rows[0].data?.owner;
           const effects = new PgSideEffects(q, c.workspace_id);
           // El aviso incluye el texto del mensaje: solo si el responsable puede leer los contactos.
-          const readRole = (await loadWorkspace(q, c.workspace_id)).blueprint.modules.find((m) => m.key === 'contacts')?.permissions.read ?? 'owner';
-          if (typeof owner === 'string') await effects.notify({ userIds: [owner], title: `Nuevo mensaje de ${c.type === 'whatsapp' ? 'WhatsApp' : 'Telegram'}`, body: msg.body.slice(0, 140), link: `/m/contacts/${recordId}`, kind: 'message', readRole });
+          const loaded = await loadWorkspace(q, c.workspace_id);
+          const readRole = loaded.blueprint.modules.find((m) => m.key === 'contacts')?.permissions.read ?? 'owner';
+          if (typeof owner === 'string') {
+            // Webhook sin sesión: el aviso se redacta en el idioma de quien lo recibe (el suyo o el de la organización).
+            const preference = isUuid(owner) ? (await q.query(`SELECT locale FROM users WHERE id = $1`, [owner])).rows[0]?.locale : null;
+            const orgTag = loaded.settings.locale;
+            const channel = c.type === 'whatsapp' ? 'WhatsApp' : 'Telegram';
+            const title = withLocale(effectiveLocale(preference, orgTag), () => t('Nuevo mensaje de {channel}', { channel }), orgTag);
+            await effects.notify({ userIds: [owner], title, body: msg.body.slice(0, 140), link: `/m/contacts/${recordId}`, kind: 'message', readRole });
+          }
         }
       }
       await q.query(

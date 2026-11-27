@@ -10,6 +10,7 @@ const CLIENT_ERRORS_PER_HOUR = 300;
 import { metricsSnapshot } from '../lib/metrics';
 import { requirePlatformAdmin } from '../auth/plugin';
 import { makeRecordService, loadWorkspace } from '../crm/context';
+import type { RecordIssueCode } from '../crm/record-service';
 
 export async function adminRoutes(app: FastifyInstance, deps: AppDeps) {
   app.get('/admin/overview', async (req) => {
@@ -76,6 +77,8 @@ export async function publicRoutes(app: FastifyInstance, deps: AppDeps) {
     const mod = findModule(ws.blueprint, f.module)!;
     return {
       organization: ws.name,
+      // «Idioma y región» de la organización: el formulario se muestra en su idioma (el de sus etiquetas).
+      locale: ws.settings.locale,
       name: f.name,
       submitLabel: f.submitLabel,
       fields: f.fields.map((k) => {
@@ -100,8 +103,9 @@ export async function publicRoutes(app: FastifyInstance, deps: AppDeps) {
     } catch (e) {
       // Un duplicado (p. ej. email ya registrado) se acepta en silencio: el formulario público no debe
       // revelar si alguien ya es cliente. El resto de errores de validación sí se devuelven.
-      const fields = (e as AppError)?.details as { fields?: { message: string }[] } | undefined;
-      const onlyDuplicates = e instanceof AppError && e.status === 422 && !!fields?.fields?.length && fields.fields.every((x) => x.message === 'Ya existe un registro con este valor');
+      // Se reconoce por el código del problema, no por el texto (que depende del idioma).
+      const fields = (e as AppError)?.details as { fields?: { message: string; code?: RecordIssueCode }[] } | undefined;
+      const onlyDuplicates = e instanceof AppError && e.status === 422 && !!fields?.fields?.length && fields.fields.every((x) => x.code === 'duplicate');
       if (!onlyDuplicates) throw e;
     }
     return { ok: true, message: f.successMessage };

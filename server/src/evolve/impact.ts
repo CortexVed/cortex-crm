@@ -1,9 +1,10 @@
-import { FIELD_TYPE_LABELS, ROLE_LABELS, type FieldType } from '../../../shared/constants';
+import { FIELD_TYPE_LABELS, ROLE_LABELS, type FieldType, type Role } from '../../../shared/constants';
 import { findModule, findPage, type Blueprint, type Page } from '../../../shared/blueprint';
 import type { AppearancePatch, ChangeSet, Operation } from '../../../shared/changeset';
 import { DENSITY_LABELS, FONT_LABELS, RADIUS_LABELS, SIDEBAR_LABELS, THEME_LABELS } from '../../../shared/appearance';
 import { blockModules } from '../crm/visibility';
 import type { RiskAssessment } from './risk';
+import { inSentence, listFormat, t, tk, tp } from '../i18n';
 
 export interface ImpactChange {
   index: number;
@@ -28,106 +29,150 @@ export interface ImpactReport {
   approverRole: string;
 }
 
-const typeLabel = (t: string) => FIELD_TYPE_LABELS[t as FieldType] ?? t;
+const typeLabel = (type: string) => {
+  const label = FIELD_TYPE_LABELS[type as FieldType];
+  return label ? tk(label) : type;
+};
+const roleLabel = (role: string) => {
+  const label = ROLE_LABELS[role as Role];
+  return label ? tk(label) : role;
+};
 
 /** Cambios de apariencia en lenguaje llano ("color principal #0a7f6b · menú lateral oscuro"). */
 function describeAppearance(c: AppearancePatch): string {
   const parts: string[] = [];
-  if (c.brandColor) parts.push(`color principal ${c.brandColor}`);
-  if (c.accentColor) parts.push(`color de acento ${c.accentColor}`);
-  else if (c.accentColor === null) parts.push('sin color de acento propio');
-  if (c.appName) parts.push(`nombre «${c.appName}»`);
-  else if (c.appName === null) parts.push('nombre por defecto');
-  if (c.font) parts.push(`tipografía ${FONT_LABELS[c.font].toLowerCase()}`);
-  if (c.radius) parts.push(`bordes: ${RADIUS_LABELS[c.radius].toLowerCase()}`);
-  if (c.density) parts.push(`densidad ${DENSITY_LABELS[c.density].toLowerCase()}`);
-  if (c.sidebar) parts.push(`menú lateral ${SIDEBAR_LABELS[c.sidebar].toLowerCase()}`);
-  if (c.defaultTheme) parts.push(`tema por defecto: ${THEME_LABELS[c.defaultTheme].toLowerCase()}`);
-  if (typeof c.customCss === 'string') parts.push(`CSS personalizado (${c.customCss.length} caracteres)`);
-  else if (c.customCss === null) parts.push('se quita el CSS personalizado');
+  if (c.brandColor) parts.push(t('color principal {color}', { color: c.brandColor }));
+  if (c.accentColor) parts.push(t('color de acento {color}', { color: c.accentColor }));
+  else if (c.accentColor === null) parts.push(t('sin color de acento propio'));
+  if (c.appName) parts.push(t('nombre «{name}»', { name: c.appName }));
+  else if (c.appName === null) parts.push(t('nombre por defecto'));
+  if (c.font) parts.push(t('tipografía {font}', { font: inSentence(tk(FONT_LABELS[c.font])) }));
+  if (c.radius) parts.push(t('bordes: {radius}', { radius: inSentence(tk(RADIUS_LABELS[c.radius])) }));
+  if (c.density) parts.push(t('densidad {density}', { density: inSentence(tk(DENSITY_LABELS[c.density])) }));
+  if (c.sidebar) parts.push(t('menú lateral {sidebar}', { sidebar: inSentence(tk(SIDEBAR_LABELS[c.sidebar])) }));
+  if (c.defaultTheme) parts.push(t('tema por defecto: {theme}', { theme: inSentence(tk(THEME_LABELS[c.defaultTheme])) }));
+  if (typeof c.customCss === 'string') parts.push(tp(c.customCss.length, 'CSS personalizado ({count} carácter)', 'CSS personalizado ({count} caracteres)'));
+  else if (c.customCss === null) parts.push(t('se quita el CSS personalizado'));
   return parts.join(' · ');
 }
 
-const BLOCK_NAMES: Record<Page['blocks'][number]['type'], [string, string]> = {
-  heading: ['título', 'títulos'],
-  text: ['texto', 'textos'],
-  widget: ['widget', 'widgets'],
-  records: ['lista de registros', 'listas de registros'],
-  form: ['formulario', 'formularios'],
-  buttons: ['grupo de botones', 'grupos de botones'],
-  divider: ['separador', 'separadores'],
-};
+/** "2 widgets", "1 lista de registros"… (un tipo de bloque nuevo de la plataforma sale con su clave). */
+function blockCount(type: Page['blocks'][number]['type'], n: number): string {
+  switch (type) {
+    case 'heading':
+      return tp(n, '{count} título', '{count} títulos');
+    case 'text':
+      return tp(n, '{count} texto', '{count} textos');
+    case 'widget':
+      return tp(n, '{count} widget', '{count} widgets');
+    case 'records':
+      return tp(n, '{count} lista de registros', '{count} listas de registros');
+    case 'form':
+      return tp(n, '{count} formulario', '{count} formularios');
+    case 'buttons':
+      return tp(n, '{count} grupo de botones', '{count} grupos de botones');
+    case 'divider':
+      return tp(n, '{count} separador', '{count} separadores');
+    default:
+      return `${n} ${String(type)}`;
+  }
+}
 
 /** "3 bloques: 2 widgets, 1 lista de registros". */
 function describeBlocks(page: Page): string {
   const counts = new Map<Page['blocks'][number]['type'], number>();
   for (const b of page.blocks) counts.set(b.type, (counts.get(b.type) ?? 0) + 1);
-  const parts = [...counts].map(([t, n]) => `${n} ${BLOCK_NAMES[t][n === 1 ? 0 : 1]}`);
-  return `${page.blocks.length} bloque(s)${parts.length ? `: ${parts.join(', ')}` : ''}`;
+  const parts = [...counts].map(([type, n]) => blockCount(type, n));
+  const total = tp(page.blocks.length, '{count} bloque', '{count} bloques');
+  return parts.length ? `${total}: ${parts.join(', ')}` : total;
 }
 
 export function describeOperation(op: Operation, bp: Blueprint): ImpactChange & { index: number } {
   const modLabel = (k: string) => findModule(bp, k)?.labelPlural ?? k;
   switch (op.op) {
     case 'create_module':
-      return { index: 0, kind: 'add', title: `Nuevo módulo «${op.module.labelPlural}»`, detail: `${op.module.fields.length} campos, ${op.module.views.length} vista(s): ${op.module.views.map((v) => v.label).join(', ')}` };
+      return {
+        index: 0,
+        kind: 'add',
+        title: t('Nuevo módulo «{module}»', { module: op.module.labelPlural }),
+        detail: `${tp(op.module.fields.length, '{count} campo', '{count} campos')}, ${tp(op.module.views.length, '{count} vista', '{count} vistas')}: ${op.module.views.map((v) => v.label).join(', ')}`,
+      };
     case 'update_module':
-      return { index: 0, kind: 'update', title: `Ajustes del módulo «${modLabel(op.module)}»`, detail: Object.keys(op.changes).join(', ') };
+      return { index: 0, kind: 'update', title: t('Ajustes del módulo «{module}»', { module: modLabel(op.module) }), detail: Object.keys(op.changes).join(', ') };
     case 'archive_module':
-      return { index: 0, kind: 'remove', title: `Archivar módulo «${modLabel(op.module)}»`, detail: 'Los datos se conservan y se puede restaurar' };
+      return { index: 0, kind: 'remove', title: t('Archivar módulo «{module}»', { module: modLabel(op.module) }), detail: t('Los datos se conservan y se puede restaurar') };
     case 'restore_module':
-      return { index: 0, kind: 'update', title: `Restaurar módulo «${modLabel(op.module)}»` };
+      return { index: 0, kind: 'update', title: t('Restaurar módulo «{module}»', { module: modLabel(op.module) }) };
     case 'add_field':
-      return { index: 0, kind: 'add', title: `Nuevo campo «${op.field.label}» en ${modLabel(op.module)}`, detail: `${typeLabel(op.field.type)}${op.field.required ? ' · obligatorio' : ''}${op.field.formula ? ` · fórmula: ${op.field.formula.expression}` : ''}` };
+      return {
+        index: 0,
+        kind: 'add',
+        title: t('Nuevo campo «{field}» en {module}', { field: op.field.label, module: modLabel(op.module) }),
+        detail: [typeLabel(op.field.type), op.field.required ? t('obligatorio') : null, op.field.formula ? t('fórmula: {expression}', { expression: op.field.formula.expression }) : null].filter(Boolean).join(' · '),
+      };
     case 'update_field':
-      return { index: 0, kind: 'update', title: `Modificar campo «${op.field}» en ${modLabel(op.module)}`, detail: Object.entries(op.changes).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v).slice(0, 80) : String(v)}`).join(' · ') };
+      return { index: 0, kind: 'update', title: t('Modificar campo «{field}» en {module}', { field: op.field, module: modLabel(op.module) }), detail: Object.entries(op.changes).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v).slice(0, 80) : String(v)}`).join(' · ') };
     case 'archive_field':
-      return { index: 0, kind: 'remove', title: `Archivar campo «${op.field}» en ${modLabel(op.module)}`, detail: 'Los datos se conservan' };
+      return { index: 0, kind: 'remove', title: t('Archivar campo «{field}» en {module}', { field: op.field, module: modLabel(op.module) }), detail: t('Los datos se conservan') };
     case 'restore_field':
-      return { index: 0, kind: 'update', title: `Restaurar campo «${op.field}» en ${modLabel(op.module)}` };
+      return { index: 0, kind: 'update', title: t('Restaurar campo «{field}» en {module}', { field: op.field, module: modLabel(op.module) }) };
     case 'add_select_options':
-      return { index: 0, kind: 'add', title: `Nuevas opciones en «${op.field}» (${modLabel(op.module)})`, detail: op.options.map((o) => o.label).join(', ') };
+      return { index: 0, kind: 'add', title: t('Nuevas opciones en «{field}» ({module})', { field: op.field, module: modLabel(op.module) }), detail: op.options.map((o) => o.label).join(', ') };
     case 'upsert_view':
-      return { index: 0, kind: 'update', title: `Vista «${op.view.label}» (${op.view.type}) en ${modLabel(op.module)}` };
+      return { index: 0, kind: 'update', title: t('Vista «{view}» ({type}) en {module}', { view: op.view.label, type: op.view.type, module: modLabel(op.module) }) };
     case 'remove_view':
-      return { index: 0, kind: 'remove', title: `Eliminar vista «${op.view}» de ${modLabel(op.module)}` };
+      return { index: 0, kind: 'remove', title: t('Eliminar vista «{view}» de {module}', { view: op.view, module: modLabel(op.module) }) };
     case 'upsert_automation': {
       const a = op.automation;
-      return { index: 0, kind: 'add', title: `Automatización «${a.name}»`, detail: `Cuando: ${a.trigger.type} en ${modLabel(a.trigger.module)} → ${a.actions.map((x) => x.type).join(', ')}` };
+      return {
+        index: 0,
+        kind: 'add',
+        title: t('Automatización «{name}»', { name: a.name }),
+        detail: t('Cuando: {trigger} en {module} → {actions}', { trigger: a.trigger.type, module: modLabel(a.trigger.module), actions: a.actions.map((x) => x.type).join(', ') }),
+      };
     }
     case 'remove_automation':
-      return { index: 0, kind: 'remove', title: `Eliminar automatización «${op.automation}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar automatización «{name}»', { name: op.automation }) };
     case 'upsert_dashboard':
-      return { index: 0, kind: 'update', title: `Panel «${op.dashboard.label}»`, detail: `${op.dashboard.widgets.length} widget(s)` };
+      return { index: 0, kind: 'update', title: t('Panel «{dashboard}»', { dashboard: op.dashboard.label }), detail: tp(op.dashboard.widgets.length, '{count} widget', '{count} widgets') };
     case 'remove_dashboard':
-      return { index: 0, kind: 'remove', title: `Eliminar panel «${op.dashboard}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar panel «{dashboard}»', { dashboard: op.dashboard }) };
     case 'upsert_integration':
-      return { index: 0, kind: 'add', title: `Integración «${op.integration.name}»`, detail: op.integration.url };
+      return { index: 0, kind: 'add', title: t('Integración «{name}»', { name: op.integration.name }), detail: op.integration.url };
     case 'remove_integration':
-      return { index: 0, kind: 'remove', title: `Eliminar integración «${op.integration}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar integración «{name}»', { name: op.integration }) };
     case 'upsert_form':
-      return { index: 0, kind: 'update', title: `Formulario «${op.form.name}»${op.form.public ? ' (público)' : ''}` };
+      return { index: 0, kind: 'update', title: op.form.public ? t('Formulario «{name}» (público)', { name: op.form.name }) : t('Formulario «{name}»', { name: op.form.name }) };
     case 'remove_form':
-      return { index: 0, kind: 'remove', title: `Eliminar formulario «${op.form}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar formulario «{name}»', { name: op.form }) };
     case 'upsert_script':
-      return { index: 0, kind: (bp.scripts ?? []).some((s) => s.key === op.script.key) ? 'update' : 'add', title: `Script «${op.script.name}» (código en sandbox)`, detail: op.script.description?.slice(0, 200) };
+      return { index: 0, kind: (bp.scripts ?? []).some((s) => s.key === op.script.key) ? 'update' : 'add', title: t('Script «{name}» (código en sandbox)', { name: op.script.name }), detail: op.script.description?.slice(0, 200) };
     case 'remove_script':
-      return { index: 0, kind: 'remove', title: `Eliminar script «${op.script}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar script «{name}»', { name: op.script }) };
     case 'update_appearance':
-      return { index: 0, kind: 'update', title: 'Apariencia del CRM', detail: describeAppearance(op.changes) || undefined };
+      return { index: 0, kind: 'update', title: t('Apariencia del CRM'), detail: describeAppearance(op.changes) || undefined };
     case 'update_navigation': {
       const n = op.navigation;
-      if (!n) return { index: 0, kind: 'update', title: 'Menú de navegación', detail: 'Vuelve el menú por defecto (todos los módulos en una lista)' };
-      const homeLabel = n.home ? (n.home.type === 'page' ? `página «${findPage(bp, n.home.key)?.label ?? n.home.key}»` : `panel «${bp.dashboards.find((d) => d.key === n.home!.key)?.label ?? n.home.key}»`) : null;
+      if (!n) return { index: 0, kind: 'update', title: t('Menú de navegación'), detail: t('Vuelve el menú por defecto (todos los módulos en una lista)') };
+      const home = n.home
+        ? n.home.type === 'page'
+          ? t('inicio: página «{label}»', { label: findPage(bp, n.home.key)?.label ?? n.home.key })
+          : t('inicio: panel «{label}»', { label: bp.dashboards.find((d) => d.key === n.home!.key)?.label ?? n.home.key })
+        : null;
       const groups = n.groups.map((g) => `${g.label} (${g.items.length})`).join(', ');
-      return { index: 0, kind: 'update', title: 'Menú de navegación', detail: [groups ? `Grupos: ${groups}` : 'Sin grupos (lista de módulos)', homeLabel && `inicio: ${homeLabel}`].filter(Boolean).join(' · ') };
+      return { index: 0, kind: 'update', title: t('Menú de navegación'), detail: [groups ? t('Grupos: {groups}', { groups }) : t('Sin grupos (lista de módulos)'), home].filter(Boolean).join(' · ') };
     }
     case 'upsert_page':
-      return { index: 0, kind: findPage(bp, op.page.key) ? 'update' : 'add', title: `Página «${op.page.label}»`, detail: `${describeBlocks(op.page)} · visible desde el rol ${ROLE_LABELS[op.page.minRole]}` };
+      return {
+        index: 0,
+        kind: findPage(bp, op.page.key) ? 'update' : 'add',
+        title: t('Página «{page}»', { page: op.page.label }),
+        detail: `${describeBlocks(op.page)} · ${t('visible desde el rol {role}', { role: roleLabel(op.page.minRole) })}`,
+      };
     case 'remove_page':
-      return { index: 0, kind: 'remove', title: `Eliminar página «${findPage(bp, op.page)?.label ?? op.page}»` };
+      return { index: 0, kind: 'remove', title: t('Eliminar página «{page}»', { page: findPage(bp, op.page)?.label ?? op.page }) };
     case 'backfill_field':
-      return { index: 0, kind: 'data', title: `Migración de datos en ${modLabel(op.module)}.${op.field}`, detail: `${op.onlyEmpty ? 'Solo registros vacíos' : 'Sobrescribe valores'} → ${JSON.stringify(op.value)}` };
+      return { index: 0, kind: 'data', title: t('Migración de datos en {module}.{field}', { module: modLabel(op.module), field: op.field }), detail: `${op.onlyEmpty ? t('Solo registros vacíos') : t('Sobrescribe valores')} → ${JSON.stringify(op.value)}` };
   }
 }
 
@@ -143,24 +188,24 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
   const table = (key: string, action: 'create' | 'alter' | 'archive') => {
     const label = findModule(after ?? before, key)?.labelPlural ?? findModule(before, key)?.labelPlural ?? key;
     if (!tables.has(key)) tables.set(key, { module: key, label, action, columns: [] });
-    const t = tables.get(key)!;
-    if (action !== 'alter') t.action = action;
-    return t;
+    const entry = tables.get(key)!;
+    if (action !== 'alter') entry.action = action;
+    return entry;
   };
 
   for (const op of cs.operations) {
     switch (op.op) {
       case 'create_module': {
         artifacts.push({ path: `blueprint/modules/${op.module.key}.json`, action: 'create' });
-        const t = table(op.module.key, 'create');
-        t.columns.push(...op.module.fields.map((f) => ({ key: f.key, label: f.label, type: typeLabel(f.type), action: 'add' as const })));
+        const created = table(op.module.key, 'create');
+        created.columns.push(...op.module.fields.map((f) => ({ key: f.key, label: f.label, type: typeLabel(f.type), action: 'add' as const })));
         touchedModules.add(op.module.key);
         break;
       }
       case 'update_module':
         artifacts.push({ path: `blueprint/modules/${op.module}.json`, action: 'update' });
         touchedModules.add(op.module);
-        if (op.changes.permissions) permissions.push(`Permisos de «${op.module}»: ${Object.entries(op.changes.permissions).map(([k, v]) => `${k} → ${ROLE_LABELS[v as keyof typeof ROLE_LABELS] ?? v}`).join(', ')}`);
+        if (op.changes.permissions) permissions.push(t('Permisos de «{module}»: {changes}', { module: op.module, changes: Object.entries(op.changes.permissions).map(([k, v]) => `${k} → ${roleLabel(String(v))}`).join(', ') }));
         break;
       case 'archive_module':
         artifacts.push({ path: `blueprint/modules/${op.module}.json`, action: 'archive' });
@@ -198,7 +243,7 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
         break;
       case 'upsert_automation':
         artifacts.push({ path: `blueprint/automations/${op.automation.key}.json`, action: 'update' });
-        if (op.automation.actions.some((a) => a.type === 'send_webhook')) permissions.push(`La automatización «${op.automation.name}» enviará datos fuera del CRM`);
+        if (op.automation.actions.some((a) => a.type === 'send_webhook')) permissions.push(t('La automatización «{name}» enviará datos fuera del CRM', { name: op.automation.name }));
         break;
       case 'remove_automation':
         artifacts.push({ path: `blueprint/automations/${op.automation}.json`, action: 'delete' });
@@ -209,21 +254,21 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
         break;
       case 'upsert_integration':
         artifacts.push({ path: `blueprint/integrations/${op.integration.key}.json`, action: 'update' });
-        permissions.push(`Salida de datos a ${op.integration.url} (firmada con HMAC)`);
+        permissions.push(t('Salida de datos a {url} (firmada con HMAC)', { url: op.integration.url }));
         break;
       case 'remove_integration':
         artifacts.push({ path: `blueprint/integrations/${op.integration}.json`, action: 'delete' });
         break;
       case 'upsert_form':
         artifacts.push({ path: `blueprint/forms/${op.form.key}.json`, action: 'update' });
-        if (op.form.public) permissions.push(`Endpoint público de formulario «${op.form.name}» (con límite de peticiones)`);
+        if (op.form.public) permissions.push(t('Endpoint público de formulario «{name}» (con límite de peticiones)', { name: op.form.name }));
         break;
       case 'remove_form':
         artifacts.push({ path: `blueprint/forms/${op.form}.json`, action: 'delete' });
         break;
       case 'upsert_script':
         artifacts.push({ path: `blueprint/scripts/${op.script.key}.js`, action: (before.scripts ?? []).some((s) => s.key === op.script.key) ? 'update' : 'create' });
-        permissions.push(`El script «${op.script.name}» podrá modificar registros de esta organización (solo dentro del sandbox, sin red)`);
+        permissions.push(t('El script «{name}» podrá modificar registros de esta organización (solo dentro del sandbox, sin red)', { name: op.script.name }));
         break;
       case 'remove_script':
         artifacts.push({ path: `blueprint/scripts/${op.script}.js`, action: 'delete' });
@@ -232,7 +277,7 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
         artifacts.push({ path: 'blueprint/appearance.json', action: 'update' });
         if (typeof op.changes.customCss === 'string' && op.changes.customCss.trim()) {
           artifacts.push({ path: 'blueprint/appearance/custom.css', action: 'update' });
-          permissions.push('El CSS personalizado se aplicará a toda la interfaz de la organización, salvo EVOLVE, Ajustes y Plataforma (no puede cargar recursos ni ejecutar código)');
+          permissions.push(t('El CSS personalizado se aplicará a toda la interfaz de la organización, salvo EVOLVE, Ajustes y Plataforma (no puede cargar recursos ni ejecutar código)'));
         }
         break;
       case 'update_navigation':
@@ -255,23 +300,23 @@ export function buildImpact(before: Blueprint, after: Blueprint | null, cs: Chan
   const affected = new Set<string>();
   const ref = after ?? before;
   for (const m of ref.modules) {
-    if (touchedModules.has(m.key)) for (const v of m.views) affected.add(`Vista «${m.labelPlural} › ${v.label}»`);
+    if (touchedModules.has(m.key)) for (const v of m.views) affected.add(t('Vista «{module} › {view}»', { module: m.labelPlural, view: v.label }));
   }
-  for (const d of ref.dashboards) for (const w of d.widgets) if (touchedModules.has(w.module) || touchedFields.has(`${w.module}.${w.field}`)) affected.add(`Panel «${d.label}» › ${w.title}`);
-  for (const a of ref.automations) if (touchedModules.has(a.trigger.module)) affected.add(`Automatización «${a.name}»`);
-  for (const f of ref.forms) if (touchedModules.has(f.module)) affected.add(`Formulario «${f.name}»`);
-  for (const p of ref.pages ?? []) if (p.blocks.some((b) => blockModules(ref, b).some((k) => touchedModules.has(k)))) affected.add(`Página «${p.label}»`);
-  if (ref.navigation?.groups.some((g) => g.items.some((it) => it.type === 'module' && touchedModules.has(it.key)))) affected.add('Menú de navegación');
-  if (['deals', 'activities', 'contacts', 'companies', 'tasks'].some((k) => touchedModules.has(k))) affected.add('Informes comerciales');
+  for (const d of ref.dashboards) for (const w of d.widgets) if (touchedModules.has(w.module) || touchedFields.has(`${w.module}.${w.field}`)) affected.add(t('Panel «{dashboard}» › {widget}', { dashboard: d.label, widget: w.title }));
+  for (const a of ref.automations) if (touchedModules.has(a.trigger.module)) affected.add(t('Automatización «{name}»', { name: a.name }));
+  for (const f of ref.forms) if (touchedModules.has(f.module)) affected.add(t('Formulario «{name}»', { name: f.name }));
+  for (const p of ref.pages ?? []) if (p.blocks.some((b) => blockModules(ref, b).some((k) => touchedModules.has(k)))) affected.add(t('Página «{page}»', { page: p.label }));
+  if (ref.navigation?.groups.some((g) => g.items.some((it) => it.type === 'module' && touchedModules.has(it.key)))) affected.add(t('Menú de navegación'));
+  if (['deals', 'activities', 'contacts', 'companies', 'tasks'].some((k) => touchedModules.has(k))) affected.add(t('Informes comerciales'));
 
   return {
     changes,
     artifacts,
     tables: [...tables.values()],
     dataMigrations,
-    permissions: permissions.length ? permissions : ['Sin cambios de permisos ni salidas de datos'],
+    permissions: permissions.length ? permissions : [t('Sin cambios de permisos ni salidas de datos')],
     risks: risk.items.map((r) => ({ level: r.level, message: r.message })),
     affectedFeatures: [...affected].slice(0, 40),
-    approverRole: risk.requiresOwner ? ROLE_LABELS.owner : `${ROLE_LABELS.admin} o ${ROLE_LABELS.owner}`,
+    approverRole: risk.requiresOwner ? tk(ROLE_LABELS.owner) : listFormat([tk(ROLE_LABELS.admin), tk(ROLE_LABELS.owner)], 'disjunction'),
   };
 }

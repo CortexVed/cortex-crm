@@ -7,17 +7,32 @@ import { burnPasswordCheck, hashPassword, newId, randomToken, safeEqual, sha256,
 import { AppError, badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../lib/errors';
 import { emailTemplate } from '../lib/mailer';
 import { provisionWorkspace } from '../workspace/provision';
+import { LOCALES } from '../../../shared/i18n';
+import { currentLocale, msg, t } from '../i18n';
 import { cookieOptions, requireAuth, requireUserSession, SESSION_COOKIE, SESSION_TTL_DAYS } from './plugin';
 
 export const PasswordSchema = z
   .string()
-  .min(10, 'La contraseña debe tener al menos 10 caracteres')
+  .min(10, msg('La contraseña debe tener al menos 10 caracteres'))
   .max(200)
-  .refine((p) => /[A-Za-zÀ-ÿ]/.test(p) && /[0-9\W_]/.test(p), 'Combina letras con números o símbolos');
-export const EmailSchema = z.string().trim().toLowerCase().email('Email inválido').max(254);
-const NameSchema = z.string().trim().min(2, 'Nombre demasiado corto').max(80);
+  .refine((p) => /[A-Za-zÀ-ÿ]/.test(p) && /[0-9\W_]/.test(p), msg('Combina letras con números o símbolos'));
+export const EmailSchema = z.string().trim().toLowerCase().email(msg('Email inválido')).max(254);
+const NameSchema = z.string().trim().min(2, msg('Nombre demasiado corto')).max(80);
 
 const STRICT = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+const LocaleSchema = z.enum(LOCALES);
+// Zona horaria IANA del navegador de quien crea la organización (p. ej. 'America/Sao_Paulo').
+const TimezoneSchema = z
+  .string()
+  .max(64)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  });
 const VERY_STRICT = { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } };
 
 export async function createSession(deps: AppDeps, req: FastifyRequest, reply: FastifyReply, userId: string, workspaceId: string | null) {
@@ -33,19 +48,20 @@ export async function createSession(deps: AppDeps, req: FastifyRequest, reply: F
 }
 
 export async function buildMe(deps: AppDeps, userId: string, sessionId: string | null) {
-  const u = (await deps.db.query(`SELECT id, name, email, email_verified_at, is_platform_admin FROM users WHERE id = $1`, [userId])).rows[0];
+  const u = (await deps.db.query(`SELECT id, name, email, email_verified_at, is_platform_admin, locale FROM users WHERE id = $1`, [userId])).rows[0];
   if (!u) throw unauthorized();
   const s = sessionId ? (await deps.db.query(`SELECT workspace_id, csrf_token FROM sessions WHERE id = $1`, [sessionId])).rows[0] : null;
   const ws = (
     await deps.db.query(
-      `SELECT w.id, w.name, w.slug, w.blueprint_version, m.role FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY m.created_at`,
+      `SELECT w.id, w.name, w.slug, w.blueprint_version, w.settings->>'locale' AS locale, m.role FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY m.created_at`,
       [userId],
     )
   ).rows;
   const current = ws.find((w: any) => w.id === s?.workspace_id) ?? null;
   return {
-    user: { id: u.id, name: u.name, email: u.email, emailVerified: !!u.email_verified_at, isPlatformAdmin: u.is_platform_admin },
-    workspace: current ? { id: current.id, name: current.name, slug: current.slug, role: current.role as Role, version: current.blueprint_version } : null,
+    // locale: idioma de la interfaz que eligió (null = el de la organización); workspace.locale: «Idioma y región».
+    user: { id: u.id, name: u.name, email: u.email, emailVerified: !!u.email_verified_at, isPlatformAdmin: u.is_platform_admin, locale: (u.locale as string | null) ?? null },
+    workspace: current ? { id: current.id, name: current.name, slug: current.slug, role: current.role as Role, version: current.blueprint_version, locale: (current.locale as string | null) ?? 'es-ES' } : null,
     workspaces: ws.map((w: any) => ({ id: w.id, name: w.name, role: w.role })),
     csrfToken: s?.csrf_token ?? null,
     features: {
@@ -85,8 +101,8 @@ async function consumeToken(deps: AppDeps, kind: string, token: string) {
 export async function sendVerification(deps: AppDeps, req: FastifyRequest, user: { id: string; email: string }) {
   const token = await createToken(deps, 'email_verification', { userId: user.id, ttlHours: 48 });
   const url = `${appBaseUrl(deps, req)}/verify-email?token=${encodeURIComponent(token)}`;
-  const mail = emailTemplate('Verifica tu correo', 'Confirma tu dirección de email para asegurar tu cuenta de Cortex CRM.', { label: 'Verificar email', url }, 'El enlace caduca en 48 horas.');
-  await deps.mailer.send({ to: user.email, subject: 'Verifica tu correo — Cortex CRM', ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar verificación'));
+  const mail = emailTemplate(t('Verifica tu correo'), t('Confirma tu dirección de email para asegurar tu cuenta de Cortex CRM.'), { label: t('Verificar email'), url }, t('El enlace caduca en 48 horas.'));
+  await deps.mailer.send({ to: user.email, subject: t('Verifica tu correo — Cortex CRM'), ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar verificación'));
 }
 
 /**
@@ -105,8 +121,8 @@ export async function revokeResetTokens(deps: { db: AppDeps['db'] }, userId: str
 }
 
 /** Un enlace generado por un propietario solo vale si las condiciones de cuando se creó SIGUEN cumpliéndose. */
-async function ownerResetLinkStillValid(deps: AppDeps, t: { user_id: string; workspace_id: string | null; created_by: string }): Promise<boolean> {
-  if (!t.workspace_id) return false;
+async function ownerResetLinkStillValid(deps: AppDeps, tok: { user_id: string; workspace_id: string | null; created_by: string }): Promise<boolean> {
+  if (!tok.workspace_id) return false;
   const r = (
     await deps.db.query(
       `SELECT u.is_platform_admin,
@@ -114,14 +130,14 @@ async function ownerResetLinkStillValid(deps: AppDeps, t: { user_id: string; wor
               (SELECT role FROM memberships m WHERE m.user_id = u.id AND m.workspace_id = $2) AS target_role,
               (SELECT role FROM memberships m WHERE m.user_id = $3 AND m.workspace_id = $2) AS creator_role
          FROM users u WHERE u.id = $1`,
-      [t.user_id, t.workspace_id, t.created_by],
+      [tok.user_id, tok.workspace_id, tok.created_by],
     )
   ).rows[0];
-  return !!r && !r.is_platform_admin && r.orgs === 1 && !!r.target_role && r.target_role !== 'owner' && r.creator_role === 'owner' && t.created_by !== t.user_id;
+  return !!r && !r.is_platform_admin && r.orgs === 1 && !!r.target_role && r.target_role !== 'owner' && r.creator_role === 'owner' && tok.created_by !== tok.user_id;
 }
 
 const MAX_FAILED_LOGINS = 10;
-const LOCKED_MESSAGE = 'Cuenta bloqueada temporalmente por demasiados intentos. Prueba en unos minutos.';
+const LOCKED_MESSAGE = msg('Cuenta bloqueada temporalmente por demasiados intentos. Prueba en unos minutos.');
 
 /**
  * Reserva atómica de un intento de contraseña ANTES de comprobarla: aunque lleguen muchas peticiones en
@@ -163,10 +179,10 @@ async function notifyPasswordChanged(deps: AppDeps, req: FastifyRequest, userId:
   const u = (await deps.db.query(`SELECT email FROM users WHERE id = $1`, [userId])).rows[0];
   if (!u) return;
   const intro = byOwnerOf
-    ? `Un propietario de «${byOwnerOf}» ha restablecido la contraseña de tu cuenta de Cortex CRM. Se han cerrado tus sesiones y revocado las API keys creadas desde tu cuenta.`
-    : 'Se ha restablecido la contraseña de tu cuenta de Cortex CRM. Se han cerrado tus sesiones y revocado las API keys creadas desde tu cuenta.';
-  const mail = emailTemplate('Tu contraseña ha cambiado', intro, { label: 'Iniciar sesión', url: `${appBaseUrl(deps, req)}/login` }, 'Si no has sido tú, contacta con el propietario de tu organización inmediatamente.');
-  await deps.mailer.send({ to: u.email, subject: 'Tu contraseña ha cambiado — Cortex CRM', ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar aviso de cambio de contraseña'));
+    ? t('Un propietario de «{workspace}» ha restablecido la contraseña de tu cuenta de Cortex CRM. Se han cerrado tus sesiones y revocado las API keys creadas desde tu cuenta.', { workspace: byOwnerOf })
+    : t('Se ha restablecido la contraseña de tu cuenta de Cortex CRM. Se han cerrado tus sesiones y revocado las API keys creadas desde tu cuenta.');
+  const mail = emailTemplate(t('Tu contraseña ha cambiado'), intro, { label: t('Iniciar sesión'), url: `${appBaseUrl(deps, req)}/login` }, t('Si no has sido tú, contacta con el propietario de tu organización inmediatamente.'));
+  await deps.mailer.send({ to: u.email, subject: t('Tu contraseña ha cambiado — Cortex CRM'), ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar aviso de cambio de contraseña'));
 }
 
 export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
@@ -174,7 +190,8 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
 
   app.post('/register', STRICT, async (req, reply) => {
     if (!deps.config.allowSignup) throw forbidden('El registro público está desactivado. Pide una invitación.');
-    const body = z.object({ name: NameSchema, email: EmailSchema, password: PasswordSchema, workspaceName: z.string().trim().min(2).max(80) }).parse(req.body);
+    // locale: idioma de la organización nueva (interfaz por defecto, CRM inicial y etiquetas que cree la IA).
+    const body = z.object({ name: NameSchema, email: EmailSchema, password: PasswordSchema, workspaceName: z.string().trim().min(2).max(80), locale: LocaleSchema.optional(), timezone: TimezoneSchema.optional() }).parse(req.body);
     const exists = await deps.db.query(`SELECT 1 FROM users WHERE lower(email) = $1`, [body.email]);
     if (exists.rows.length) throw conflict('Ya existe una cuenta con ese email. Inicia sesión.');
     // El rol de administrador de plataforma en producción SOLO se concede por CLI (dist/server/cli.js),
@@ -189,7 +206,7 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
       await hashPassword(body.password),
       isPlatformAdmin,
     ]);
-    const workspaceId = await provisionWorkspace(deps.db, { name: body.workspaceName, ownerId: userId });
+    const workspaceId = await provisionWorkspace(deps.db, { name: body.workspaceName, ownerId: userId, locale: body.locale ?? currentLocale(), timezone: body.timezone });
     const { sessionId } = await createSession(deps, req, reply, userId, workspaceId);
     await audit(deps.db, { workspaceId, actorId: userId, action: 'auth.register', ip: req.ip, meta: { platformAdmin: isPlatformAdmin } });
     await sendVerification(deps, req, { id: userId, email: body.email });
@@ -229,6 +246,14 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
     return buildMe(deps, a.userId, a.sessionId);
   });
 
+  // Idioma de la interfaz de la persona (null: el de su organización). Se guarda en su cuenta, para todos sus dispositivos.
+  app.put('/me/locale', async (req) => {
+    const a = requireUserSession(req);
+    const { locale } = z.object({ locale: LocaleSchema.nullable() }).parse(req.body);
+    await deps.db.query(`UPDATE users SET locale = $1 WHERE id = $2`, [locale, a.userId]);
+    return buildMe(deps, a.userId, a.sessionId);
+  });
+
   app.post('/switch-workspace', async (req) => {
     const a = requireUserSession(req);
     const { workspaceId } = z.object({ workspaceId: z.string().uuid() }).parse(req.body);
@@ -240,10 +265,10 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
 
   app.post('/workspaces', STRICT, async (req) => {
     const a = requireUserSession(req);
-    const { name } = z.object({ name: z.string().trim().min(2).max(80) }).parse(req.body);
+    const { name, timezone } = z.object({ name: z.string().trim().min(2).max(80), timezone: TimezoneSchema.optional() }).parse(req.body);
     const owned = await deps.db.query<{ n: number }>(`SELECT count(*)::int AS n FROM memberships WHERE user_id = $1 AND role = 'owner'`, [a.userId]);
     if ((owned.rows[0]?.n ?? 0) >= 10) throw forbidden('Has alcanzado el máximo de organizaciones propias');
-    const id = await provisionWorkspace(deps.db, { name, ownerId: a.userId });
+    const id = await provisionWorkspace(deps.db, { name, ownerId: a.userId, locale: currentLocale(), timezone });
     await deps.db.query(`UPDATE sessions SET workspace_id = $1 WHERE id = $2`, [id, a.sessionId]);
     await audit(deps.db, { workspaceId: id, actorId: a.userId, action: 'workspace.create', ip: req.ip });
     return buildMe(deps, a.userId, a.sessionId);
@@ -276,8 +301,8 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
     const u = (await deps.db.query(`SELECT id, email FROM users WHERE lower(email) = $1`, [email])).rows[0];
     if (u) {
       const url = await createPasswordResetLink(deps, req, u.id); // invalida los enlaces anteriores
-      const mail = emailTemplate('Restablecer contraseña', 'Has solicitado restablecer tu contraseña de Cortex CRM.', { label: 'Elegir nueva contraseña', url }, 'Si no lo has solicitado, ignora este mensaje. El enlace caduca en 1 hora.');
-      await deps.mailer.send({ to: u.email, subject: 'Restablecer contraseña — Cortex CRM', ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar recuperación'));
+      const mail = emailTemplate(t('Restablecer contraseña'), t('Has solicitado restablecer tu contraseña de Cortex CRM.'), { label: t('Elegir nueva contraseña'), url }, t('Si no lo has solicitado, ignora este mensaje. El enlace caduca en 1 hora.'));
+      await deps.mailer.send({ to: u.email, subject: t('Restablecer contraseña — Cortex CRM'), ...mail }).catch((e) => req.log.error({ err: (e as Error).message }, 'Fallo al enviar recuperación'));
       await audit(deps.db, { workspaceId: null, actorId: u.id, action: 'auth.password_reset_requested', ip: req.ip });
     }
     // Respuesta idéntica exista o no la cuenta (no permite enumerar usuarios).
@@ -286,24 +311,24 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
 
   app.post('/password/reset', STRICT, async (req) => {
     const body = z.object({ token: z.string().min(20).max(200), password: PasswordSchema }).parse(req.body);
-    const t = await consumeToken(deps, 'password_reset', body.token);
-    if (!t) throw badRequest('El enlace no es válido o ha caducado');
+    const tok = await consumeToken(deps, 'password_reset', body.token);
+    if (!tok) throw badRequest('El enlace no es válido o ha caducado');
     let ownerOf: string | undefined;
-    if (t.created_by) {
+    if (tok.created_by) {
       // Enlace generado por un propietario: todas las condiciones se revalidan AHORA (no solo al crearlo).
-      if (!(await ownerResetLinkStillValid(deps, t))) {
-        await audit(deps.db, { workspaceId: t.workspace_id, actorId: t.created_by, action: 'auth.owner_reset_link_refused', targetType: 'user', targetId: t.user_id, ip: req.ip });
+      if (!(await ownerResetLinkStillValid(deps, tok))) {
+        await audit(deps.db, { workspaceId: tok.workspace_id, actorId: tok.created_by, action: 'auth.owner_reset_link_refused', targetType: 'user', targetId: tok.user_id, ip: req.ip });
         throw badRequest('El enlace ya no es válido. Pide uno nuevo.');
       }
-      ownerOf = (await deps.db.query(`SELECT name FROM workspaces WHERE id = $1`, [t.workspace_id])).rows[0]?.name;
+      ownerOf = (await deps.db.query(`SELECT name FROM workspaces WHERE id = $1`, [tok.workspace_id])).rows[0]?.name;
     }
-    await deps.db.query(`UPDATE users SET password_hash = $1, failed_logins = 0, locked_until = NULL WHERE id = $2`, [await hashPassword(body.password), t.user_id]);
-    await deps.db.query(`DELETE FROM sessions WHERE user_id = $1`, [t.user_id]);
-    await revokeResetTokens(deps, t.user_id);
+    await deps.db.query(`UPDATE users SET password_hash = $1, failed_logins = 0, locked_until = NULL WHERE id = $2`, [await hashPassword(body.password), tok.user_id]);
+    await deps.db.query(`DELETE FROM sessions WHERE user_id = $1`, [tok.user_id]);
+    await revokeResetTokens(deps, tok.user_id);
     // Recuperar una cuenta revoca las API keys creadas desde ella (quien la tuvo comprometida pudo crearlas).
-    const keys = await deps.db.query(`UPDATE api_keys SET revoked_at = now() WHERE created_by = $1 AND revoked_at IS NULL`, [t.user_id]);
-    await audit(deps.db, { workspaceId: t.workspace_id ?? null, actorId: t.user_id, action: 'auth.password_reset', ip: req.ip, meta: { byOwner: !!t.created_by, apiKeysRevoked: keys.rowCount } });
-    await notifyPasswordChanged(deps, req, t.user_id, ownerOf);
+    const keys = await deps.db.query(`UPDATE api_keys SET revoked_at = now() WHERE created_by = $1 AND revoked_at IS NULL`, [tok.user_id]);
+    await audit(deps.db, { workspaceId: tok.workspace_id ?? null, actorId: tok.user_id, action: 'auth.password_reset', ip: req.ip, meta: { byOwner: !!tok.created_by, apiKeysRevoked: keys.rowCount } });
+    await notifyPasswordChanged(deps, req, tok.user_id, ownerOf);
     return { ok: true, apiKeysRevoked: keys.rowCount ?? 0 };
   });
 
@@ -329,12 +354,12 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
 
   app.post('/verify-email', STRICT, async (req) => {
     const { token } = z.object({ token: z.string().min(20).max(200) }).parse(req.body);
-    const t = await consumeToken(deps, 'email_verification', token);
-    if (!t) throw badRequest('El enlace no es válido o ha caducado');
+    const tok = await consumeToken(deps, 'email_verification', token);
+    if (!tok) throw badRequest('El enlace no es válido o ha caducado');
     // Verificar el email solo prueba la posesión del buzón: NUNCA concede privilegios (el rol de
     // plataforma se concede únicamente por CLI).
-    await deps.db.query(`UPDATE users SET email_verified_at = now() WHERE id = $1`, [t.user_id]);
-    await audit(deps.db, { workspaceId: null, actorId: t.user_id, action: 'auth.email_verified', ip: req.ip });
+    await deps.db.query(`UPDATE users SET email_verified_at = now() WHERE id = $1`, [tok.user_id]);
+    await audit(deps.db, { workspaceId: null, actorId: tok.user_id, action: 'auth.email_verified', ip: req.ip });
     return { ok: true };
   });
 
@@ -402,25 +427,25 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
       throw badRequest('Indica tu nombre y una contraseña para crear la cuenta');
     }
     // El token se consume ANTES de crear nada: dos aceptaciones simultáneas no pueden crear dos cuentas.
-    const t = await consumeToken(deps, 'invite', body.token);
-    if (!t) throw badRequest('Invitación no válida o caducada');
+    const tok = await consumeToken(deps, 'invite', body.token);
+    if (!tok) throw badRequest('Invitación no válida o caducada');
     let userId: string;
     if (existing) userId = existing.id;
     else {
       userId = newId();
       // El email solo se da por verificado si ESTA invitación se entregó por correo (entonces el enlace
       // nunca se devolvió a quien invita); si el envío falló o no hay correo, queda pendiente de verificación.
-      await deps.db.query(`INSERT INTO users (id, email, name, password_hash, email_verified_at) VALUES ($1,$2,$3,$4,${t.delivered === true ? 'now()' : 'NULL'})`, [userId, t.email, body.name!, await hashPassword(body.password!)]);
+      await deps.db.query(`INSERT INTO users (id, email, name, password_hash, email_verified_at) VALUES ($1,$2,$3,$4,${tok.delivered === true ? 'now()' : 'NULL'})`, [userId, tok.email, body.name!, await hashPassword(body.password!)]);
     }
-    await deps.db.query(`INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1,$2,$3) ON CONFLICT (workspace_id, user_id) DO NOTHING`, [t.workspace_id, userId, role]);
+    await deps.db.query(`INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1,$2,$3) ON CONFLICT (workspace_id, user_id) DO NOTHING`, [tok.workspace_id, userId, role]);
     // Al pertenecer a otra organización, los enlaces de restablecimiento pendientes dejan de valer.
     await revokeResetTokens(deps, userId);
-    await audit(deps.db, { workspaceId: t.workspace_id, actorId: userId, action: 'workspace.invite_accepted', ip: req.ip, meta: { role } });
+    await audit(deps.db, { workspaceId: tok.workspace_id, actorId: userId, action: 'workspace.invite_accepted', ip: req.ip, meta: { role } });
     if (req.auth?.sessionId && req.auth.userId === userId) {
-      await deps.db.query(`UPDATE sessions SET workspace_id = $1 WHERE id = $2`, [t.workspace_id, req.auth.sessionId]);
+      await deps.db.query(`UPDATE sessions SET workspace_id = $1 WHERE id = $2`, [tok.workspace_id, req.auth.sessionId]);
       return buildMe(deps, userId, req.auth.sessionId);
     }
-    const { sessionId } = await createSession(deps, req, reply, userId, t.workspace_id);
+    const { sessionId } = await createSession(deps, req, reply, userId, tok.workspace_id);
     return buildMe(deps, userId, sessionId);
   });
   void requireAuth;

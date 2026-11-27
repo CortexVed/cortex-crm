@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { activeModules, BlueprintSchema } from '../../shared/blueprint';
 import type { AppDeps } from './deps';
 import { hmacHex } from './lib/crypto';
@@ -8,6 +9,7 @@ import { runScheduledAutomations } from './crm/automations';
 import { runEvolutionPipeline } from './evolve/pipeline';
 import { runAdvisor, runSecurityReview } from './evolve/security';
 import { runCodeDeployJob, runCodePlanJob } from './code-engine/jobs';
+import { t } from './i18n';
 
 type Log = { info: (o: object, m: string) => void; error: (o: object, m: string) => void };
 
@@ -31,9 +33,11 @@ export function createJobHandlers(deps: AppDeps): Record<string, JobHandler> {
     const ws = job.workspace_id;
     const requestId = job.payload?.requestId;
     if (!signal || !ws || !requestId) return () => {};
+    // La cancelación puede llegar desde fuera del trabajo (apagado del worker): el motivo se redacta en su idioma.
+    const inJobLocale = AsyncLocalStorage.snapshot();
     const onAbort = () => {
       if (job.attempts < job.max_attempts) return; // se reintentará
-      const reason = `Ejecución interrumpida: ${(signal.reason as Error)?.message ?? 'cancelada'}`;
+      const reason = inJobLocale(() => t('Ejecución interrumpida: {reason}', { reason: (signal.reason as Error)?.message ?? t('cancelada') }));
       deps.db
         .tenant(ws, (q) =>
           q.query(`UPDATE evolution_requests SET status = 'failed', error = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3 AND status IN ('queued','planning','testing')`, [reason, requestId, ws]),
@@ -79,7 +83,7 @@ export function createJobHandlers(deps: AppDeps): Record<string, JobHandler> {
       try {
         // safePost impone su propio plazo total (10 s); la señal del watchdog corta además la conexión al instante.
         const res = await safePost(url, body, { 'X-Cortex-Timestamp': ts, 'X-Cortex-Signature': `sha256=${hmacHex(secret, `${ts}.${body}`)}`, 'X-Cortex-Event': String(payload?.event ?? '') }, { allowHttp: !deps.config.isProd, signal: ctx?.signal });
-        if (res.status < 200 || res.status >= 300) throw new Error(`El destino respondió ${res.status}`);
+        if (res.status < 200 || res.status >= 300) throw new Error(t('El destino respondió {status}', { status: res.status }));
       } catch (e) {
         if (e instanceof SsrfError) {
           // Error permanente: no tiene sentido reintentar.

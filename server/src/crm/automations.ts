@@ -9,6 +9,7 @@ import { recordTitle } from '../../../shared/records';
 import type { RecordService } from './record-service';
 import { AUTOMATION_BUDGET, type AutomationBudget } from './budget';
 import type { StoredRecord } from './store';
+import { t, tp } from '../i18n';
 
 export const MAX_AUTOMATION_DEPTH = 3;
 
@@ -17,8 +18,14 @@ class BudgetExceeded extends Error {}
 /** Descuenta del presupuesto de la cascada; al agotarse se detiene la automatización con un error claro. */
 function spend(b: AutomationBudget, kind: keyof AutomationBudget, n = 1) {
   if (b[kind] + n > AUTOMATION_BUDGET[kind]) {
-    const what = kind === 'actions' ? `${AUTOMATION_BUDGET.actions} acciones` : kind === 'created' ? `${AUTOMATION_BUDGET.created} registros creados` : `${AUTOMATION_BUDGET.scriptMs} ms de scripts`;
-    throw new BudgetExceeded(`Límite de la cascada de automatizaciones alcanzado (${what} por evento): se detiene para evitar bucles`);
+    const max = AUTOMATION_BUDGET[kind];
+    const reason =
+      kind === 'actions'
+        ? t('Límite de la cascada de automatizaciones alcanzado ({max} acciones por evento): se detiene para evitar bucles', { max })
+        : kind === 'created'
+          ? t('Límite de la cascada de automatizaciones alcanzado ({max} registros creados por evento): se detiene para evitar bucles', { max })
+          : t('Límite de la cascada de automatizaciones alcanzado ({max} ms de scripts por evento): se detiene para evitar bucles', { max });
+    throw new BudgetExceeded(reason);
   }
   b[kind] += n;
 }
@@ -57,18 +64,18 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 function matches(a: Automation, ev: RecordEvent): boolean {
   if (!a.enabled || a.trigger.module !== ev.module.key) return false;
-  const t = a.trigger;
-  switch (t.type) {
+  const trg = a.trigger;
+  switch (trg.type) {
     case 'record_created':
     case 'record_updated':
     case 'record_deleted':
-      return t.type === ev.type;
+      return trg.type === ev.type;
     case 'field_changed': {
       if (ev.type === 'record_deleted') return false;
-      if (!ev.changed.includes(t.field)) return false;
-      const v = ev.record.data[t.field];
+      if (!ev.changed.includes(trg.field)) return false;
+      const v = ev.record.data[trg.field];
       if (ev.type === 'record_created' && (v === null || v === undefined)) return false;
-      return t.to === undefined || sameValue(v, t.to);
+      return trg.to === undefined || sameValue(v, trg.to);
     }
     default:
       return false; // date_reached / inactivity: los evalúa el planificador
@@ -102,7 +109,7 @@ export async function executeAutomation(
   if (!runId) return 'duplicate';
   const log: string[] = [];
   if (depth >= MAX_AUTOMATION_DEPTH) {
-    log.push(`Omitida: profundidad máxima (${MAX_AUTOMATION_DEPTH}) alcanzada para evitar bucles`);
+    log.push(t('Omitida: profundidad máxima ({max}) alcanzada para evitar bucles', { max: MAX_AUTOMATION_DEPTH }));
     await effects.finishRun(runId, 'skipped', log);
     return 'skipped';
   }
@@ -117,7 +124,7 @@ export async function executeAutomation(
         case 'update_field': {
           const value = resolveTemplate(action.value, tctx);
           await child.update(rec.id, { [action.field]: value });
-          log.push(`Campo "${action.field}" actualizado`);
+          log.push(t('Campo "{field}" actualizado', { field: action.field }));
           break;
         }
         case 'create_record': {
@@ -125,13 +132,13 @@ export async function executeAutomation(
           if (action.linkField) values[action.linkField] = rec.id;
           spend(budget, 'created');
           const created = await child.create(action.module, values);
-          log.push(`Registro creado en "${action.module}" (${created.id})`);
+          log.push(t('Registro creado en "{module}" ({id})', { module: action.module, id: created.id }));
           break;
         }
         case 'send_webhook': {
           const integration = blueprint.integrations.find((i) => i.key === action.integration && i.enabled);
           if (!integration) {
-            log.push(`Integración "${action.integration}" no disponible`);
+            log.push(t('Integración "{key}" no disponible', { key: action.integration }));
             break;
           }
           const data = integration.includeFields
@@ -144,20 +151,20 @@ export async function executeAutomation(
             record: { id: rec.id, title: recordTitle(mod, rec.data), data },
             occurredAt: now().toISOString(),
           });
-          log.push(`Webhook "${integration.key}" encolado`);
+          log.push(t('Webhook "{key}" encolado', { key: integration.key }));
           break;
         }
         case 'notify': {
           const title = String(resolveTemplate(action.title, tctx)).slice(0, 140);
           const body = action.body ? String(resolveTemplate(action.body, tctx)) : undefined;
           const n = await notifyTarget(svc, rec, action.to, title, body);
-          log.push(`Aviso enviado a ${n} persona(s)`);
+          log.push(tp(n, 'Aviso enviado a {count} persona', 'Aviso enviado a {count} personas'));
           break;
         }
         case 'run_script': {
           const script = blueprint.scripts.find((s) => s.key === action.script);
           if (!script || !script.enabled) {
-            log.push(`Script "${action.script}" no disponible`);
+            log.push(t('Script "{key}" no disponible', { key: action.script }));
             break;
           }
           // Datos actuales (otras acciones previas pueden haber cambiado el registro).
@@ -167,23 +174,23 @@ export async function executeAutomation(
           if (remaining < 50) spend(budget, 'scriptMs', remaining + 1);
           const { output, logs, ms } = await runScript(script.code, input, { timeoutMs: Math.min(script.timeoutMs, remaining) });
           budget.scriptMs += Math.max(1, Math.ceil(ms));
-          log.push(`Script "${script.key}" ejecutado en ${ms} ms`);
+          log.push(t('Script "{key}" ejecutado en {ms} ms', { key: script.key, ms }));
           for (const line of [...logs, ...(output.log ?? [])]) log.push(`[script] ${line}`);
           if (output.update && Object.keys(output.update).length) {
             spend(budget, 'actions');
             await child.update(rec.id, output.update);
-            log.push(`Script: ${Object.keys(output.update).length} campo(s) actualizados`);
+            log.push(tp(Object.keys(output.update).length, 'Script: {count} campo actualizado', 'Script: {count} campos actualizados'));
           }
           for (const c of output.create ?? []) {
             spend(budget, 'actions');
             spend(budget, 'created');
             const created = await child.create(c.module, c.values);
-            log.push(`Script: registro creado en "${c.module}" (${created.id})`);
+            log.push(t('Script: registro creado en "{module}" ({id})', { module: c.module, id: created.id }));
           }
           for (const n of output.notify ?? []) {
             spend(budget, 'actions');
             const sent = await notifyTarget(svc, current, n.to, n.title, n.body);
-            log.push(`Script: aviso enviado a ${sent} persona(s)`);
+            log.push(tp(sent, 'Script: aviso enviado a {count} persona', 'Script: aviso enviado a {count} personas'));
           }
           break;
         }
@@ -192,7 +199,7 @@ export async function executeAutomation(
     await effects.finishRun(runId, 'success', log);
     return 'success';
   } catch (e) {
-    log.push(`Error: ${(e as Error).message}`);
+    log.push(t('Error: {message}', { message: (e as Error).message }));
     await effects.finishRun(runId, 'failed', log);
     return 'failed';
   }
@@ -224,17 +231,17 @@ export async function runScheduledAutomations(svc: RecordService, maxPerAutomati
     if (!a.enabled) continue;
     const mod = blueprint.modules.find((m) => m.key === a.trigger.module && !m.archived);
     if (!mod) continue;
-    const t = a.trigger;
-    if (t.type === 'date_reached') {
-      const field = mod.fields.find((f) => f.key === t.field);
+    const trg = a.trigger;
+    if (trg.type === 'date_reached') {
+      const field = mod.fields.find((f) => f.key === trg.field);
       if (!field) continue;
       // Ventana de 3 días para no disparar avisos de fechas muy antiguas al crear la regla.
-      const upper = field.type === 'date' ? localDate(addDays(current, -t.offsetDays), tz) : addDays(current, -t.offsetDays).toISOString();
-      const lower = field.type === 'date' ? localDate(addDays(current, -t.offsetDays - 3), tz) : addDays(current, -t.offsetDays - 3).toISOString();
+      const upper = field.type === 'date' ? localDate(addDays(current, -trg.offsetDays), tz) : addDays(current, -trg.offsetDays).toISOString();
+      const lower = field.type === 'date' ? localDate(addDays(current, -trg.offsetDays - 3), tz) : addDays(current, -trg.offsetDays - 3).toISOString();
       const { items } = await store.list(mod, {
         filters: [
-          { field: t.field, operator: 'lte', value: upper },
-          { field: t.field, operator: 'gte', value: lower },
+          { field: trg.field, operator: 'lte', value: upper },
+          { field: trg.field, operator: 'gte', value: lower },
           ...a.conditions,
         ],
         limit: maxPerAutomation,
@@ -242,11 +249,11 @@ export async function runScheduledAutomations(svc: RecordService, maxPerAutomati
       }, { now: current, tz });
       for (const rec of items) {
         checked++;
-        const r = await executeAutomation(svc, a, rec, 'date_reached', { dedupeKey: `${a.key}:${rec.id}:${String(rec.data[t.field])}` });
+        const r = await executeAutomation(svc, a, rec, 'date_reached', { dedupeKey: `${a.key}:${rec.id}:${String(rec.data[trg.field])}` });
         if (r === 'success') fired++;
       }
-    } else if (t.type === 'inactivity') {
-      const threshold = addDays(current, -t.days).toISOString();
+    } else if (trg.type === 'inactivity') {
+      const threshold = addDays(current, -trg.days).toISOString();
       const { items } = await store.list(mod, {
         filters: [{ field: 'last_activity_at', operator: 'lt', value: threshold }, ...a.conditions],
         limit: maxPerAutomation,

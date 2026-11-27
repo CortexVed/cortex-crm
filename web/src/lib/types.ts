@@ -1,10 +1,13 @@
 import type { Role } from '../../../shared/constants';
+import type { Locale } from '../../../shared/i18n';
 export type { Blueprint, Module, Field, View, Automation, Widget, Dashboard, Condition, SelectOption, LayoutSection, Appearance, Navigation, NavGroup, NavItem, Page, PageBlock, PageButton } from '../../../shared/blueprint';
 export type { ChangeSet, Operation, AppearancePatch } from '../../../shared/changeset';
 
 export interface Me {
-  user: { id: string; name: string; email: string; emailVerified: boolean; isPlatformAdmin: boolean };
-  workspace: { id: string; name: string; slug: string; role: Role; version: number } | null;
+  /** locale: idioma de la interfaz que eligió (null = el de su organización). */
+  user: { id: string; name: string; email: string; emailVerified: boolean; isPlatformAdmin: boolean; locale: Locale | null };
+  /** locale: «Idioma y región» de la organización (BCP 47, p. ej. 'es-ES'). */
+  workspace: { id: string; name: string; slug: string; role: Role; version: number; locale: string } | null;
   workspaces: { id: string; name: string; role: Role }[];
   csrfToken: string | null;
   features: { emailEnabled: boolean; signupEnabled: boolean; platformSetupAvailable?: boolean };

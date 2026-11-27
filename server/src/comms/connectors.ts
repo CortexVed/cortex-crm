@@ -1,4 +1,5 @@
 import { AppError } from '../lib/errors';
+import { t } from '../i18n';
 
 export const GRAPH_API_VERSION = 'v23.0';
 
@@ -15,17 +16,18 @@ export interface ConnectorType {
 /**
  * Arquitectura de canales: cada conector traduce eventos de un proveedor a mensajes del CRM
  * vinculados a la ficha del contacto. Solo se activan con credenciales reales (no hay simulación).
+ * Es una función para que los textos salgan en el idioma de cada petición (los nombres de producto no se traducen).
  */
-export const CONNECTOR_TYPES: ConnectorType[] = [
+export const connectorTypes = (): ConnectorType[] => [
   {
     type: 'whatsapp',
-    label: 'WhatsApp Business (Cloud API de Meta)',
+    label: t('WhatsApp Business (Cloud API de Meta)'),
     status: 'available',
-    description: 'Recibe los mensajes de clientes en su ficha (por número de teléfono) y responde desde el CRM dentro de la ventana de 24 h.',
+    description: t('Recibe los mensajes de clientes en su ficha (por número de teléfono) y responde desde el CRM dentro de la ventana de 24 h.'),
     fields: [
-      { key: 'phoneNumberId', label: 'Phone number ID', secret: false, help: 'Meta Developers › WhatsApp › API Setup' },
-      { key: 'accessToken', label: 'Access token permanente', secret: true },
-      { key: 'appSecret', label: 'App secret (para verificar firmas)', secret: true },
+      { key: 'phoneNumberId', label: t('Phone number ID'), secret: false, help: 'Meta Developers › WhatsApp › API Setup' },
+      { key: 'accessToken', label: t('Access token permanente'), secret: true },
+      { key: 'appSecret', label: t('App secret (para verificar firmas)'), secret: true },
     ],
     docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
   },
@@ -33,35 +35,35 @@ export const CONNECTOR_TYPES: ConnectorType[] = [
     type: 'telegram',
     label: 'Telegram Bot',
     status: 'available',
-    description: 'Mensajes de Telegram vinculados al contacto por su usuario de Telegram; respuesta desde la ficha.',
-    fields: [{ key: 'botToken', label: 'Token del bot (@BotFather)', secret: true }],
+    description: t('Mensajes de Telegram vinculados al contacto por su usuario de Telegram; respuesta desde la ficha.'),
+    fields: [{ key: 'botToken', label: t('Token del bot (@BotFather)'), secret: true }],
     docsUrl: 'https://core.telegram.org/bots/api',
   },
   {
     type: 'gmail',
     label: 'Gmail',
     status: 'planned',
-    description: 'Sincronización de correos con la ficha del contacto.',
+    description: t('Sincronización de correos con la ficha del contacto.'),
     fields: [],
-    plannedReason: 'Requiere registrar un cliente OAuth de Google Cloud verificado por Google para la plataforma (scopes de Gmail restringidos).',
+    plannedReason: t('Requiere registrar un cliente OAuth de Google Cloud verificado por Google para la plataforma (scopes de Gmail restringidos).'),
     docsUrl: 'https://developers.google.com/gmail/api',
   },
   {
     type: 'outlook',
     label: 'Outlook / Microsoft 365',
     status: 'planned',
-    description: 'Sincronización de correos y calendario.',
+    description: t('Sincronización de correos y calendario.'),
     fields: [],
-    plannedReason: 'Requiere registrar una aplicación en Microsoft Entra ID con permisos de Graph (Mail.Read, Mail.Send).',
+    plannedReason: t('Requiere registrar una aplicación en Microsoft Entra ID con permisos de Graph (Mail.Read, Mail.Send).'),
     docsUrl: 'https://learn.microsoft.com/graph/outlook-mail-concept-overview',
   },
   {
     type: 'slack',
     label: 'Slack',
     status: 'planned',
-    description: 'Avisos del CRM en canales y comandos.',
+    description: t('Avisos del CRM en canales y comandos.'),
     fields: [],
-    plannedReason: 'Requiere crear una Slack App de la plataforma con OAuth y Events API.',
+    plannedReason: t('Requiere crear una Slack App de la plataforma con OAuth y Events API.'),
     docsUrl: 'https://api.slack.com/apis',
   },
 ];
@@ -70,7 +72,7 @@ async function jsonOrThrow(res: Response, label: string) {
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || body?.ok === false) {
     const msg = body?.error?.message ?? body?.description ?? res.statusText;
-    throw new AppError(400, 'connector_error', `${label}: ${msg}`);
+    throw new AppError(400, 'connector_error', t('{name}: {message}', { name: label, message: msg }));
   }
   return body;
 }

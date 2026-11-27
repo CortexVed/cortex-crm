@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, RefreshCw, ScrollText, ShieldAlert } from 'lucide-react';
 import { get } from '../../lib/api';
+import { msg, t, tk, tp, tx } from '../../lib/i18n';
 import { useSession } from '../../lib/session';
 import { useDebounced } from '../../lib/hooks';
 import { formatDate, relativeTime } from '../../lib/format';
@@ -25,71 +26,71 @@ const PAGE_SIZE = 50;
 const CUSTOM = '__custom__';
 
 const CATEGORIES: { value: string; label: string }[] = [
-  { value: '', label: 'Todas las acciones' },
-  { value: 'auth.', label: 'Accesos y cuentas (auth.)' },
-  { value: 'member.', label: 'Equipo (member.)' },
-  { value: 'workspace.', label: 'Organización (workspace.)' },
-  { value: 'evolve.', label: 'EVOLVE AI ENGINE (evolve.)' },
-  { value: 'ai.', label: 'Inteligencia artificial (ai.)' },
-  { value: 'record.', label: 'Registros (record.)' },
-  { value: 'file.', label: 'Archivos (file.)' },
-  { value: 'api_key.', label: 'API keys (api_key.)' },
-  { value: 'connector.', label: 'Canales (connector.)' },
-  { value: 'backup.', label: 'Copias de seguridad (backup.)' },
-  { value: 'security.', label: 'Seguridad (security.)' },
-  { value: CUSTOM, label: 'Otro prefijo…' },
+  { value: '', label: msg('Todas las acciones') },
+  { value: 'auth.', label: msg('Accesos y cuentas (auth.)') },
+  { value: 'member.', label: msg('Equipo (member.)') },
+  { value: 'workspace.', label: msg('Organización (workspace.)') },
+  { value: 'evolve.', label: 'EVOLVE AI ENGINE (evolve.)' }, // i18n-ignore: nombre del producto
+  { value: 'ai.', label: msg('Inteligencia artificial (ai.)') },
+  { value: 'record.', label: msg('Registros (record.)') },
+  { value: 'file.', label: msg('Archivos (file.)') },
+  { value: 'api_key.', label: msg('API keys (api_key.)') },
+  { value: 'connector.', label: msg('Canales (connector.)') },
+  { value: 'backup.', label: msg('Copias de seguridad (backup.)') },
+  { value: 'security.', label: msg('Seguridad (security.)') },
+  { value: CUSTOM, label: msg('Otro prefijo…') },
 ];
 
 const ACTION_LABELS: Record<string, string> = {
-  'auth.register': 'Registro de la cuenta',
-  'auth.login': 'Inicio de sesión',
-  'auth.login_failed': 'Intento de acceso fallido',
-  'auth.account_locked': 'Cuenta bloqueada temporalmente',
-  'auth.session_revoked': 'Sesión cerrada en otro dispositivo',
-  'auth.logout_all': 'Cierre de las demás sesiones',
-  'auth.password_changed': 'Contraseña cambiada',
-  'auth.password_reset_requested': 'Recuperación de contraseña solicitada',
-  'auth.password_reset': 'Contraseña restablecida',
-  'workspace.create': 'Organización creada',
-  'workspace.updated': 'Ajustes de la organización actualizados',
-  'workspace.exported': 'Datos exportados',
-  'workspace.invite_accepted': 'Invitación aceptada',
-  'member.invited': 'Persona invitada',
-  'member.role_changed': 'Rol cambiado',
-  'member.removed': 'Miembro retirado de la organización',
-  'member.reset_link_created': 'Enlace de recuperación generado',
-  'api_key.created': 'API key creada',
-  'api_key.revoked': 'API key revocada',
-  'connector.created': 'Canal conectado',
-  'connector.deleted': 'Canal eliminado',
-  'record.deleted': 'Registro eliminado',
-  'record.restored': 'Registro restaurado',
-  'file.deleted': 'Archivo eliminado',
-  'backup.downloaded': 'Copia de seguridad descargada',
-  'security.review_requested': 'Revisión de seguridad solicitada',
-  'evolve.requested': 'Cambio solicitado a EVOLVE',
-  'evolve.refined': 'Propuesta refinada',
-  'evolve.approved': 'Cambio aprobado',
-  'evolve.rejected': 'Cambio rechazado',
-  'evolve.deployed': 'Cambio aplicado',
-  'evolve.rolled_back': 'Cambio revertido',
-  'evolve.version_restored': 'Versión restaurada',
-  'evolve.manual_change': 'Cambio manual de la configuración',
+  'auth.register': msg('Registro de la cuenta'),
+  'auth.login': msg('Inicio de sesión'),
+  'auth.login_failed': msg('Intento de acceso fallido'),
+  'auth.account_locked': msg('Cuenta bloqueada temporalmente'),
+  'auth.session_revoked': msg('Sesión cerrada en otro dispositivo'),
+  'auth.logout_all': msg('Cierre de las demás sesiones'),
+  'auth.password_changed': msg('Contraseña cambiada'),
+  'auth.password_reset_requested': msg('Recuperación de contraseña solicitada'),
+  'auth.password_reset': msg('Contraseña restablecida'),
+  'workspace.create': msg('Organización creada'),
+  'workspace.updated': msg('Ajustes de la organización actualizados'),
+  'workspace.exported': msg('Datos exportados'),
+  'workspace.invite_accepted': msg('Invitación aceptada'),
+  'member.invited': msg('Persona invitada'),
+  'member.role_changed': msg('Rol cambiado'),
+  'member.removed': msg('Miembro retirado de la organización'),
+  'member.reset_link_created': msg('Enlace de recuperación generado'),
+  'api_key.created': msg('API key creada'),
+  'api_key.revoked': msg('API key revocada'),
+  'connector.created': msg('Canal conectado'),
+  'connector.deleted': msg('Canal eliminado'),
+  'record.deleted': msg('Registro eliminado'),
+  'record.restored': msg('Registro restaurado'),
+  'file.deleted': msg('Archivo eliminado'),
+  'backup.downloaded': msg('Copia de seguridad descargada'),
+  'security.review_requested': msg('Revisión de seguridad solicitada'),
+  'evolve.requested': msg('Cambio solicitado a EVOLVE'),
+  'evolve.refined': msg('Propuesta refinada'),
+  'evolve.approved': msg('Cambio aprobado'),
+  'evolve.rejected': msg('Cambio rechazado'),
+  'evolve.deployed': msg('Cambio aplicado'),
+  'evolve.rolled_back': msg('Cambio revertido'),
+  'evolve.version_restored': msg('Versión restaurada'),
+  'evolve.manual_change': msg('Cambio manual de la configuración'),
   // Acciones del antiguo motor de código (ya retirado): se mantienen para leer el historial.
-  'code.proposed': 'Cambio de código propuesto (motor anterior)',
-  'code.pr_opened': 'Pull request abierta (motor anterior)',
-  'code.merged': 'Cambio de código fusionado (motor anterior)',
-  'code.revert_opened': 'Reversión de código abierta (motor anterior)',
-  'ai.settings_updated': 'Ajustes de IA actualizados',
-  'ai.provider_updated': 'Proveedor de IA actualizado',
-  'ai.provider_key_set': 'Clave de proveedor de IA guardada',
-  'ai.provider_key_revoked': 'Clave de proveedor de IA revocada',
-  'ai.memory_added': 'Memoria de IA añadida',
-  'ai.memory_updated': 'Memoria de IA actualizada',
-  'ai.memory_archived': 'Memoria de IA archivada',
-  'ai.memory_confirmed': 'Propuesta de memoria confirmada',
-  'auth.email_verified': 'Email verificado',
-  'auth.owner_reset_link_refused': 'Enlace de recuperación rechazado (ya no era válido)',
+  'code.proposed': msg('Cambio de código propuesto (motor anterior)'),
+  'code.pr_opened': msg('Pull request abierta (motor anterior)'),
+  'code.merged': msg('Cambio de código fusionado (motor anterior)'),
+  'code.revert_opened': msg('Reversión de código abierta (motor anterior)'),
+  'ai.settings_updated': msg('Ajustes de IA actualizados'),
+  'ai.provider_updated': msg('Proveedor de IA actualizado'),
+  'ai.provider_key_set': msg('Clave de proveedor de IA guardada'),
+  'ai.provider_key_revoked': msg('Clave de proveedor de IA revocada'),
+  'ai.memory_added': msg('Memoria de IA añadida'),
+  'ai.memory_updated': msg('Memoria de IA actualizada'),
+  'ai.memory_archived': msg('Memoria de IA archivada'),
+  'ai.memory_confirmed': msg('Propuesta de memoria confirmada'),
+  'auth.email_verified': msg('Email verificado'),
+  'auth.owner_reset_link_refused': msg('Enlace de recuperación rechazado (ya no era válido)'),
 };
 
 const PREFIX_COLORS: Record<string, Color> = {
@@ -107,16 +108,16 @@ const PREFIX_COLORS: Record<string, Color> = {
   security: 'rose',
 };
 
-const ACTOR_TYPES: Record<string, string> = { user: 'Usuario', api: 'API key', system: 'Sistema', automation: 'Automatización', ai: 'EVOLVE AI' };
+const ACTOR_TYPES: Record<string, string> = { user: msg('Usuario'), api: msg('API key'), system: msg('Sistema'), automation: msg('Automatización'), ai: 'EVOLVE AI' };
 
 const TARGET_TYPES: Record<string, string> = {
-  user: 'Usuario',
-  api_key: 'API key',
-  connector: 'Canal',
-  evolution_request: 'Solicitud de EVOLVE',
-  code_change: 'Cambio de código',
-  release: 'Versión',
-  file: 'Archivo',
+  user: msg('Usuario'),
+  api_key: msg('API key'),
+  connector: msg('Canal'),
+  evolution_request: msg('Solicitud de EVOLVE'),
+  code_change: msg('Cambio de código'),
+  release: msg('Versión'),
+  file: msg('Archivo'),
 };
 
 const TH = 'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-500';
@@ -146,7 +147,7 @@ export default function AuditTab() {
   if (!isAdmin) {
     return (
       <Card>
-        <EmptyState icon={<ShieldAlert className="size-5" />} title="Solo para administradores" description="El registro de auditoría solo está disponible para administradores de la organización." />
+        <EmptyState icon={<ShieldAlert className="size-5" />} title={t('Solo para administradores')} description={t('El registro de auditoría solo está disponible para administradores de la organización.')} />
       </Card>
     );
   }
@@ -157,10 +158,10 @@ export default function AuditTab() {
   return (
     <Card
       padded={false}
-      title="Registro de auditoría"
-      description="Acciones de seguridad y administración de la organización, de la más reciente a la más antigua."
+      title={t('Registro de auditoría')}
+      description={t('Acciones de seguridad y administración de la organización, de la más reciente a la más antigua.')}
       actions={
-        <IconButton label="Actualizar" onClick={() => q.refetch()} disabled={q.isFetching}>
+        <IconButton label={t('Actualizar')} onClick={() => q.refetch()} disabled={q.isFetching}>
           <RefreshCw className={cx('size-4', q.isFetching && 'animate-spin')} />
         </IconButton>
       }
@@ -168,7 +169,7 @@ export default function AuditTab() {
       <div className="flex flex-col gap-2 border-b border-zinc-100 px-4 py-3 sm:flex-row sm:items-center dark:border-zinc-800">
         <div className="sm:w-72">
           <Select
-            aria-label="Filtrar por tipo de acción"
+            aria-label={t('Filtrar por tipo de acción')}
             value={category}
             onChange={(e) => {
               setCategory(e.target.value);
@@ -177,7 +178,7 @@ export default function AuditTab() {
           >
             {CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>
-                {c.label}
+                {tk(c.label)}
               </option>
             ))}
           </Select>
@@ -185,8 +186,8 @@ export default function AuditTab() {
         {category === CUSTOM && (
           <div className="sm:w-64">
             <Input
-              aria-label="Prefijo de la acción"
-              placeholder="p. ej. evolve.approved"
+              aria-label={t('Prefijo de la acción')}
+              placeholder={t('p. ej. evolve.approved')}
               value={custom}
               maxLength={60}
               autoFocus
@@ -201,7 +202,7 @@ export default function AuditTab() {
         )}
         {action && (
           <span className="text-xs text-zinc-500 sm:ml-auto">
-            Acciones que empiezan por <code className="font-mono text-zinc-700 dark:text-zinc-300">{action}</code>
+            {tx('Acciones que empiezan por <code>{action}</code>', { action, code: (c) => <code className="font-mono text-zinc-700 dark:text-zinc-300">{c}</code> })}
           </span>
         )}
       </div>
@@ -217,19 +218,19 @@ export default function AuditTab() {
       ) : !items.length ? (
         <EmptyState
           icon={<ScrollText className="size-5" />}
-          title={page > 1 ? 'No hay más eventos' : action ? 'Sin eventos con ese filtro' : 'Todavía no hay eventos'}
-          description={page > 1 ? 'Has llegado al final del registro.' : action ? `Ninguna acción registrada empieza por «${action}».` : 'Aquí aparecerán los accesos, los cambios de permisos y las acciones administrativas.'}
+          title={page > 1 ? t('No hay más eventos') : action ? t('Sin eventos con ese filtro') : t('Todavía no hay eventos')}
+          description={page > 1 ? t('Has llegado al final del registro.') : action ? t('Ninguna acción registrada empieza por «{action}».', { action }) : t('Aquí aparecerán los accesos, los cambios de permisos y las acciones administrativas.')}
         />
       ) : (
         <div className={cx('overflow-x-auto transition-opacity', changingPage && 'opacity-60')}>
           <table className="w-full min-w-[860px] text-sm">
             <thead className="border-b border-zinc-100 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-800/30">
               <tr>
-                <th className="w-10 py-2.5 pl-3" aria-label="Detalles" />
-                <th className={TH}>Fecha</th>
-                <th className={TH}>Autor</th>
-                <th className={TH}>Acción</th>
-                <th className={TH}>Objetivo</th>
+                <th className="w-10 py-2.5 pl-3" aria-label={t('Detalles')} />
+                <th className={TH}>{t('Fecha')}</th>
+                <th className={TH}>{t('Autor')}</th>
+                <th className={TH}>{t('Acción')}</th>
+                <th className={TH}>{t('Objetivo')}</th>
                 <th className={TH}>IP</th>
               </tr>
             </thead>
@@ -244,16 +245,16 @@ export default function AuditTab() {
 
       <div className="flex items-center justify-between gap-3 border-t border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
         <span className="flex items-center gap-2 text-xs text-zinc-500">
-          Página {page}
-          {q.data && items.length > 0 && ` · ${items.length} ${items.length === 1 ? 'evento' : 'eventos'}`}
+          {t('Página {page}', { page })}
+          {q.data && items.length > 0 && ` · ${tp(items.length, '{count} evento', '{count} eventos')}`}
           {changingPage && <Spinner className="size-3.5" />}
         </span>
         <div className="flex gap-2">
           <Button size="sm" icon={<ChevronLeft className="size-3.5" />} disabled={page <= 1 || q.isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-            Anterior
+            {t('Anterior')}
           </Button>
           <Button size="sm" disabled={items.length < PAGE_SIZE || q.isFetching} onClick={() => setPage((p) => p + 1)}>
-            Siguiente <ChevronRight className="size-3.5" />
+            {t('Siguiente')} <ChevronRight className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -265,13 +266,13 @@ function AuditRow({ item, targetName }: { item: AuditItem; targetName?: string }
   const [open, setOpen] = useState(false);
   const hasMeta = !!item.meta && typeof item.meta === 'object' && Object.keys(item.meta).length > 0;
   const label = ACTION_LABELS[item.action];
-  const typeLabel = ACTOR_TYPES[item.actor_type] ?? item.actor_type;
+  const typeLabel = tk(ACTOR_TYPES[item.actor_type] ?? item.actor_type);
   return (
     <Fragment>
       <tr className={cx('transition-colors hover:bg-zinc-50/70 dark:hover:bg-zinc-800/30', open && 'bg-zinc-50/70 dark:bg-zinc-800/30')}>
         <td className="py-2 pl-3 align-top">
           {hasMeta && (
-            <IconButton label={open ? 'Ocultar detalles' : 'Ver detalles'} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <IconButton label={open ? t('Ocultar detalles') : t('Ver detalles')} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
               <ChevronRight className={cx('size-4 transition-transform', open && 'rotate-90')} />
             </IconButton>
           )}
@@ -281,11 +282,11 @@ function AuditRow({ item, targetName }: { item: AuditItem; targetName?: string }
           <div className="text-xs text-zinc-500">{relativeTime(item.created_at)}</div>
         </td>
         <td className={TD}>
-          <div className="text-zinc-800 dark:text-zinc-200">{item.actor_name ?? (item.actor_type === 'user' ? 'Usuario eliminado' : typeLabel)}</div>
+          <div className="text-zinc-800 dark:text-zinc-200">{item.actor_name ?? (item.actor_type === 'user' ? t('Usuario eliminado') : typeLabel)}</div>
           {item.actor_type !== 'user' && item.actor_name && <div className="text-xs text-zinc-500">{typeLabel}</div>}
         </td>
         <td className={TD}>
-          {label && <div className="text-zinc-800 dark:text-zinc-200">{label}</div>}
+          {label && <div className="text-zinc-800 dark:text-zinc-200">{tk(label)}</div>}
           <Badge color={PREFIX_COLORS[item.action.split('.')[0]] ?? 'slate'} className="mt-0.5 font-mono">
             {item.action}
           </Badge>
@@ -293,10 +294,10 @@ function AuditRow({ item, targetName }: { item: AuditItem; targetName?: string }
         <td className={TD}>
           {item.target_type || item.target_id ? (
             <div className="min-w-0">
-              <div className="text-zinc-700 dark:text-zinc-300">{targetName ?? (item.target_type ? TARGET_TYPES[item.target_type] ?? item.target_type : 'Elemento')}</div>
+              <div className="text-zinc-700 dark:text-zinc-300">{targetName ?? (item.target_type ? tk(TARGET_TYPES[item.target_type] ?? item.target_type) : t('Elemento'))}</div>
               {item.target_id && (
                 <div className="font-mono text-[11px] text-zinc-400" title={item.target_id}>
-                  {targetName ? `${TARGET_TYPES.user} · ` : ''}
+                  {targetName ? `${tk(TARGET_TYPES.user)} · ` : ''}
                   {shortId(item.target_id)}
                 </div>
               )}

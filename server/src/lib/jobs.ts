@@ -1,6 +1,8 @@
 import os from 'node:os';
 import type { Db, Queryable } from '../db/db';
 import { newId } from './crypto';
+import { isLocale, localeFromRegion, type Locale } from '../../../shared/i18n';
+import { contextLocale, t, withLocale } from '../i18n';
 
 export interface Job {
   id: string;
@@ -9,6 +11,8 @@ export interface Job {
   payload: any;
   attempts: number;
   max_attempts: number;
+  /** Idioma de quien lo encoló (NULL si lo encoló el sistema: entonces, el de la organización). */
+  locale?: string | null;
 }
 
 /**
@@ -33,17 +37,20 @@ export interface EnqueueInput {
   maxAttempts?: number;
 }
 
-/** Encola un trabajo. La deduplicación solo está disponible desde el contexto privilegiado. */
+/**
+ * Encola un trabajo. La deduplicación solo está disponible desde el contexto privilegiado. Guarda el idioma de
+ * la petición en curso: los textos que genere el trabajo saldrán en el idioma de quien lo pidió.
+ */
 export async function enqueue(q: Queryable, job: EnqueueInput): Promise<string> {
   const id = newId();
-  const params = [id, job.workspaceId, job.type, JSON.stringify(job.payload ?? {}), (job.runAt ?? new Date()).toISOString(), job.maxAttempts ?? 3];
+  const params = [id, job.workspaceId, job.type, JSON.stringify(job.payload ?? {}), (job.runAt ?? new Date()).toISOString(), job.maxAttempts ?? 3, contextLocale()];
   if (job.dedupeKey) {
     await q.query(
-      `INSERT INTO jobs (id, workspace_id, type, payload, run_at, max_attempts, dedupe_key) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (dedupe_key) DO NOTHING`,
+      `INSERT INTO jobs (id, workspace_id, type, payload, run_at, max_attempts, locale, dedupe_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (dedupe_key) DO NOTHING`,
       [...params, job.dedupeKey],
     );
   } else {
-    await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, run_at, max_attempts) VALUES ($1,$2,$3,$4,$5,$6)`, params);
+    await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, run_at, max_attempts, locale) VALUES ($1,$2,$3,$4,$5,$6,$7)`, params);
   }
   return id;
 }
@@ -83,7 +90,7 @@ export class JobTimeoutError extends Error {
     readonly type: string,
     readonly limitMs: number,
   ) {
-    super(`Tiempo máximo de ejecución superado (${fmtDuration(limitMs)})`);
+    super(t('Tiempo máximo de ejecución superado ({duration})', { duration: fmtDuration(limitMs) }));
     this.name = 'JobTimeoutError';
   }
 }
@@ -121,7 +128,7 @@ const CANDIDATES_SQL = `
 const CLAIM_SQL = `
   UPDATE jobs SET status = 'running', locked_at = now(), locked_by = $1, attempts = attempts + 1
   WHERE id = (SELECT id FROM jobs WHERE id = $2 AND status = 'queued' AND run_at <= now() FOR UPDATE SKIP LOCKED)
-  RETURNING id, workspace_id, type, payload, attempts, max_attempts`;
+  RETURNING id, workspace_id, type, payload, attempts, max_attempts, locale`;
 
 // Las actualizaciones de resultado llevan un "token" de reclamación (attempts + locked_by): si el trabajo
 // ya se recuperó o lo reclamó otro worker, el resultado tardío se descarta en lugar de pisarlo.
@@ -285,7 +292,7 @@ export class JobRunner {
    * con el bucle en marcha, cada `recoverEveryMs`.
    */
   async recoverStale(): Promise<number> {
-    const msg = `Recuperado: el worker que lo ejecutaba dejó de responder durante más de ${fmtDuration(this.staleAfterMs)}`;
+    const msg = t('Recuperado: el worker que lo ejecutaba dejó de responder durante más de {duration}', { duration: fmtDuration(this.staleAfterMs) });
     const r = await this.db.query<{ id: string; workspace_id: string | null; type: string; status: string; attempts: number }>(RECOVER_SQL, [
       this.staleAfterMs / 1000,
       msg,
@@ -319,14 +326,14 @@ export class JobRunner {
     this.recoverTimer = null;
     const deadline = Date.now() + graceMs;
     const until = (p: Promise<unknown>) => {
-      let t: NodeJS.Timeout | undefined;
-      return Promise.race([p, new Promise((r) => (t = setTimeout(r, Math.max(0, deadline - Date.now()))))]).finally(() => clearTimeout(t));
+      let timer: NodeJS.Timeout | undefined;
+      return Promise.race([p, new Promise((r) => (timer = setTimeout(r, Math.max(0, deadline - Date.now()))))]).finally(() => clearTimeout(timer));
     };
     await until(this.claimChain); // una reclamación en curso puede lanzar todavía un trabajo
     while (this.active.size && Date.now() < deadline) await until(Promise.race([...this.active.values()].map((a) => a.done)));
     if (this.active.size) {
       this.log.error({ pending: this.active.size }, 'Apagado con trabajos en curso: se cancelan y se recuperarán más tarde');
-      for (const a of this.active.values()) a.controller.abort(new Error('El worker se está apagando'));
+      for (const a of this.active.values()) a.controller.abort(new Error(t('El worker se está apagando')));
     }
   }
 
@@ -401,14 +408,36 @@ export class JobRunner {
       });
   }
 
-  /** Ejecuta el manejador compitiendo con el watchdog del tipo y registra el resultado. */
+  /** Idioma del trabajo: el de quien lo encoló o, si no consta, el de su organización (cuya región da el formato). */
+  private async jobLocale(job: Job): Promise<{ locale: Locale; orgTag: string | null }> {
+    let orgTag: string | null = null;
+    if (job.workspace_id) {
+      try {
+        orgTag = (await this.db.query<{ tag: string | null }>(`SELECT settings->>'locale' AS tag FROM workspaces WHERE id = $1`, [job.workspace_id])).rows[0]?.tag ?? null;
+      } catch {
+        /* sin región: el formato del idioma */
+      }
+    }
+    return { locale: isLocale(job.locale) ? job.locale : localeFromRegion(orgTag), orgTag };
+  }
+
+  /**
+   * Ejecuta el trabajo en su idioma: el manejador y también el watchdog, cuyos errores se guardan y se muestran
+   * (last_error, peticiones de EVOLVE que quedan fallidas).
+   */
   private async execute(job: Job, controller: AbortController): Promise<void> {
+    const { locale, orgTag } = await this.jobLocale(job);
+    return withLocale(locale, () => this.executeInLocale(job, controller), orgTag);
+  }
+
+  /** Ejecuta el manejador compitiendo con el watchdog del tipo y registra el resultado. */
+  private async executeInLocale(job: Job, controller: AbortController): Promise<void> {
     const fence = job.attempts; // token de esta reclamación (el manejador puede modificar job.attempts)
     const limitMs = this.timeoutFor(job.type);
     const handler = this.handlers[job.type];
     const ctx: JobContext = { signal: controller.signal, deadline: Date.now() + limitMs };
     const work = (async () => {
-      if (!handler) throw new Error(`Sin manejador para el trabajo "${job.type}"`);
+      if (!handler) throw new Error(t('Sin manejador para el trabajo "{type}"', { type: job.type }));
       await handler(job, ctx);
     })();
     let timer: NodeJS.Timeout | undefined;

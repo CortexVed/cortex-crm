@@ -1,4 +1,5 @@
 import zlib from 'node:zlib';
+import { t } from '../i18n';
 
 /**
  * Escritor (y lector, para verificarlo) mínimo de archivos tar en formato ustar, sin dependencias: es lo que
@@ -39,7 +40,7 @@ export function splitTarPath(path: string): { prefix: string; name: string } {
     const name = path.slice(i + 1);
     if (name && Buffer.byteLength(name) <= 100 && Buffer.byteLength(prefix) <= 155) return { prefix, name };
   }
-  throw new Error(`Ruta demasiado larga para un archivo tar: ${path.slice(0, 80)}…`);
+  throw new Error(t('Ruta demasiado larga para un archivo tar: {path}…', { path: path.slice(0, 80) }));
 }
 
 function checksum(h: Buffer): number {

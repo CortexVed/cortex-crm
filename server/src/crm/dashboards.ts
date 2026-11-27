@@ -1,6 +1,7 @@
 import { findModule, type Blueprint, type Module, type Widget } from '../../../shared/blueprint';
 import { recordTitle } from '../../../shared/records';
 import type { Queryable } from '../db/db';
+import { activeIntlTag, t } from '../i18n';
 import { conditionsToSql } from './store';
 
 export interface SeriesPoint {
@@ -43,7 +44,7 @@ export async function computeWidget(
   ctx: { now: Date; tz: string; /** Permiso de lectura por módulo: sin él no se revelan títulos de registros relacionados. */ canRead?: (moduleKey: string) => boolean },
 ): Promise<WidgetData> {
   const mod = findModule(bp, w.module);
-  if (!mod || mod.archived) return { type: 'error', message: `Módulo "${w.module}" no disponible` };
+  if (!mod || mod.archived) return { type: 'error', message: t('Módulo "{module}" no disponible', { module: w.module }) };
   try {
     const params: unknown[] = [workspaceId, mod.key];
     const where = ['workspace_id = $1', 'module_key = $2', 'deleted_at IS NULL', ...conditionsToSql(mod, w.filters, params, ctx)].join(' AND ');
@@ -70,13 +71,13 @@ export async function computeWidget(
         sql = `SELECT data->>$${params.length} AS k, ${agg} AS v FROM records WHERE ${where} GROUP BY 1 ORDER BY 2 DESC LIMIT 20`;
       }
       const r = await q.query<{ k: string | null; v: number }>(sql, params);
-      let points: SeriesPoint[] = r.rows.map((row) => ({ key: row.k ?? '', label: row.k ?? 'Sin valor', value: Number(row.v) }));
+      let points: SeriesPoint[] = r.rows.map((row) => ({ key: row.k ?? '', label: row.k ?? t('Sin valor'), value: Number(row.v) }));
       if (field?.options) {
         const order = field.options.map((o) => o.value);
         points = points
           .map((p) => {
             const opt = field.options!.find((o) => o.value === p.key);
-            return { ...p, label: opt?.label ?? (p.key || 'Sin valor'), color: opt?.color };
+            return { ...p, label: opt?.label ?? (p.key || t('Sin valor')), color: opt?.color };
           })
           .sort((a, b) => (order.indexOf(a.key) === -1 ? 99 : order.indexOf(a.key)) - (order.indexOf(b.key) === -1 ? 99 : order.indexOf(b.key)));
       } else if (field?.type === 'user' || g === 'created_by') {
@@ -84,20 +85,20 @@ export async function computeWidget(
         if (ids.length) {
           const u = await q.query(`SELECT id::text, name FROM users WHERE id = ANY($1::uuid[])`, [ids]);
           const names = new Map(u.rows.map((x: any) => [x.id, x.name]));
-          points = points.map((p) => ({ ...p, label: names.get(p.key) ?? (p.key ? 'Usuario' : 'Sin asignar') }));
+          points = points.map((p) => ({ ...p, label: names.get(p.key) ?? (p.key ? t('Usuario') : t('Sin asignar')) }));
         }
       } else if (field?.type === 'relation') {
         const ids = points.map((p) => p.key).filter(Boolean);
         const target = findModule(bp, field.relation!.module);
         if (ids.length && target && ctx.canRead && !ctx.canRead(target.key)) {
-          points = points.map((p) => ({ ...p, label: p.key ? 'Registro restringido' : 'Sin relación' }));
+          points = points.map((p) => ({ ...p, label: p.key ? t('Registro restringido') : t('Sin relación') }));
         } else if (ids.length && target) {
           const rr = await q.query(`SELECT id::text, data FROM records WHERE workspace_id = $1 AND id = ANY($2::uuid[])`, [workspaceId, ids]);
           const titles = new Map(rr.rows.map((x: any) => [x.id, recordTitle(target, x.data)]));
-          points = points.map((p) => ({ ...p, label: titles.get(p.key) ?? (p.key ? 'Registro' : 'Sin relación') }));
+          points = points.map((p) => ({ ...p, label: titles.get(p.key) ?? (p.key ? t('Registro') : t('Sin relación')) }));
         }
       } else if (field?.type === 'boolean') {
-        points = points.map((p) => ({ ...p, label: p.key === 'true' ? 'Sí' : p.key === 'false' ? 'No' : 'Sin valor' }));
+        points = points.map((p) => ({ ...p, label: p.key === 'true' ? t('Sí') : p.key === 'false' ? t('No') : t('Sin valor') }));
       }
       return { type: w.type, points, ...fmt };
     }
@@ -135,7 +136,7 @@ export async function computeWidget(
           d.setUTCDate(d.getUTCDate() - day + 1 - i * 7);
         } else d.setUTCDate(d.getUTCDate() - i);
         const key = d.toISOString().slice(0, 10);
-        const label = w.interval === 'month' ? d.toLocaleDateString('es-ES', { month: 'short', year: '2-digit', timeZone: 'UTC' }) : d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+        const label = w.interval === 'month' ? d.toLocaleDateString(activeIntlTag(), { month: 'short', year: '2-digit', timeZone: 'UTC' }) : d.toLocaleDateString(activeIntlTag(), { day: '2-digit', month: 'short', timeZone: 'UTC' });
         points.push({ key, label, value: values.get(key) ?? 0 });
       }
       return { type: 'line', points, ...fmt };

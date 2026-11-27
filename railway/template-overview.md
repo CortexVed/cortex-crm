@@ -1,6 +1,6 @@
 # Deploy and Host Cortex CRM on Railway
 
-Cortex CRM is an open-source (AGPL-3.0), self-hosted AI CRM that adapts to the way your business works. It comes with contacts, companies, deals, tasks and dashboards, and when you need something more you just ask for it in plain language: "add a contracts module with renewal reminders", "when a deal is won, create an onboarding task". The AI engine plans the change, tests it in a sandbox and waits for your approval before anything goes live. Think of it as a self-hosted alternative to Salesforce or HubSpot that you reshape without writing code. The interface is in Spanish.
+Cortex CRM is an open-source (AGPL-3.0), self-hosted AI CRM that adapts to the way your business works. It comes with contacts, companies, deals, tasks and dashboards, and when you need something more you just ask for it in plain language: "add a contracts module with renewal reminders", "when a deal is won, create an onboarding task". The AI engine plans the change, tests it in a sandbox and waits for your approval before anything goes live. Think of it as a self-hosted alternative to Salesforce or HubSpot that you reshape without writing code. It speaks seven languages: English, Spanish, Brazilian Portuguese, French, German, Italian and Japanese.
 
 ## About Hosting Cortex CRM
 
@@ -22,6 +22,7 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 - **AI assistant:** answers questions about your data, summarizes records and prepares changes that you confirm.
 - **Channels:** WhatsApp Cloud API and Telegram. Customer messages land on the contact's record and you reply from the CRM.
 - **Security:** roles and per-module permissions, audit log, API keys, encrypted secrets and a built-in security review.
+- **Seven languages:** English, Spanish, Brazilian Portuguese, French, German, Italian and Japanese. Each person picks theirs; emails, the starting CRM of each organization and the AI's answers follow it.
 - **Your look:** custom colors, density, navigation and pages, with light and dark themes.
 - **Source-code engine (beta, optional, platform admins):** the AI edits the app's own code, type-checks it, runs the test suite in the isolated CI service and deploys only after you confirm.
 
@@ -42,11 +43,11 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 
 After the deploy finishes:
 
-1. Open the public domain of the `Cortex` service and sign up. This creates your first organization.
-2. In **Ajustes › Mi cuenta**, paste the `PLATFORM_ADMIN_SETUP_TOKEN` value from the `Cortex` service variables to become the platform administrator. The token works once.
-3. Add an AI provider in **Ajustes › Proveedores de IA**.
+1. Open the public domain of the `Cortex` service and sign up, choosing your language. This creates your first organization, with its starting modules in that language.
+2. In **Settings › My account**, paste the `PLATFORM_ADMIN_SETUP_TOKEN` value from the `Cortex` service variables to become the platform administrator. The token works once.
+3. Add an AI provider in **Settings › AI providers**.
 4. Optional: set `RESEND_API_KEY` and `EMAIL_FROM` on `Cortex` for email, and `ALLOW_SIGNUP=false` to close public sign-ups.
-5. Optional: to let the AI change the installation's source code, create a Railway project token for this environment and paste it in **Código fuente › Configuración** (platform administrators only). Then disconnect `Cortex`, `Worker` and `CI` from the template repository (service › Settings › Source), so that a push to the template does not overwrite your changes.
+5. Optional: to let the AI change the installation's source code, create a Railway project token for this environment and paste it in **Source code › Settings** (platform administrators only). Then disconnect `Cortex`, `Worker` and `CI` from the template repository (service › Settings › Source), so that a push to the template does not overwrite your changes.
 
 ## Why Deploy Cortex CRM on Railway?
 

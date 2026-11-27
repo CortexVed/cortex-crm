@@ -1,7 +1,7 @@
 import zlib from 'node:zlib';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { hasRole, ROLE_LABELS, type Role } from '../../../shared/constants';
+import { CONFIRM_WORDS, hasRole, RISK_LABELS, ROLE_LABELS, type Role } from '../../../shared/constants';
 import { BlueprintSchema, type Blueprint } from '../../../shared/blueprint';
 import { ChangeSetSchema } from '../../../shared/changeset';
 import type { AppDeps } from '../deps';
@@ -9,6 +9,7 @@ import { audit } from '../lib/audit';
 import { newId } from '../lib/crypto';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { requireUserSession, requireWorkspace } from '../auth/plugin';
+import { contextLocale, msg, t, tk } from '../i18n';
 import { loadWorkspace } from '../crm/context';
 import { blueprintForRole } from '../crm/visibility';
 import { closeOpenSteps, PIPELINE_STEPS } from './pipeline';
@@ -64,12 +65,12 @@ function refinersOf(conversation: unknown): Set<string> {
 }
 
 export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
-  app.get('/evolve/steps', async () => PIPELINE_STEPS);
+  app.get('/evolve/steps', async () => PIPELINE_STEPS.map((s) => ({ key: s.key, label: tk(s.label) })));
 
   app.get('/evolve/requests', async (req) => {
     const a = requireWorkspace(req, 'viewer');
     const { kind } = z.object({ kind: z.enum(REQUEST_KINDS).optional() }).parse(req.query);
-    if (kind && !hasRole(a.role, kindMinRole(kind))) throw forbidden(`Requiere ${ROLE_LABELS[kindMinRole(kind)]}`);
+    if (kind && !hasRole(a.role, kindMinRole(kind))) throw forbidden(t('Requiere {role}', { role: tk(ROLE_LABELS[kindMinRole(kind)]) }));
     return deps.db.tenant(a.workspaceId, async (q) => {
       const r = await q.query(
         `SELECT r.id, r.kind, r.source, r.prompt, r.status, r.risk, r.change_set->>'title' AS title, r.created_at, r.updated_at, u.name AS requested_by_name
@@ -85,7 +86,7 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
   app.post('/evolve/requests', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
     const a = requireWorkspace(req, 'builder');
     requireUserSession(req);
-    const { prompt } = z.object({ prompt: z.string().trim().min(8, 'Describe el cambio con un poco más de detalle').max(4000) }).parse(req.body);
+    const { prompt } = z.object({ prompt: z.string().trim().min(8, msg('Describe el cambio con un poco más de detalle')).max(4000) }).parse(req.body);
     return deps.db.tenant(a.workspaceId, async (q) => {
       const ws = await loadWorkspace(q, a.workspaceId);
       const id = newId();
@@ -126,7 +127,7 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
       const visible = hasRole(a.role, 'builder') && canSeeAll(ws.blueprint, a.role, r.change_set);
       const policy = {
         requiredRole,
-        requiredRoleLabel: ROLE_LABELS[requiredRole],
+        requiredRoleLabel: tk(ROLE_LABELS[requiredRole]),
         needsConfirmation: r.risk === 'high',
         requireDistinctApprover: ws.settings.approval.requireDistinctApprover,
         canApprove:
@@ -197,8 +198,8 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
       if (r.status !== 'ready_for_review') throw conflict('La petición no está pendiente de revisión');
       if (!r.test_report?.passed) throw conflict('No se puede aprobar un cambio con pruebas fallidas');
       const requiredRole = r.risk === 'high' ? 'owner' : 'admin';
-      if (!hasRole(a.role, requiredRole)) throw forbidden(`Cambio de riesgo ${r.risk}: requiere ${ROLE_LABELS[requiredRole]}`);
-      if (r.risk === 'high' && body.confirmation !== 'APLICAR') throw badRequest('Escribe APLICAR para confirmar un cambio de riesgo alto');
+      if (!hasRole(a.role, requiredRole)) throw forbidden(t('{risk}: requiere {role}', { risk: tk(RISK_LABELS[r.risk] ?? r.risk), role: tk(ROLE_LABELS[requiredRole]) }));
+      if (r.risk === 'high' && body.confirmation !== CONFIRM_WORDS.apply) throw badRequest(t('Escribe {word} para confirmar un cambio de riesgo alto', { word: CONFIRM_WORDS.apply }));
       const ws = await loadWorkspace(q, a.workspaceId);
       // Nadie aprueba a ciegas: quien aprueba debe poder ver todos los módulos que el cambio toca.
       if (!canSeeAll(ws.blueprint, a.role, r.change_set)) throw forbidden('El cambio afecta a módulos que no puedes ver: debe aprobarlo alguien con acceso');
@@ -237,7 +238,7 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
       if (r.requested_by !== a.userId && !hasRole(a.role, 'admin')) throw forbidden();
       if (['applied', 'rolled_back', 'deploying'].includes(r.status)) throw conflict('Ya no se puede cancelar');
       // Los pasos que estaban trabajando quedan cerrados como cancelados (no siguen «en curso» en el progreso).
-      const closing = closeOpenSteps(r.progress, 'skipped', 'Cancelado', deps.now().toISOString());
+      const closing = closeOpenSteps(r.progress, 'skipped', t('Cancelado'), deps.now().toISOString());
       await q.query(`UPDATE evolution_requests SET status = 'cancelled', progress = progress || $2::jsonb, updated_at = now() WHERE id = $1`, [id, JSON.stringify(closing)]);
       return { ok: true };
     });
@@ -274,26 +275,28 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
     requireUserSession(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const { confirmation, reason } = z.object({ confirmation: z.string().max(20), reason: z.string().max(500).optional() }).parse(req.body);
-    if (confirmation !== 'REVERTIR') throw badRequest('Escribe REVERTIR para confirmar');
+    if (confirmation !== CONFIRM_WORDS.revert) throw badRequest(t('Escribe {word} para confirmar', { word: CONFIRM_WORDS.revert }));
     if (a.role !== 'owner') {
       // Revertir un cambio de riesgo alto es también una decisión de riesgo alto, igual que revertir una
       // restauración o volver a un estado que reactiva algo peligroso (permisos amplios, webhooks, scripts…).
       const denied = await deps.db.tenant(a.workspaceId, async (q) => {
         const rel = (await q.query(`SELECT rel.request_id, rel.from_version, r.risk FROM releases rel LEFT JOIN evolution_requests r ON r.id = rel.request_id WHERE rel.id = $1 AND rel.workspace_id = $2`, [id, a.workspaceId])).rows[0];
         if (!rel) throw notFound('Versión no encontrada');
-        if (rel.risk === 'high') return 'Revertir un cambio de riesgo alto requiere el rol de propietario';
-        if (!rel.request_id) return 'Revertir una restauración requiere el rol de propietario';
+        if (rel.risk === 'high') return msg('Revertir un cambio de riesgo alto requiere el rol de propietario');
+        if (!rel.request_id) return msg('Revertir una restauración requiere el rol de propietario');
         const prev = (await q.query(`SELECT definition FROM blueprint_versions WHERE workspace_id = $1 AND version = $2`, [a.workspaceId, rel.from_version])).rows[0];
         if (!prev) return null; // rollbackRelease responde con el error adecuado
         const target = BlueprintSchema.safeParse(prev.definition);
-        if (!target.success) return 'La versión anterior no es válida: solo un propietario puede restaurarla';
+        if (!target.success) return msg('La versión anterior no es válida: solo un propietario puede restaurarla');
         const ws = await loadWorkspace(q, a.workspaceId);
-        const t = assessTransition(ws.blueprint, target.data);
-        return t.level === 'high' ? `Revertir reactivaría elementos de riesgo alto (${t.items.slice(0, 3).map((i) => i.message).join('; ')}): requiere el rol de propietario` : null;
+        const transition = assessTransition(ws.blueprint, target.data);
+        return transition.level === 'high'
+          ? t('Revertir reactivaría elementos de riesgo alto ({items}): requiere el rol de propietario', { items: transition.items.slice(0, 3).map((i) => i.message).join('; ') })
+          : null;
       });
       if (denied) throw forbidden(denied);
     }
-    return rollbackRelease(deps, a.workspaceId, id, { userId: a.userId, role: a.role }, reason?.trim() || 'Rollback manual', req.ip);
+    return rollbackRelease(deps, a.workspaceId, id, { userId: a.userId, role: a.role }, reason?.trim() || t('Rollback manual'), req.ip);
   });
 
   app.get('/evolve/versions/:v', async (req) => {
@@ -313,7 +316,7 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
     requireUserSession(req);
     const { v } = z.object({ v: z.coerce.number().int().min(1) }).parse(req.params);
     const { confirmation } = z.object({ confirmation: z.string().max(20) }).parse(req.body);
-    if (confirmation !== 'RESTAURAR') throw badRequest('Escribe RESTAURAR para confirmar');
+    if (confirmation !== CONFIRM_WORDS.restore) throw badRequest(t('Escribe {word} para confirmar', { word: CONFIRM_WORDS.restore }));
     return restoreVersion(deps, a.workspaceId, v, { userId: a.userId }, req.ip);
   });
 
@@ -343,8 +346,8 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
     return deps.db.tenant(a.workspaceId, async (q) => {
       const ws = await loadWorkspace(q, a.workspaceId);
       const id = newId();
-      await q.query(`INSERT INTO evolution_requests (id, workspace_id, requested_by, kind, source, prompt, status, base_version) VALUES ($1,$2,$3,'security','ai',$4,'queued',$5)`, [id, a.workspaceId, a.userId, 'Auditoría de seguridad', ws.version]);
-      await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts) VALUES ($1,$2,'evolve.security',$3,1)`, [newId(), a.workspaceId, JSON.stringify({ requestId: id, platformAdmin: a.isPlatformAdmin })]);
+      await q.query(`INSERT INTO evolution_requests (id, workspace_id, requested_by, kind, source, prompt, status, base_version) VALUES ($1,$2,$3,'security','ai',$4,'queued',$5)`, [id, a.workspaceId, a.userId, t('Auditoría de seguridad'), ws.version]);
+      await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts, locale) VALUES ($1,$2,'evolve.security',$3,1,$4)`, [newId(), a.workspaceId, JSON.stringify({ requestId: id, platformAdmin: a.isPlatformAdmin }), contextLocale()]);
       await audit(q, { workspaceId: a.workspaceId, actorId: a.userId, action: 'security.review_requested', targetId: id, ip: req.ip });
       return { id };
     });
@@ -356,8 +359,8 @@ export async function evolveRoutes(app: FastifyInstance, deps: AppDeps) {
     return deps.db.tenant(a.workspaceId, async (q) => {
       const ws = await loadWorkspace(q, a.workspaceId);
       const id = newId();
-      await q.query(`INSERT INTO evolution_requests (id, workspace_id, requested_by, kind, source, prompt, status, base_version) VALUES ($1,$2,$3,'advice','ai',$4,'queued',$5)`, [id, a.workspaceId, a.userId, 'Propuestas de mejora', ws.version]);
-      await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts) VALUES ($1,$2,'evolve.advice',$3,1)`, [newId(), a.workspaceId, JSON.stringify({ requestId: id })]);
+      await q.query(`INSERT INTO evolution_requests (id, workspace_id, requested_by, kind, source, prompt, status, base_version) VALUES ($1,$2,$3,'advice','ai',$4,'queued',$5)`, [id, a.workspaceId, a.userId, t('Propuestas de mejora'), ws.version]);
+      await q.query(`INSERT INTO jobs (id, workspace_id, type, payload, max_attempts, locale) VALUES ($1,$2,'evolve.advice',$3,1,$4)`, [newId(), a.workspaceId, JSON.stringify({ requestId: id }), contextLocale()]);
       return { id };
     });
   });

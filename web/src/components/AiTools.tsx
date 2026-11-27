@@ -5,7 +5,8 @@ import { CalendarClock, Coins, FileSearch, ListChecks, MessageSquareText, Plus, 
 import { ApiError, errorMessage, patch, post } from '../lib/api';
 import { useBlueprint } from '../lib/hooks';
 import { useSession } from '../lib/session';
-import { formatValue } from '../lib/format';
+import { formatNumber, formatValue } from '../lib/format';
+import { t, tx } from '../lib/i18n';
 import type { Module, Widget, WidgetData } from '../lib/types';
 import { Alert, Badge, Button, Card, Input, Modal, Spinner } from './ui';
 import { WidgetBody } from './WidgetBody';
@@ -16,15 +17,16 @@ function AiError({ error }: { error: unknown }) {
   const { can } = useSession();
   if (error instanceof ApiError && error.code === 'ai_not_configured') {
     return (
-      <Alert tone="info" title="EVOLVE AI necesita un proveedor de IA">
-        {can('admin') ? (
-          <>
-            Añade una API key (Claude, OpenAI, DeepSeek u OpenRouter) en{' '}
-            <Link to="/settings/ai" className="font-semibold underline">Ajustes › Proveedores de IA</Link>.
-          </>
-        ) : (
-          'Pide a un administrador que configure un proveedor de IA en los ajustes.'
-        )}
+      <Alert tone="info" title={t('EVOLVE AI necesita un proveedor de IA')}>
+        {can('admin')
+          ? tx('Añade una API key (Claude, OpenAI, DeepSeek u OpenRouter) en <link>Ajustes › Proveedores de IA</link>.', {
+              link: (c) => (
+                <Link to="/settings/ai" className="font-semibold underline">
+                  {c}
+                </Link>
+              ),
+            })
+          : t('Pide a un administrador que configure un proveedor de IA en los ajustes.')}
       </Alert>
     );
   }
@@ -35,8 +37,8 @@ function ModelNote({ provider, model, costUsd }: { provider?: string | null; mod
   if (!provider) return null;
   return (
     <p className="text-[11px] text-zinc-400">
-      Generado por {provider}/{model}
-      {typeof costUsd === 'number' ? ` · ${costUsd < 0.01 ? '<0,01' : costUsd.toFixed(2)} USD` : ''} · Revisa el resultado antes de usarlo.
+      {t('Generado por {provider}/{model}', { provider, model })}
+      {typeof costUsd === 'number' ? ` · ${costUsd < 0.01 ? `<${formatNumber(0.01, { minimumFractionDigits: 2 })}` : formatNumber(costUsd, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD` : ''} · {t('Revisa el resultado antes de usarlo.')}
     </p>
   );
 }
@@ -52,7 +54,8 @@ interface QueryResult {
   costUsd: number | null;
 }
 
-const EXAMPLES = ['¿Cuánto importe tenemos en oportunidades abiertas por etapa?', '¿Cuántos contactos nuevos hemos creado cada mes?', 'Empresas por sector', 'Tareas urgentes pendientes'];
+// Función (no constante): los ejemplos se traducen al pintar, en el idioma de ese momento.
+const examples = () => [t('¿Cuánto importe tenemos en oportunidades abiertas por etapa?'), t('¿Cuántos contactos nuevos hemos creado cada mes?'), t('Empresas por sector'), t('Tareas urgentes pendientes')];
 
 export function AskDataCard() {
   const toast = useToast();
@@ -64,14 +67,14 @@ export function AskDataCard() {
   const addToDashboard = useMutation({
     mutationFn: (r: QueryResult) => {
       const dash = bp.data?.blueprint.dashboards[0];
-      if (!dash) throw new Error('No hay ningún panel al que añadir el widget');
+      if (!dash) throw new Error(t('No hay ningún panel al que añadir el widget'));
       const widget = { ...r.widget, key: `w_${Date.now().toString(36)}` };
       return post<{ id: string }>('/evolve/requests/manual', {
-        changeSet: { title: `Panel: añadir «${r.widget.title}»`, summary: `Añade al panel ${dash.label} el widget «${r.widget.title}» creado desde una pregunta en lenguaje natural.`, operations: [{ op: 'upsert_dashboard', dashboard: { ...dash, widgets: [...dash.widgets, widget] } }] },
+        changeSet: { title: t('Panel: añadir «{title}»', { title: r.widget.title }), summary: t('Añade al panel {dashboard} el widget «{title}» creado desde una pregunta en lenguaje natural.', { dashboard: dash.label, title: r.widget.title }), operations: [{ op: 'upsert_dashboard', dashboard: { ...dash, widgets: [...dash.widgets, widget] } }] },
       });
     },
     onSuccess: (r) => {
-      toast('Cambio enviado: se valida y prueba antes de publicarse');
+      toast(t('Cambio enviado: se valida y prueba antes de publicarse'));
       navigate(`/evolve/requests/${r.id}`);
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -85,20 +88,20 @@ export function AskDataCard() {
     <Card
       title={
         <span className="flex items-center gap-2">
-          <MessageSquareText className="size-4 text-fuchsia-500" /> Pregunta a tus datos
+          <MessageSquareText className="size-4 text-fuchsia-500" /> {t('Pregunta a tus datos')}
         </span>
       }
-      description="Escribe una pregunta y EVOLVE AI la convierte en una consulta segura sobre tus datos (nunca ejecuta SQL libre y respeta tus permisos)."
+      description={t('Escribe una pregunta y EVOLVE AI la convierte en una consulta segura sobre tus datos (nunca ejecuta SQL libre y respeta tus permisos).')}
     >
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
-        <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ej.: ¿Qué importe hemos ganado cada mes este año?" maxLength={500} aria-label="Pregunta sobre tus datos" />
+        <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t('Ej.: ¿Qué importe hemos ganado cada mes este año?')} maxLength={500} aria-label={t('Pregunta sobre tus datos')} />
         <Button type="submit" variant="ai" icon={<Sparkles className="size-4" />} loading={ask.isPending} disabled={question.trim().length < 4}>
-          Preguntar
+          {t('Preguntar')}
         </Button>
       </form>
       {!r && !ask.isPending && !ask.error && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {EXAMPLES.map((ex) => (
+          {examples().map((ex) => (
             <button key={ex} type="button" onClick={() => { setQuestion(ex); ask.mutate(ex); }} className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
               {ex}
             </button>
@@ -106,7 +109,7 @@ export function AskDataCard() {
         </div>
       )}
       {ask.isPending && (
-        <p className="mt-4 flex items-center gap-2 text-sm text-zinc-500"><Spinner /> Preparando la consulta…</p>
+        <p className="mt-4 flex items-center gap-2 text-sm text-zinc-500"><Spinner /> {t('Preparando la consulta…')}</p>
       )}
       {ask.error && <div className="mt-4"><AiError error={ask.error} /></div>}
       {r && !ask.isPending && (
@@ -118,7 +121,7 @@ export function AskDataCard() {
             </div>
             {can('admin') && bp.data?.blueprint.dashboards.length ? (
               <Button size="sm" icon={<Plus className="size-3.5" />} loading={addToDashboard.isPending} onClick={() => addToDashboard.mutate(r)}>
-                Añadir al panel
+                {t('Añadir al panel')}
               </Button>
             ) : null}
           </div>
@@ -170,7 +173,7 @@ export function ClassifyButton({ mod, recordId, data }: { mod: Module; recordId:
       qc.invalidateQueries({ queryKey: ['record', mod.key, recordId] });
       qc.invalidateQueries({ queryKey: ['records', mod.key] });
       qc.invalidateQueries({ queryKey: ['timeline', mod.key, recordId] });
-      toast('Clasificación aplicada');
+      toast(t('Clasificación aplicada'));
       setOpen(false);
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -184,33 +187,33 @@ export function ClassifyButton({ mod, recordId, data }: { mod: Module; recordId:
   return (
     <>
       <Button variant="ghost" size="sm" icon={<Tags className="size-3.5 text-fuchsia-500" />} onClick={start}>
-        Clasificar con IA
+        {t('Clasificar con IA')}
       </Button>
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Clasificación sugerida por EVOLVE AI"
-        description="La IA propone valores para los campos de selección a partir de los datos, relaciones y notas de la ficha. Nada se guarda hasta que lo apliques."
+        title={t('Clasificación sugerida por EVOLVE AI')}
+        description={t('La IA propone valores para los campos de selección a partir de los datos, relaciones y notas de la ficha. Nada se guarda hasta que lo apliques.')}
         footer={
           <>
-            <Button onClick={() => setOpen(false)}>Cerrar</Button>
+            <Button onClick={() => setOpen(false)}>{t('Cerrar')}</Button>
             {!!run.data?.suggestions.length && (
               <Button variant="primary" disabled={!chosen} loading={apply.isPending} onClick={() => apply.mutate()}>
-                Aplicar {chosen ? `(${chosen})` : ''}
+                {chosen ? t('Aplicar ({count})', { count: chosen }) : t('Aplicar')}
               </Button>
             )}
           </>
         }
       >
         {run.isPending ? (
-          <p className="flex items-center gap-2 py-6 text-sm text-zinc-500"><Spinner /> Analizando la ficha…</p>
+          <p className="flex items-center gap-2 py-6 text-sm text-zinc-500"><Spinner /> {t('Analizando la ficha…')}</p>
         ) : run.error ? (
           <AiError error={run.error} />
         ) : run.data ? (
           <div className="space-y-3">
             {run.data.summary && <p className="text-sm text-zinc-600 dark:text-zinc-300">{run.data.summary}</p>}
             {run.data.suggestions.length === 0 ? (
-              <Alert tone="info">No hay cambios que sugerir: la clasificación actual parece correcta o faltan datos para proponer otra.</Alert>
+              <Alert tone="info">{t('No hay cambios que sugerir: la clasificación actual parece correcta o faltan datos para proponer otra.')}</Alert>
             ) : (
               <ul className="space-y-2">
                 {run.data.suggestions.map((s, i) => (
@@ -222,7 +225,7 @@ export function ClassifyButton({ mod, recordId, data }: { mod: Module; recordId:
                           <span className="font-medium">{s.label}</span>
                           <span className="text-zinc-400">→</span>
                           <Badge color="violet">{s.valueLabel}</Badge>
-                          <span className="text-xs text-zinc-400">confianza {Math.round(s.confidence * 100)}%</span>
+                          <span className="text-xs text-zinc-400">{t('confianza {percent}%', { percent: Math.round(s.confidence * 100) })}</span>
                         </span>
                         {s.reason && <span className="mt-1 block text-xs text-zinc-500">{s.reason}</span>}
                       </span>
@@ -270,23 +273,24 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
   const link = tasks?.fields.find((f) => f.type === 'relation' && !f.archived && f.relation?.module === mod.key);
   const saveNote = useMutation({
     mutationFn: (a: Analysis) => {
-      const lines = [`Análisis IA de «${file.name}»`, '', a.summary];
-      if (a.keyPoints.length) lines.push('', 'Puntos clave:', ...a.keyPoints.map((p) => `• ${p}`));
-      if (a.dates.length) lines.push('', 'Fechas:', ...a.dates.map((d) => `• ${d.date}: ${d.description}`));
-      if (a.amounts.length) lines.push('', 'Importes:', ...a.amounts.map((x) => `• ${formatValue(x.amount, 'currency', x.currency || 'EUR')}: ${x.description}`));
-      if (a.risks.length) lines.push('', 'Riesgos:', ...a.risks.map((r) => `• ${r}`));
+      // La nota se guarda ya en el idioma de quien la crea.
+      const lines = [t('Análisis IA de «{name}»', { name: file.name }), '', a.summary];
+      if (a.keyPoints.length) lines.push('', t('Puntos clave:'), ...a.keyPoints.map((p) => `• ${p}`));
+      if (a.dates.length) lines.push('', t('Fechas:'), ...a.dates.map((d) => `• ${d.date}: ${d.description}`));
+      if (a.amounts.length) lines.push('', t('Importes:'), ...a.amounts.map((x) => `• ${formatValue(x.amount, 'currency', x.currency || 'EUR')}: ${x.description}`));
+      if (a.risks.length) lines.push('', t('Riesgos:'), ...a.risks.map((r) => `• ${r}`));
       return post(`/records/${mod.key}/${recordId}/notes`, { body: lines.join('\n').slice(0, 10_000) });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['timeline', mod.key, recordId] });
-      toast('Análisis guardado como nota');
+      toast(t('Análisis guardado como nota'));
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
   const createTask = useMutation({
-    mutationFn: ({ t }: { t: { title: string; dueDate?: string }; i: number }) => {
-      const values: Record<string, unknown> = { title: t.title };
-      if (t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate) && tasks?.fields.some((f) => f.key === 'due_date')) values.due_date = t.dueDate;
+    mutationFn: ({ task }: { task: { title: string; dueDate?: string }; i: number }) => {
+      const values: Record<string, unknown> = { title: task.title };
+      if (task.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate) && tasks?.fields.some((f) => f.key === 'due_date')) values.due_date = task.dueDate;
       if (link) values[link.key] = recordId;
       return post('/records/tasks', { values });
     },
@@ -294,7 +298,7 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
       setCreated((c) => ({ ...c, [v.i]: true }));
       qc.invalidateQueries({ queryKey: ['records', 'tasks'] });
       qc.invalidateQueries({ queryKey: ['record', mod.key, recordId] });
-      toast('Tarea creada');
+      toast(t('Tarea creada'));
     },
     onError: (e) => toast(errorMessage(e), 'error'),
   });
@@ -309,48 +313,48 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
   const a = run.data?.analysis;
   return (
     <>
-      <button type="button" aria-label={`Analizar ${file.name} con IA`} title="Analizar con IA" className="text-zinc-400 hover:text-fuchsia-600" onClick={start}>
+      <button type="button" aria-label={t('Analizar {name} con IA', { name: file.name })} title={t('Analizar con IA')} className="text-zinc-400 hover:text-fuchsia-600" onClick={start}>
         <FileSearch className="size-3.5" />
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title={`Análisis de «${file.name}»`} description="EVOLVE AI lee el documento y extrae lo importante. Revisa el resultado antes de actuar." size="lg" footer={<Button onClick={() => setOpen(false)}>Cerrar</Button>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={t('Análisis de «{name}»', { name: file.name })} description={t('EVOLVE AI lee el documento y extrae lo importante. Revisa el resultado antes de actuar.')} size="lg" footer={<Button onClick={() => setOpen(false)}>{t('Cerrar')}</Button>}>
         {run.isPending ? (
-          <p className="flex items-center gap-2 py-6 text-sm text-zinc-500"><Spinner /> Leyendo el documento…</p>
+          <p className="flex items-center gap-2 py-6 text-sm text-zinc-500"><Spinner /> {t('Leyendo el documento…')}</p>
         ) : run.error ? (
           <AiError error={run.error} />
         ) : a ? (
           <div className="space-y-4 text-sm">
-            {run.data?.truncated && <Alert tone="warning">El documento es muy largo: solo se ha analizado el principio.</Alert>}
+            {run.data?.truncated && <Alert tone="warning">{t('El documento es muy largo: solo se ha analizado el principio.')}</Alert>}
             <p className="leading-relaxed">{a.summary}</p>
             {a.keyPoints.length > 0 && (
-              <Section icon={<ListChecks className="size-4" />} title="Puntos clave">
+              <Section icon={<ListChecks className="size-4" />} title={t('Puntos clave')}>
                 <ul className="list-disc space-y-1 pl-5">{a.keyPoints.map((p, i) => <li key={i}>{p}</li>)}</ul>
               </Section>
             )}
             {a.dates.length > 0 && (
-              <Section icon={<CalendarClock className="size-4" />} title="Fechas">
+              <Section icon={<CalendarClock className="size-4" />} title={t('Fechas')}>
                 <ul className="space-y-1">{a.dates.map((d, i) => <li key={i}><span className="font-mono text-xs">{d.date}</span> · {d.description}</li>)}</ul>
               </Section>
             )}
             {a.amounts.length > 0 && (
-              <Section icon={<Coins className="size-4" />} title="Importes">
+              <Section icon={<Coins className="size-4" />} title={t('Importes')}>
                 <ul className="space-y-1">{a.amounts.map((x, i) => <li key={i}><span className="font-medium tabular-nums">{formatValue(x.amount, 'currency', x.currency || 'EUR')}</span> · {x.description}</li>)}</ul>
               </Section>
             )}
             {a.risks.length > 0 && (
-              <Section icon={<ShieldAlert className="size-4" />} title="Riesgos">
+              <Section icon={<ShieldAlert className="size-4" />} title={t('Riesgos')}>
                 <ul className="list-disc space-y-1 pl-5">{a.risks.map((r, i) => <li key={i}>{r}</li>)}</ul>
               </Section>
             )}
             {a.suggestedTasks.length > 0 && (
-              <Section icon={<Wand2 className="size-4" />} title="Tareas sugeridas">
+              <Section icon={<Wand2 className="size-4" />} title={t('Tareas sugeridas')}>
                 <ul className="space-y-1.5">
-                  {a.suggestedTasks.map((t, i) => (
+                  {a.suggestedTasks.map((task, i) => (
                     <li key={i} className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1">{t.title}{t.dueDate ? <span className="text-xs text-zinc-500"> · {t.dueDate}</span> : null}</span>
+                      <span className="min-w-0 flex-1">{task.title}{task.dueDate ? <span className="text-xs text-zinc-500"> · {task.dueDate}</span> : null}</span>
                       {tasks && can(tasks.permissions.create) && (created[i] ? (
-                        <Badge color="emerald">Creada</Badge>
+                        <Badge color="emerald">{t('Creada')}</Badge>
                       ) : (
-                        <Button size="sm" icon={<Plus className="size-3.5" />} loading={createTask.isPending && createTask.variables?.i === i} disabled={createTask.isPending && createTask.variables?.i !== i} onClick={() => createTask.mutate({ t, i })}>Crear tarea</Button>
+                        <Button size="sm" icon={<Plus className="size-3.5" />} loading={createTask.isPending && createTask.variables?.i === i} disabled={createTask.isPending && createTask.variables?.i !== i} onClick={() => createTask.mutate({ task, i })}>{t('Crear tarea')}</Button>
                       ))}
                     </li>
                   ))}
@@ -361,7 +365,7 @@ export function AnalyzeFileButton({ file, mod, recordId }: { file: { id: string;
               <ModelNote provider={run.data?.provider} model={run.data?.model} costUsd={run.data?.costUsd} />
               {can(mod.permissions.update) && (
                 <Button size="sm" icon={<StickyNote className="size-3.5" />} loading={saveNote.isPending} disabled={saveNote.isSuccess} onClick={() => saveNote.mutate(a)}>
-                  {saveNote.isSuccess ? 'Guardado como nota' : 'Guardar como nota'}
+                  {saveNote.isSuccess ? t('Guardado como nota') : t('Guardar como nota')}
                 </Button>
               )}
             </div>

@@ -12,15 +12,15 @@ import { requireUserSession, requireWorkspace, type WorkspaceAuth } from '../aut
 import type { Attachment, ChatMessage } from '../ai/types';
 import {
   AiQuerySchema,
-  CLASSIFY_SYSTEM,
+  classifySystem,
   ClassifySchema,
   classifiableFields,
   describeModules,
-  DOCUMENT_SYSTEM,
+  documentSystem,
   DocumentAnalysisSchema,
   MAX_DOCUMENT_CHARS,
   MAX_PDF_BYTES,
-  QUERY_SYSTEM,
+  querySystem,
   readableModules,
   sanitizeSuggestions,
   TEXT_MIMES,
@@ -33,6 +33,7 @@ import { blueprintForRole } from './visibility';
 import { computeWidget } from './dashboards';
 import { buildReport, pipelineSnapshot, REPORT_TYPES } from './reports';
 import type { Actor } from './record-service';
+import { inSentence, msg, promptLanguage, t } from '../i18n';
 
 const ALLOWED_FILES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -86,8 +87,8 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
   };
   const moduleFor = (ws: LoadedWorkspace, a: WorkspaceAuth, key: string): Module => {
     const m = findModule(ws.blueprint, key);
-    if (!m || m.archived) throw notFound(`Módulo "${key}" no encontrado`);
-    if (!hasRole(a.role, m.permissions.read)) throw forbidden(`No tienes acceso a ${m.labelPlural}`);
+    if (!m || m.archived) throw notFound(t('Módulo "{key}" no encontrado', { key }));
+    if (!hasRole(a.role, m.permissions.read)) throw forbidden(t('No tienes acceso a {module}', { module: m.labelPlural }));
     return m;
   };
 
@@ -112,7 +113,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     try {
       return await deps.storage.get(f.object_key);
     } catch (e) {
-      throw new AppError(502, 'storage_unavailable', `No se ha podido leer el archivo. ${e instanceof ObjectStorageError ? e.message : 'El almacenamiento de archivos no responde.'}`);
+      throw new AppError(502, 'storage_unavailable', t('No se ha podido leer el archivo. {reason}', { reason: e instanceof ObjectStorageError ? e.message : t('El almacenamiento de archivos no responde.') }));
     }
   };
 
@@ -238,8 +239,8 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
         q.query(`SELECT id, automation_key, trigger, status, log, created_at FROM automation_runs WHERE workspace_id = $1 AND record_id = $2 ORDER BY created_at DESC LIMIT 50`, [ws.id, id]),
       ]);
       const items = [
-        ...history.rows.map((h: any) => ({ kind: 'history', id: h.id, at: h.created_at, action: h.action, changes: h.changes, actor: h.actor_name ?? (h.actor_type === 'automation' ? 'Automatización' : h.actor_type === 'api' ? 'API' : 'Sistema'), actorType: h.actor_type })),
-        ...notes.rows.map((n: any) => ({ kind: 'note', id: n.id, at: n.created_at, body: n.body, actor: n.actor_name ?? 'Usuario', mine: n.created_by === a.userId })),
+        ...history.rows.map((h: any) => ({ kind: 'history', id: h.id, at: h.created_at, action: h.action, changes: h.changes, actor: h.actor_name ?? (h.actor_type === 'automation' ? t('Automatización') : h.actor_type === 'api' ? 'API' : t('Sistema')), actorType: h.actor_type })),
+        ...notes.rows.map((n: any) => ({ kind: 'note', id: n.id, at: n.created_at, body: n.body, actor: n.actor_name ?? t('Usuario'), mine: n.created_by === a.userId })),
         ...messages.rows.map((m: any) => ({ kind: 'message', id: m.id, at: m.created_at, channel: m.channel, direction: m.direction, body: m.body, from: m.from_address, to: m.to_address, status: m.status })),
         ...runs.rows.map((r: any) => ({ kind: 'automation', id: r.id, at: r.created_at, automation: ws.blueprint.automations.find((x) => x.key === r.automation_key)?.name ?? r.automation_key, status: r.status, log: r.log })),
       ].sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime());
@@ -253,7 +254,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     return withWs(req, 'member', async (q, ws, a) => {
       const mod = moduleFor(ws, a, module);
       // Añadir notas modifica la ficha (y su última actividad): exige permiso de edición del módulo.
-      if (!hasRole(a.role, mod.permissions.update)) throw forbidden(`Tu rol no puede editar ${mod.labelPlural.toLowerCase()}`);
+      if (!hasRole(a.role, mod.permissions.update)) throw forbidden(t('Tu rol no puede editar {module}', { module: inSentence(mod.labelPlural) }));
       const exists = await q.query(`SELECT 1 FROM records WHERE id = $1 AND workspace_id = $2 AND module_key = $3 AND deleted_at IS NULL`, [id, ws.id, mod.key]);
       if (!exists.rows.length) throw notFound('Registro no encontrado');
       const noteId = newId();
@@ -295,7 +296,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
   app.post('/files', { bodyLimit: deps.config.maxUploadBytes + 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
     const body = req.body;
     if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('Envía el archivo como application/octet-stream');
-    if (body.length > deps.config.maxUploadBytes) throw badRequest(`El archivo supera el máximo de ${Math.round(deps.config.maxUploadBytes / 1048576)} MB`);
+    if (body.length > deps.config.maxUploadBytes) throw badRequest(t('El archivo supera el máximo de {mb} MB', { mb: Math.round(deps.config.maxUploadBytes / 1048576) }));
     const rawName = String(req.headers['x-file-name'] ?? '');
     let name: string;
     try {
@@ -307,7 +308,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     }
     const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
     const mime = ALLOWED_FILES[ext];
-    if (!name || !mime) throw badRequest(`Tipo de archivo no permitido. Admitidos: ${Object.keys(ALLOWED_FILES).join(', ')}`);
+    if (!name || !mime) throw badRequest(t('Tipo de archivo no permitido. Admitidos: {types}', { types: Object.keys(ALLOWED_FILES).join(', ') }));
     const recordId = req.headers['x-record-id'] ? String(req.headers['x-record-id']) : null;
     const fieldKey = req.headers['x-field-key'] ? String(req.headers['x-field-key']).slice(0, 40) : null;
     if (recordId && !isUuid(recordId)) throw badRequest('x-record-id inválido');
@@ -432,7 +433,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       const out: Record<string, unknown> = {};
       for (const w of d.widgets) {
         const mod = findModule(ws.blueprint, w.module);
-        out[w.key] = mod && !hasRole(a.role, mod.permissions.read) ? { type: 'error', message: 'Sin acceso' } : await computeWidget(q, ws.id, ws.blueprint, w, { now: deps.now(), tz: ws.settings.timezone, canRead: canReadFor(ws, a) });
+        out[w.key] = mod && !hasRole(a.role, mod.permissions.read) ? { type: 'error', message: t('Sin acceso') } : await computeWidget(q, ws.id, ws.blueprint, w, { now: deps.now(), tz: ws.settings.timezone, canRead: canReadFor(ws, a) });
       }
       return { dashboard: d, data: out };
     });
@@ -474,13 +475,12 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       const sales = await buildReport(q, ws.id, ws.blueprint, 'sales', deps.now());
       return { deals: await pipelineSnapshot(q, ws.id), kpis: sales.kpis, currency: ws.settings.currency };
     });
-    if (!snapshot.deals.length) return { text: 'Todavía no hay oportunidades suficientes para hacer predicciones. Registra oportunidades y vuelve a intentarlo.', provider: null, model: null };
+    if (!snapshot.deals.length) return { text: t('Todavía no hay oportunidades suficientes para hacer predicciones. Registra oportunidades y vuelve a intentarlo.'), provider: null, model: null };
     const res = await deps.ai.run(a.workspaceId, {
       task: 'crm_analysis',
       userId: a.userId,
       ref: 'predictions',
-      system:
-        'Eres un analista comercial senior. Analiza datos agregados y anónimos de un pipeline de ventas. Responde en español, con formato Markdown breve: 1) Previsión de ingresos a 30 y 90 días con supuestos explícitos, 2) Oportunidades en riesgo (por inactividad o antigüedad), 3) Tres recomendaciones accionables. No inventes datos que no estén en la entrada; indica la incertidumbre.',
+      system: `Eres un analista comercial senior. Analiza datos agregados y anónimos de un pipeline de ventas. Responde en ${promptLanguage()}, con formato Markdown breve: 1) Previsión de ingresos a 30 y 90 días con supuestos explícitos, 2) Oportunidades en riesgo (por inactividad o antigüedad), 3) Tres recomendaciones accionables. No inventes datos que no estén en la entrada; indica la incertidumbre.`,
       messages: [{ role: 'user', content: `Fecha de hoy: ${deps.now().toISOString().slice(0, 10)}. Moneda: ${snapshot.currency}.\nKPIs: ${JSON.stringify(snapshot.kpis)}\nOportunidades (stage, amount, probability, expected_close, age_days, idle_days):\n${JSON.stringify(snapshot.deals)}` }],
       maxTokens: 6000,
     });
@@ -494,7 +494,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
   app.post('/ai/query', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
     const a = requireWorkspace(req, 'viewer');
     requireUserSession(req);
-    const { question } = z.object({ question: z.string().trim().min(4, 'Escribe una pregunta un poco más concreta').max(500) }).parse(req.body);
+    const { question } = z.object({ question: z.string().trim().min(4, msg('Escribe una pregunta un poco más concreta')).max(500) }).parse(req.body);
     const ctx = await deps.db.tenant(a.workspaceId, async (q) => {
       const ws = await loadWorkspace(q, a.workspaceId);
       return { ws, modules: readableModules(ws.blueprint, a.role) };
@@ -504,7 +504,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     const messages: ChatMessage[] = [
       { role: 'user', content: `Hoy es ${deps.now().toISOString().slice(0, 10)} (zona ${ctx.ws.settings.timezone}, moneda ${ctx.ws.settings.currency}).\nESTRUCTURA (módulo: campos):\n${describeModules(ctx.modules)}\n\nPREGUNTA:\n${question}` },
     ];
-    const base = { task: 'sql_generation' as const, system: QUERY_SYSTEM, userId: a.userId, ref: 'ai_query', maxTokens: 2000 };
+    const base = { task: 'sql_generation' as const, system: querySystem(), userId: a.userId, ref: 'ai_query', maxTokens: 2000 };
     let res = await deps.ai.runJson(a.workspaceId, { ...base, messages }, AiQuerySchema, 1);
     let built = toWidget(readableBp, res.value);
     if (!built.widget) {
@@ -513,7 +513,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       res = await deps.ai.runJson(a.workspaceId, { ...base, messages, target: { provider: res.result.provider, model: res.result.model } }, AiQuerySchema, 1);
       built = toWidget(readableBp, res.value);
     }
-    if (!built.widget) throw unprocessable(`No he podido convertir la pregunta en una consulta válida: ${built.problems.slice(0, 3).join('; ')}`);
+    if (!built.widget) throw unprocessable(t('No he podido convertir la pregunta en una consulta válida: {problems}', { problems: built.problems.slice(0, 3).join('; ') }));
     const widget = built.widget;
     const data = await deps.db.tenant(a.workspaceId, async (q) => {
       const ws = await loadWorkspace(q, a.workspaceId);
@@ -530,9 +530,9 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     requireUserSession(req);
     const ctx = await withWs(req, 'member', async (q, ws, auth) => {
       const mod = moduleFor(ws, auth, module);
-      if (!hasRole(auth.role, mod.permissions.update)) throw forbidden(`Tu rol no puede modificar ${mod.labelPlural}`);
+      if (!hasRole(auth.role, mod.permissions.update)) throw forbidden(t('Tu rol no puede modificar {module}', { module: mod.labelPlural }));
       const fields = classifiableFields(mod);
-      if (!fields.length) throw badRequest(`${mod.labelPlural} no tiene campos de selección que clasificar`);
+      if (!fields.length) throw badRequest(t('{module} no tiene campos de selección que clasificar', { module: mod.labelPlural }));
       const svc = makeRecordService(q, ws, actorFrom(auth));
       const rec = await svc.ctx.store.get(id);
       if (!rec || rec.moduleKey !== mod.key) throw notFound('Registro no encontrado');
@@ -560,7 +560,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       a.workspaceId,
       {
         task: 'customer_classification',
-        system: CLASSIFY_SYSTEM,
+        system: classifySystem(),
         userId: a.userId,
         ref: id,
         maxTokens: 3000,
@@ -598,7 +598,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     let truncated = false;
     // El contenido se lee después de comprobar tipo y tamaño: no se descarga del bucket lo que se va a rechazar.
     if (doc.mime === 'application/pdf') {
-      if (doc.size > MAX_PDF_BYTES) throw badRequest(`El PDF supera los ${Math.round(MAX_PDF_BYTES / 1048576)} MB que se pueden analizar`);
+      if (doc.size > MAX_PDF_BYTES) throw badRequest(t('El PDF supera los {mb} MB que se pueden analizar', { mb: Math.round(MAX_PDF_BYTES / 1048576) }));
       attachment = { kind: 'pdf', name: doc.name, data: (await readFileContent(doc.file)).toString('base64') };
     } else if (TEXT_MIMES.has(doc.mime)) {
       let text = (await readFileContent(doc.file)).toString('utf8');
@@ -614,7 +614,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       a.workspaceId,
       {
         task: 'document_analysis',
-        system: DOCUMENT_SYSTEM,
+        system: documentSystem(),
         userId: a.userId,
         ref: id,
         maxTokens: 6000,

@@ -1,4 +1,5 @@
 import { daysBetween, localDate, DEFAULT_TZ } from './time';
+import { t } from './i18n';
 
 /**
  * Lenguaje de fórmulas seguro (sin eval ni acceso a nada fuera del registro).
@@ -38,7 +39,7 @@ function tokenize(src: string): Tok[] {
       let j = i;
       while (j < src.length && /[0-9.]/.test(src[j])) j++;
       const num = src.slice(i, j);
-      if (!/^\d*\.?\d+$|^\d+\.?\d*$/.test(num)) throw new FormulaError(`Número inválido "${num}"`);
+      if (!/^\d*\.?\d+$|^\d+\.?\d*$/.test(num)) throw new FormulaError(t('Número inválido "{value}"', { value: num }));
       out.push({ k: 'num', v: num });
       i = j;
     } else if (c === '"' || c === "'") {
@@ -50,15 +51,15 @@ function tokenize(src: string): Tok[] {
           j += 2;
         } else s += src[j++];
       }
-      if (src[j] !== c) throw new FormulaError('Cadena sin cerrar');
+      if (src[j] !== c) throw new FormulaError(t('Cadena sin cerrar'));
       out.push({ k: 'str', v: s });
       i = j + 1;
     } else if (c === '{') {
       const j = src.indexOf('}', i);
-      if (j < 0) throw new FormulaError('Referencia de campo sin cerrar');
+      if (j < 0) throw new FormulaError(t('Referencia de campo sin cerrar'));
       const key = src.slice(i + 1, j).trim();
       if (!/^[a-z][a-z0-9_]{0,39}$/.test(key) && !['created_at', 'updated_at', 'last_activity_at'].includes(key)) {
-        throw new FormulaError(`Referencia de campo inválida "${key}"`);
+        throw new FormulaError(t('Referencia de campo inválida "{key}"', { key }));
       }
       out.push({ k: 'field', v: key });
       i = j + 1;
@@ -75,9 +76,9 @@ function tokenize(src: string): Tok[] {
       } else if ('+-*/%(),=<>!'.includes(c)) {
         out.push({ k: 'op', v: c });
         i++;
-      } else throw new FormulaError(`Carácter no permitido "${c}"`);
+      } else throw new FormulaError(t('Carácter no permitido "{char}"', { char: c }));
     }
-    if (out.length > MAX_TOKENS) throw new FormulaError('Fórmula demasiado larga');
+    if (out.length > MAX_TOKENS) throw new FormulaError(t('Fórmula demasiado larga'));
   }
   out.push({ k: 'eof', v: '' });
   return out;
@@ -121,20 +122,20 @@ class Parser {
     return this.toks[this.p++];
   }
   private isOp(v: string) {
-    const t = this.peek();
-    return t.k === 'op' && t.v === v;
+    const tok = this.peek();
+    return tok.k === 'op' && tok.v === v;
   }
   private isKw(v: string) {
-    const t = this.peek();
-    return t.k === 'id' && t.v.toUpperCase() === v;
+    const tok = this.peek();
+    return tok.k === 'id' && tok.v.toUpperCase() === v;
   }
   parse(): FNode {
     const n = this.or(0);
-    if (this.peek().k !== 'eof') throw new FormulaError(`Símbolo inesperado "${this.peek().v}"`);
+    if (this.peek().k !== 'eof') throw new FormulaError(t('Símbolo inesperado "{symbol}"', { symbol: this.peek().v }));
     return n;
   }
   private guard(d: number) {
-    if (d > MAX_DEPTH) throw new FormulaError('Fórmula demasiado anidada');
+    if (d > MAX_DEPTH) throw new FormulaError(t('Fórmula demasiado anidada'));
   }
   private or(d: number): FNode {
     this.guard(d);
@@ -155,10 +156,10 @@ class Parser {
   }
   private cmp(d: number): FNode {
     const l = this.add(d + 1);
-    const t = this.peek();
-    if (t.k === 'op' && ['=', '==', '!=', '<>', '>', '>=', '<', '<='].includes(t.v)) {
+    const tok = this.peek();
+    if (tok.k === 'op' && ['=', '==', '!=', '<>', '>', '>=', '<', '<='].includes(tok.v)) {
       this.next();
-      const op = t.v === '==' ? '=' : t.v === '<>' ? '!=' : t.v;
+      const op = tok.v === '==' ? '=' : tok.v === '<>' ? '!=' : tok.v;
       return { t: 'bin', op, l, r: this.add(d + 1) };
     }
     return l;
@@ -195,24 +196,24 @@ class Parser {
   }
   private primary(d: number): FNode {
     this.guard(d);
-    const t = this.next();
-    if (t.k === 'num') return { t: 'num', v: Number(t.v) };
-    if (t.k === 'str') return { t: 'str', v: t.v };
-    if (t.k === 'field') return { t: 'field', key: t.v };
-    if (t.k === 'op' && t.v === '(') {
+    const tok = this.next();
+    if (tok.k === 'num') return { t: 'num', v: Number(tok.v) };
+    if (tok.k === 'str') return { t: 'str', v: tok.v };
+    if (tok.k === 'field') return { t: 'field', key: tok.v };
+    if (tok.k === 'op' && tok.v === '(') {
       const e = this.or(d + 1);
-      if (!this.isOp(')')) throw new FormulaError('Falta ")"');
+      if (!this.isOp(')')) throw new FormulaError(t('Falta ")"'));
       this.next();
       return e;
     }
-    if (t.k === 'id') {
-      const up = t.v.toUpperCase();
+    if (tok.k === 'id') {
+      const up = tok.v.toUpperCase();
       if (up === 'TRUE') return { t: 'bool', v: true };
       if (up === 'FALSE') return { t: 'bool', v: false };
       if (up === 'NULL') return { t: 'null' };
       const spec = FORMULA_FUNCTIONS[up];
-      if (!spec) throw new FormulaError(`Función desconocida "${t.v}"`);
-      if (!this.isOp('(')) throw new FormulaError(`Falta "(" tras ${up}`);
+      if (!spec) throw new FormulaError(t('Función desconocida "{name}"', { name: tok.v }));
+      if (!this.isOp('(')) throw new FormulaError(t('Falta "(" tras {name}', { name: up }));
       this.next();
       const args: FNode[] = [];
       if (!this.isOp(')')) {
@@ -222,22 +223,22 @@ class Parser {
           args.push(this.or(d + 1));
         }
       }
-      if (!this.isOp(')')) throw new FormulaError(`Falta ")" en ${up}`);
+      if (!this.isOp(')')) throw new FormulaError(t('Falta ")" en {name}', { name: up }));
       this.next();
       if (args.length < spec.min || args.length > spec.max) {
-        throw new FormulaError(`${up} espera entre ${spec.min} y ${spec.max} argumentos`);
+        throw new FormulaError(t('{name} espera entre {min} y {max} argumentos', { name: up, min: spec.min, max: spec.max }));
       }
       if (spec.related && args.some((a) => a.t !== 'str')) {
-        throw new FormulaError(`${up} requiere nombres de módulo y campo entre comillas`);
+        throw new FormulaError(t('{name} requiere nombres de módulo y campo entre comillas', { name: up }));
       }
       return { t: 'call', name: up, args };
     }
-    throw new FormulaError(`Símbolo inesperado "${t.v || 'fin de fórmula'}"`);
+    throw new FormulaError(t('Símbolo inesperado "{symbol}"', { symbol: tok.v || t('fin de fórmula') }));
   }
 }
 
 export function parseFormula(expression: string): FNode {
-  if (expression.length > 1000) throw new FormulaError('Fórmula demasiado larga');
+  if (expression.length > 1000) throw new FormulaError(t('Fórmula demasiado larga'));
   return new Parser(tokenize(expression)).parse();
 }
 

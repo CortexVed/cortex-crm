@@ -1,6 +1,7 @@
 import { findModule, type Blueprint } from '../../../shared/blueprint';
 import { recordTitle } from '../../../shared/records';
 import type { Queryable } from '../db/db';
+import { t } from '../i18n';
 import type { StoredRecord } from './store';
 
 export interface Refs {
@@ -33,7 +34,7 @@ export async function resolveRefs(q: Queryable, workspaceId: string, bp: Bluepri
     for (const row of r.rows) {
       const mod = findModule(bp, row.module_key);
       // Sin permiso de lectura sobre el módulo relacionado no se revela el título.
-      refs.records[row.id] = { title: !canRead(row.module_key) ? 'Registro restringido' : mod ? recordTitle(mod, row.data) : 'Registro', module: row.module_key };
+      refs.records[row.id] = { title: !canRead(row.module_key) ? t('Registro restringido') : mod ? recordTitle(mod, row.data) : t('Registro'), module: row.module_key };
     }
   }
   if (userIds.size) {

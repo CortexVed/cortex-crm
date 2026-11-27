@@ -8,6 +8,10 @@ import type { SideEffects } from './effects';
 import type { RecordStore, StoredRecord } from './store';
 import { dispatchRecordEvent } from './automations';
 import { newAutomationBudget, type AutomationBudget } from './budget';
+import { inSentence, msg, t } from '../i18n';
+
+/** Código de un problema de validación de registros (además del mensaje), para reconocerlo sin comparar textos. */
+export type RecordIssueCode = 'duplicate';
 
 export interface Actor {
   type: 'user' | 'api' | 'automation' | 'system' | 'ai';
@@ -69,14 +73,21 @@ export class RecordService {
 
   module(key: string): Module {
     const mod = findModule(this.ctx.blueprint, key);
-    if (!mod || mod.archived) throw notFound(`Módulo "${key}" no encontrado`);
+    if (!mod || mod.archived) throw notFound(t('Módulo "{key}" no encontrado', { key }));
     return mod;
   }
 
   private can(mod: Module, action: 'read' | 'create' | 'update' | 'delete') {
     if (this.ctx.trusted || this.ctx.actor.type === 'system' || this.ctx.actor.type === 'automation') return;
     if (!hasRole(this.ctx.actor.role, mod.permissions[action])) {
-      throw forbidden(`Tu rol no permite ${{ read: 'ver', create: 'crear', update: 'editar', delete: 'eliminar' }[action]} ${mod.labelPlural.toLowerCase()}`);
+      const label = inSentence(mod.labelPlural);
+      const denied = {
+        read: () => t('Tu rol no permite ver {module}', { module: label }),
+        create: () => t('Tu rol no permite crear {module}', { module: label }),
+        update: () => t('Tu rol no permite editar {module}', { module: label }),
+        delete: () => t('Tu rol no permite eliminar {module}', { module: label }),
+      };
+      throw forbidden(denied[action]());
     }
   }
 
@@ -89,7 +100,9 @@ export class RecordService {
   }
 
   private async checkReferences(mod: Module, data: Record<string, unknown>, excludeId?: string) {
-    const issues: { field: string; message: string }[] = [];
+    // Los mensajes son claves del catálogo (el manejador de errores los traduce); `code` identifica el problema
+    // sin depender del texto (p. ej. los formularios públicos aceptan en silencio los duplicados).
+    const issues: { field: string; message: string; code?: RecordIssueCode }[] = [];
     for (const [key, value] of Object.entries(data)) {
       if (value === null || value === undefined) continue;
       const f = mod.fields.find((x) => x.key === key)!;
@@ -98,15 +111,15 @@ export class RecordService {
         // (ni se enlaza a registros restringidos ni se revela si existen).
         const target = findModule(this.ctx.blueprint, f.relation.module);
         const canReadTarget = !this.untrustedActor || (!!target && hasRole(this.ctx.actor.role, target.permissions.read));
-        if (!canReadTarget || !(await this.ctx.store.existsInModule(f.relation.module, value as string))) issues.push({ field: key, message: 'El registro relacionado no existe' });
+        if (!canReadTarget || !(await this.ctx.store.existsInModule(f.relation.module, value as string))) issues.push({ field: key, message: msg('El registro relacionado no existe') });
       } else if (f.type === 'user') {
-        if (!(await this.ctx.store.isMember(value as string))) issues.push({ field: key, message: 'El usuario no pertenece a la organización' });
+        if (!(await this.ctx.store.isMember(value as string))) issues.push({ field: key, message: msg('El usuario no pertenece a la organización') });
       } else if (f.type === 'file') {
         const actorId = this.ctx.actor.type === 'user' ? this.ctx.actor.id : null;
-        if (!(await this.ctx.store.filesExist(value as string[], { recordId: excludeId, actorId }))) issues.push({ field: key, message: 'Algún archivo no existe o pertenece a otro registro' });
+        if (!(await this.ctx.store.filesExist(value as string[], { recordId: excludeId, actorId }))) issues.push({ field: key, message: msg('Algún archivo no existe o pertenece a otro registro') });
       }
       if (f.unique && !(await this.ctx.store.isUnique(mod.key, key, value, excludeId))) {
-        issues.push({ field: key, message: 'Ya existe un registro con este valor' });
+        issues.push({ field: key, message: msg('Ya existe un registro con este valor'), code: 'duplicate' });
       }
     }
     if (issues.length) throw unprocessable('Datos no válidos', { fields: issues });

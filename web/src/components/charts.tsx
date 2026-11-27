@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { CHART_SEQUENCE, HEX } from '../lib/colors';
 import { formatValue } from '../lib/format';
+import { t } from '../lib/i18n';
 import type { SeriesPoint } from '../lib/types';
 import type { Color } from '../../../shared/constants';
 import { cx } from './ui';
@@ -21,14 +22,14 @@ function Tooltip({ point, format, currency }: { point: SeriesPoint | null; forma
 
 export function BarChart({ points, format = 'number', currency, height = 180 }: { points: SeriesPoint[]; format?: Fmt; currency?: string; height?: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">Sin datos todavía</div>;
+  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">{t('Sin datos todavía')}</div>;
   const max = Math.max(...points.map((p) => p.value), 1);
   const allZero = points.every((p) => p.value === 0);
   return (
     <div>
       <Tooltip point={hover !== null ? points[hover] : null} format={format} currency={currency} />
       <div className="relative flex items-end gap-1.5" style={{ height }} onMouseLeave={() => setHover(null)}>
-        {allZero && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Sin valores en este periodo</div>}
+        {allZero && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400">{t('Sin valores en este periodo')}</div>}
         {points.map((p, i) => (
           <div key={p.key + i} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end" onMouseEnter={() => setHover(i)}>
             {/* Los valores cero se dibujan como una marca neutra (no con el color de la serie). */}
@@ -57,7 +58,7 @@ export function LineChart({ points, format = 'number', currency, height = 170 }:
   // Un id por gráfico: con varios en la misma página compartían «evolve-area», y si el primero estaba oculto el
   // degradado de los demás no se pintaba.
   const gradientId = `area-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
-  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">Sin datos todavía</div>;
+  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">{t('Sin datos todavía')}</div>;
   const W = 600;
   const H = 200;
   const pad = 8;
@@ -97,7 +98,7 @@ export function LineChart({ points, format = 'number', currency, height = 170 }:
 export function DonutChart({ points, format = 'number', currency }: { points: SeriesPoint[]; format?: Fmt; currency?: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const total = points.reduce((a, b) => a + b.value, 0);
-  if (!total) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">Sin datos todavía</div>;
+  if (!total) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">{t('Sin datos todavía')}</div>;
   const R = 42;
   const C = 2 * Math.PI * R;
   let acc = 0;
@@ -136,7 +137,7 @@ export function DonutChart({ points, format = 'number', currency }: { points: Se
 
 export function FunnelChart({ points, format = 'number', currency }: { points: SeriesPoint[]; format?: Fmt; currency?: string }) {
   const max = Math.max(...points.map((p) => p.value), 1);
-  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">Sin datos todavía</div>;
+  if (!points.length) return <div className="flex h-40 items-center justify-center text-sm text-zinc-400">{t('Sin datos todavía')}</div>;
   return (
     <div className="space-y-2">
       {points.map((p, i) => (

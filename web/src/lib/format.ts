@@ -1,18 +1,27 @@
-const nf = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 });
+import { getIntlTag, t } from './i18n';
+
+// Fechas y números con el formato del idioma activo (o de la región de la organización, si es de la misma lengua).
+const nfCache = new Map<string, Intl.NumberFormat>();
+const nf = () => {
+  const tag = getIntlTag();
+  let f = nfCache.get(tag);
+  if (!f) nfCache.set(tag, (f = new Intl.NumberFormat(tag, { maximumFractionDigits: 2 })));
+  return f;
+};
 
 export function formatNumber(n: number | null | undefined, opts: Intl.NumberFormatOptions = {}): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return Object.keys(opts).length ? new Intl.NumberFormat('es-ES', opts).format(n) : nf.format(n);
+  return Object.keys(opts).length ? new Intl.NumberFormat(getIntlTag(), opts).format(n) : nf().format(n);
 }
 
 export function formatCurrency(n: number | null | undefined, currency = 'EUR', compact = false): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency, maximumFractionDigits: compact || Math.abs(n) >= 1000 ? 0 : 2, notation: compact && Math.abs(n) >= 100_000 ? 'compact' : 'standard' }).format(n);
+  return new Intl.NumberFormat(getIntlTag(), { style: 'currency', currency, maximumFractionDigits: compact || Math.abs(n) >= 1000 ? 0 : 2, notation: compact && Math.abs(n) >= 100_000 ? 'compact' : 'standard' }).format(n);
 }
 
 export function formatPercent(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return `${nf.format(n)} %`;
+  return new Intl.NumberFormat(getIntlTag(), { style: 'percent', maximumFractionDigits: 2 }).format(n / 100);
 }
 
 export function formatValue(n: number, format: 'currency' | 'number' | 'percent', currency?: string, compact = false) {
@@ -25,15 +34,15 @@ export function formatDate(v: string | null | undefined, withTime = false): stri
   if (!v) return '—';
   const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(v + 'T12:00:00') : new Date(v);
   if (Number.isNaN(d.getTime())) return v;
-  return d.toLocaleDateString('es-ES', withTime ? { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(getIntlTag(), withTime ? { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export function relativeTime(v: string | null | undefined): string {
   if (!v) return '—';
   const diff = (Date.now() - new Date(v).getTime()) / 1000;
-  const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(getIntlTag(), { numeric: 'auto' });
   const abs = Math.abs(diff);
-  if (abs < 60) return 'ahora mismo';
+  if (abs < 60) return t('ahora mismo');
   if (abs < 3600) return rtf.format(-Math.round(diff / 60), 'minute');
   if (abs < 86400) return rtf.format(-Math.round(diff / 3600), 'hour');
   if (abs < 86400 * 30) return rtf.format(-Math.round(diff / 86400), 'day');

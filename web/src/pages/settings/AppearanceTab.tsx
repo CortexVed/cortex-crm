@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, History, LayoutTemplate, Palette, RotateCcw, Send, ShieldCheck, Wand2 } from 'lucide-react';
 import { errorMessage, post } from '../../lib/api';
 import { useBlueprint } from '../../lib/hooks';
+import { getIntlTag, msg, t, tk, tp } from '../../lib/i18n';
 import { FONT_STACKS, resolveAppearance } from '../../lib/theme';
 import type { Appearance, AppearancePatch } from '../../lib/types';
 import {
@@ -30,10 +31,11 @@ import { FieldGroup, Segmented } from './ai/shared';
 /** Colores de partida habituales (el primero es el de Cortex CRM). */
 const SWATCHES = ['#6938ef', '#2563eb', '#0a7f6b', '#059669', '#0891b2', '#e11d48', '#ea580c', '#ca8a04', '#334155', '#111827'];
 
+// Marcados con msg(): se traducen al mostrarlos, con tk().
 const EXAMPLES = [
-  'Agrupa el menú en «Comercial» (empresas, contactos y oportunidades) y «Operaciones» (tareas y actividades).',
-  'Crea una página de inicio para ventas con KPIs del pipeline y la lista de oportunidades abiertas.',
-  'Pon el menú lateral oscuro y usa una tipografía con bordes más redondeados.',
+  msg('Agrupa el menú en «Comercial» (empresas, contactos y oportunidades) y «Operaciones» (tareas y actividades).'),
+  msg('Crea una página de inicio para ventas con KPIs del pipeline y la lista de oportunidades abiertas.'),
+  msg('Pon el menú lateral oscuro y usa una tipografía con bordes más redondeados.'),
 ];
 
 /** Parche mínimo entre la apariencia publicada y el borrador (null quita los campos opcionales). */
@@ -62,7 +64,7 @@ function ColorInput({ label, value, onChange, hint }: { label: string; value: st
         <input type="color" aria-label={label} value={value} onChange={(e) => onChange(e.target.value.toLowerCase())} className="h-9 w-12 shrink-0 cursor-pointer rounded-lg border-0 bg-transparent p-0" />
         <Input
           value={text}
-          aria-label={`${label} (hexadecimal)`}
+          aria-label={t('{label} (hexadecimal)', { label })}
           className="w-32 font-mono"
           maxLength={7}
           invalid={!HEX_COLOR_RE.test(text)}
@@ -102,13 +104,13 @@ export default function AppearanceTab() {
     mutationFn: () =>
       post<{ id: string }>('/evolve/requests/manual', {
         changeSet: {
-          title: 'Apariencia del CRM',
-          summary: `Cambia la apariencia del CRM desde Ajustes › Apariencia (${Object.keys(patch).length} ajuste(s)).`,
+          title: t('Apariencia del CRM'),
+          summary: tp(Object.keys(patch).length, 'Cambia la apariencia del CRM desde Ajustes › Apariencia ({count} ajuste).', 'Cambia la apariencia del CRM desde Ajustes › Apariencia ({count} ajustes).'),
           operations: [{ op: 'update_appearance', changes: patch }],
         },
       }),
     onSuccess: (r) => {
-      toast('Cambio enviado: se prueba en el sandbox y queda pendiente de aprobación');
+      toast(t('Cambio enviado: se prueba en el sandbox y queda pendiente de aprobación'));
       navigate(`/evolve/requests/${r.id}`);
     },
     onError: (e) => toast(errorMessage(e), 'error'),
@@ -136,11 +138,11 @@ export default function AppearanceTab() {
               <Palette className="size-5" />
             </span>
             <div>
-              <h2 className="text-base font-semibold tracking-tight">Apariencia de tu CRM</h2>
-              <p className="mt-0.5 max-w-2xl text-sm text-zinc-500">Colores, tipografía, bordes, densidad y menú lateral de tu organización. Al publicar se crea un cambio que se prueba, se aprueba y queda como una versión nueva que puedes revertir.</p>
+              <h2 className="text-base font-semibold tracking-tight">{t('Apariencia de tu CRM')}</h2>
+              <p className="mt-0.5 max-w-2xl text-sm text-zinc-500">{t('Colores, tipografía, bordes, densidad y menú lateral de tu organización. Al publicar se crea un cambio que se prueba, se aprueba y queda como una versión nueva que puedes revertir.')}</p>
             </div>
           </div>
-          <Badge color="slate">Versión actual v{bp.data.version}</Badge>
+          <Badge color="slate">{t('Versión actual v{version}', { version: bp.data.version })}</Badge>
         </div>
       </div>
 
@@ -148,67 +150,67 @@ export default function AppearanceTab() {
       <div className="@container">
         <div className="grid items-start gap-5 @5xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
           <div className="min-w-0 space-y-5">
-            <Card title="Marca" description="El color principal se usa en botones, enlaces y selección; la paleta completa se calcula a partir de él.">
+            <Card title={t('Marca')} description={t('El color principal se usa en botones, enlaces y selección; la paleta completa se calcula a partir de él.')}>
               <div className="space-y-4">
                 <ColorInput
-                  label="Color principal"
+                  label={t('Color principal')}
                   value={draft.brandColor}
                   onChange={(v) => set('brandColor', v)}
-                  hint={contrast < 3 ? undefined : `Contraste con texto blanco: ${contrast.toFixed(1)}:1`}
+                  hint={contrast < 3 ? undefined : t('Contraste con texto blanco: {ratio}:1', { ratio: contrast.toFixed(1) })}
                 />
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Colores sugeridos">
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('Colores sugeridos')}>
                   {SWATCHES.map((c) => (
-                    <button key={c} type="button" title={c} aria-label={`Usar ${c}`} onClick={() => set('brandColor', c)} className={cx('size-6 rounded-full ring-2 ring-offset-2 ring-offset-white transition dark:ring-offset-zinc-900', draft.brandColor === c ? 'ring-zinc-900 dark:ring-white' : 'ring-transparent hover:ring-zinc-300')} style={{ background: c }} />
+                    <button key={c} type="button" title={c} aria-label={t('Usar {color}', { color: c })} onClick={() => set('brandColor', c)} className={cx('size-6 rounded-full ring-2 ring-offset-2 ring-offset-white transition dark:ring-offset-zinc-900', draft.brandColor === c ? 'ring-zinc-900 dark:ring-white' : 'ring-transparent hover:ring-zinc-300')} style={{ background: c }} />
                   ))}
                 </div>
                 {contrast < 3 && (
-                  <Alert tone="warning" title="Poco contraste">
-                    El texto blanco sobre {draft.brandColor} tiene un contraste de {contrast.toFixed(1)}:1: los botones principales pueden leerse mal. Prueba un tono más oscuro.
+                  <Alert tone="warning" title={t('Poco contraste')}>
+                    {t('El texto blanco sobre {color} tiene un contraste de {ratio}:1: los botones principales pueden leerse mal. Prueba un tono más oscuro.', { color: draft.brandColor, ratio: contrast.toFixed(1) })}
                   </Alert>
                 )}
                 <div className="flex flex-wrap items-end gap-4">
-                  <Toggle checked={!!draft.accentColor} onChange={(on) => set('accentColor', on ? '#d946ef' : undefined)} label="Color de acento propio" />
-                  {draft.accentColor && <ColorInput label="Color de acento" value={draft.accentColor} onChange={(v) => set('accentColor', v)} hint="Avisos y degradados (logotipo y botones de IA)." />}
+                  <Toggle checked={!!draft.accentColor} onChange={(on) => set('accentColor', on ? '#d946ef' : undefined)} label={t('Color de acento propio')} />
+                  {draft.accentColor && <ColorInput label={t('Color de acento')} value={draft.accentColor} onChange={(v) => set('accentColor', v)} hint={t('Avisos y degradados (logotipo y botones de IA).')} />}
                 </div>
-                <Field label="Nombre de la aplicación" hint="Sustituye a «Cortex CRM» en el menú lateral y en la pestaña del navegador (máximo 40 caracteres).">
+                <Field label={t('Nombre de la aplicación')} hint={t('Sustituye a «Cortex CRM» en el menú lateral y en la pestaña del navegador (máximo 40 caracteres).')}>
                   <Input value={draft.appName ?? ''} maxLength={40} placeholder="Cortex CRM" onChange={(e) => set('appName', e.target.value || undefined)} />
                 </Field>
               </div>
             </Card>
 
-            <Card title="Tipografía y forma">
+            <Card title={t('Tipografía y forma')}>
               <div className="space-y-4">
-                <FieldGroup label="Tipografía" hint="Fuentes incluidas o del sistema: no se descarga nada de fuera.">
-                  <Segmented size="sm" value={draft.font} onChange={(v) => set('font', v)} options={APPEARANCE_FONTS.map((f) => ({ key: f, label: <span style={{ fontFamily: FONT_STACKS[f] }}>{FONT_LABELS[f]}</span> }))} />
+                <FieldGroup label={t('Tipografía')} hint={t('Fuentes incluidas o del sistema: no se descarga nada de fuera.')}>
+                  <Segmented size="sm" value={draft.font} onChange={(v) => set('font', v)} options={APPEARANCE_FONTS.map((f) => ({ key: f, label: <span style={{ fontFamily: FONT_STACKS[f] }}>{tk(FONT_LABELS[f])}</span> }))} />
                 </FieldGroup>
-                <FieldGroup label="Bordes">
-                  <Segmented size="sm" value={draft.radius} onChange={(v) => set('radius', v)} options={APPEARANCE_RADII.map((r) => ({ key: r, label: RADIUS_LABELS[r] }))} />
+                <FieldGroup label={t('Bordes')}>
+                  <Segmented size="sm" value={draft.radius} onChange={(v) => set('radius', v)} options={APPEARANCE_RADII.map((r) => ({ key: r, label: tk(RADIUS_LABELS[r]) }))} />
                 </FieldGroup>
-                <FieldGroup label="Densidad" hint="Escala los espacios y la altura de los controles.">
-                  <Segmented size="sm" value={draft.density} onChange={(v) => set('density', v)} options={APPEARANCE_DENSITIES.map((d) => ({ key: d, label: DENSITY_LABELS[d] }))} />
+                <FieldGroup label={t('Densidad')} hint={t('Escala los espacios y la altura de los controles.')}>
+                  <Segmented size="sm" value={draft.density} onChange={(v) => set('density', v)} options={APPEARANCE_DENSITIES.map((d) => ({ key: d, label: tk(DENSITY_LABELS[d]) }))} />
                 </FieldGroup>
               </div>
             </Card>
 
-            <Card title="Menú lateral y tema">
+            <Card title={t('Menú lateral y tema')}>
               <div className="space-y-4">
-                <FieldGroup label="Menú lateral">
-                  <Segmented size="sm" value={draft.sidebar} onChange={(v) => set('sidebar', v)} options={SIDEBAR_STYLES.map((s) => ({ key: s, label: SIDEBAR_LABELS[s] }))} />
+                <FieldGroup label={t('Menú lateral')}>
+                  <Segmented size="sm" value={draft.sidebar} onChange={(v) => set('sidebar', v)} options={SIDEBAR_STYLES.map((s) => ({ key: s, label: tk(SIDEBAR_LABELS[s]) }))} />
                 </FieldGroup>
-                <FieldGroup label="Tema por defecto" hint="Solo para quien no ha elegido un tema: la elección de cada persona siempre manda.">
-                  <Segmented size="sm" value={draft.defaultTheme} onChange={(v) => set('defaultTheme', v)} options={THEME_MODES.map((t) => ({ key: t, label: THEME_LABELS[t] }))} />
+                <FieldGroup label={t('Tema por defecto')} hint={t('Solo para quien no ha elegido un tema: la elección de cada persona siempre manda.')}>
+                  <Segmented size="sm" value={draft.defaultTheme} onChange={(v) => set('defaultTheme', v)} options={THEME_MODES.map((mode) => ({ key: mode, label: tk(THEME_LABELS[mode]) }))} />
                 </FieldGroup>
               </div>
             </Card>
 
-            <Card title="CSS personalizado (avanzado)" description="Para ajustes que no cubren las opciones anteriores. Es de riesgo medio: lo aprueba un administrador.">
-              <Textarea rows={8} spellCheck={false} className="font-mono text-xs" value={css} maxLength={MAX_CUSTOM_CSS} placeholder={'.mi-clase {\n  letter-spacing: 0.01em;\n}'} onChange={(e) => set('customCss', e.target.value || undefined)} invalid={!!cssCheck && !cssCheck.ok} />
+            <Card title={t('CSS personalizado (avanzado)')} description={t('Para ajustes que no cubren las opciones anteriores. Es de riesgo medio: lo aprueba un administrador.')}>
+              <Textarea rows={8} spellCheck={false} className="font-mono text-xs" value={css} maxLength={MAX_CUSTOM_CSS} placeholder={t('.mi-clase {\n  letter-spacing: 0.01em;\n}')} onChange={(e) => set('customCss', e.target.value || undefined)} invalid={!!cssCheck && !cssCheck.ok} />
               <div className="mt-1 flex justify-between text-[11px] text-zinc-400">
-                <span>{css.length.toLocaleString('es-ES')} / {MAX_CUSTOM_CSS.toLocaleString('es-ES')} caracteres</span>
-                {cssCheck?.ok && <span className="text-emerald-600 dark:text-emerald-400">CSS válido</span>}
+                <span>{t('{count} / {max} caracteres', { count: css.length.toLocaleString(getIntlTag()), max: MAX_CUSTOM_CSS.toLocaleString(getIntlTag()) })}</span>
+                {cssCheck?.ok && <span className="text-emerald-600 dark:text-emerald-400">{t('CSS válido')}</span>}
               </div>
               {cssCheck && !cssCheck.ok && (
-                <Alert tone="danger" title="Este CSS no se puede publicar" className="mt-2">
+                <Alert tone="danger" title={t('Este CSS no se puede publicar')} className="mt-2">
                   <ul className="list-disc pl-5">
                     {cssCheck.errors.map((e) => (
                       <li key={e}>{e}</li>
@@ -218,44 +220,45 @@ export default function AppearanceTab() {
               )}
               <p className="mt-2 flex gap-1.5 text-xs text-zinc-500">
                 <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
-                Solo CSS plano: sin @import, url(), expression(), javascript:, HTML ni secuencias de escape, así que no puede cargar nada de fuera. Nunca se aplica en EVOLVE, Ajustes ni Plataforma, para que no pueda ocultar o falsear aprobaciones, versiones ni este editor. Tampoco se aplica en la vista previa.
+                {t('Solo CSS plano: sin @import, url(), expression(), javascript:, HTML ni secuencias de escape, así que no puede cargar nada de fuera. Nunca se aplica en EVOLVE, Ajustes ni Plataforma, para que no pueda ocultar o falsear aprobaciones, versiones ni este editor. Tampoco se aplica en la vista previa.')}
               </p>
             </Card>
           </div>
 
           <div className="order-first min-w-0 space-y-5 @5xl:order-none @5xl:sticky @5xl:top-4">
-            <Card title="Vista previa en directo" description="Así se verá tu CRM con estos ajustes (datos de ejemplo).">
+            <Card title={t('Vista previa en directo')} description={t('Así se verá tu CRM con estos ajustes (datos de ejemplo).')}>
               <AppearancePreview appearance={draft} blueprint={blueprint} />
             </Card>
             <Card>
               <div className="space-y-3">
                 {changed ? (
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {Object.keys(patch).length} ajuste(s) sin publicar. Se creará un cambio que se prueba en el sandbox y espera la aprobación de un administrador.
+                    {tp(Object.keys(patch).length, '{count} ajuste sin publicar.', '{count} ajustes sin publicar.')} {t('Se creará un cambio que se prueba en el sandbox y espera la aprobación de un administrador.')}
                   </p>
                 ) : (
-                  <p className="text-sm text-zinc-500">No hay cambios respecto a la versión publicada.</p>
+                  <p className="text-sm text-zinc-500">{t('No hay cambios respecto a la versión publicada.')}</p>
                 )}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="primary" icon={<Send className="size-4" />} disabled={!changed || (!!cssCheck && !cssCheck.ok)} loading={publish.isPending} onClick={() => publish.mutate()}>
-                    Publicar
+                    {t('Publicar')}
                   </Button>
                   <Button icon={<RotateCcw className="size-4" />} disabled={!changed} onClick={() => setDraft(resolveAppearance(published))}>
-                    Descartar
+                    {t('Descartar')}
                   </Button>
                   <Button variant="ghost" onClick={() => setDraft(resolveAppearance(null))}>
-                    Valores por defecto
+                    {t('Valores por defecto')}
                   </Button>
                 </div>
                 <p className="flex items-center gap-1.5 text-xs text-zinc-500">
-                  <History className="size-3.5" /> Cada publicación es una versión nueva: si algo no te convence, puedes revertirla desde EVOLVE › Versiones.
+                  <History className="size-3.5" /> {t('Cada publicación es una versión nueva: si algo no te convence, puedes revertirla desde EVOLVE › Versiones.')}
                 </p>
               </div>
             </Card>
-            <Card title={<span className="flex items-center gap-2"><LayoutTemplate className="size-4 text-brand-500" /> Menú y páginas</span>} description="El menú agrupado, la página de inicio y las pantallas propias se piden a EVOLVE AI ENGINE en lenguaje natural.">
+            <Card title={<span className="flex items-center gap-2"><LayoutTemplate className="size-4 text-brand-500" /> {t('Menú y páginas')}</span>} description={t('El menú agrupado, la página de inicio y las pantallas propias se piden a EVOLVE AI ENGINE en lenguaje natural.')}>
               <div className="space-y-3">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {groups.length ? `Menú en ${groups.length} grupo(s): ${groups.map((g) => g.label).join(', ')}.` : 'Menú por defecto (lista de módulos).'} {pages.length ? `${pages.length} página(s) propia(s): ${pages.map((p) => p.label).join(', ')}.` : 'Sin páginas propias.'}
+                  {groups.length ? tp(groups.length, 'Menú en {count} grupo: {groups}.', 'Menú en {count} grupos: {groups}.', { groups: groups.map((g) => g.label).join(', ') }) : t('Menú por defecto (lista de módulos).')}{' '}
+                  {pages.length ? tp(pages.length, '{count} página propia: {pages}.', '{count} páginas propias: {pages}.', { pages: pages.map((p) => p.label).join(', ') }) : t('Sin páginas propias.')}
                 </p>
                 <ul className="space-y-1.5">
                   {EXAMPLES.map((ex) => (
@@ -264,12 +267,12 @@ export default function AppearanceTab() {
                         type="button"
                         className="group flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                         onClick={() => {
-                          sessionStorage.setItem('evolve-prefill', ex);
+                          sessionStorage.setItem('evolve-prefill', tk(ex));
                           navigate('/evolve');
                         }}
                       >
                         <Wand2 className="mt-0.5 size-3.5 shrink-0 text-fuchsia-500" />
-                        <span className="min-w-0 flex-1">«{ex}»</span>
+                        <span className="min-w-0 flex-1">«{tk(ex)}»</span>
                         <ArrowRight className="mt-0.5 size-3.5 shrink-0 opacity-0 transition group-hover:opacity-100" />
                       </button>
                     </li>
@@ -278,7 +281,7 @@ export default function AppearanceTab() {
                 {groups.length > 0 && (
                   <p className="flex items-start gap-1.5 text-xs text-zinc-500">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                    Los módulos que no estén en ningún grupo se muestran al final del menú, en «Otros».
+                    {t('Los módulos que no estén en ningún grupo se muestran al final del menú, en «Otros».')}
                   </p>
                 )}
               </div>
