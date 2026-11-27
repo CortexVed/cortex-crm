@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cortex CRM · El CRM con IA que construye lo que le pides</title>
+    <meta name="description" content="Cortex CRM es un CRM autoalojado con IA: describe el módulo o la automatización que necesitas y lo planifica, lo prueba y lo publica cuando tú lo apruebas." />
+    <link rel="canonical" href="https://cortex-crm-web-production.up.railway.app/" />
+    <meta name="theme-color" content="#07070c" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+    <link rel="apple-touch-icon" href="/assets/icon-180.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="preload" as="image" href="/assets/screens/dashboard.webp" fetchpriority="high" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Cortex CRM" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:url" content="https://cortex-crm-web-production.up.railway.app/" />
+    <meta property="og:title" content="Cortex CRM · El CRM con IA que construye lo que le pides" />
+    <meta property="og:description" content="Describe el módulo o la automatización que necesitas. La IA lo planifica, lo prueba y lo publica cuando tú lo apruebas. Autoalojado en tu Railway." />
+    <meta property="og:image" content="https://cortex-crm-web-production.up.railway.app/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Cortex CRM: el CRM con IA que construye lo que le pides" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cortex CRM · El CRM con IA que construye lo que le pides" />
+    <meta name="twitter:description" content="Describe el módulo o la automatización que necesitas. La IA lo planifica, lo prueba y lo publica cuando tú lo apruebas." />
+    <meta name="twitter:image" content="https://cortex-crm-web-production.up.railway.app/assets/og.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Cortex CRM",
+        "applicationCategory": "BusinessApplication",
+        "applicationSubCategory": "CRM",
+        "operatingSystem": "Web",
+        "inLanguage": "es",
+        "url": "https://cortex-crm-web-production.up.railway.app/",
+        "installUrl": "https://railway.com/deploy/cortex-crm",
+        "image": "https://cortex-crm-web-production.up.railway.app/assets/og.png",
+        "screenshot": "https://cortex-crm-web-production.up.railway.app/assets/screens/dashboard.webp",
+        "description": "CRM autoalojado con IA. Describe el módulo o la automatización que necesitas y la IA lo planifica, lo prueba en un entorno aislado y lo publica cuando lo apruebas, con versiones y vuelta atrás.",
+        "featureList": [
+          "Módulos y campos a medida pedidos en lenguaje natural",
+          "Pipeline kanban, calendario, paneles e informes",
+          "Automatizaciones por evento o programadas y webhooks",
+          "Asistente de IA sobre los datos del CRM",
+          "Canales de WhatsApp, Telegram y Slack",
+          "Roles, permisos por módulo y auditoría",
+          "Versiones con verificación automática y vuelta atrás"
+        ],
+        "softwareRequirements": "Una cuenta de Railway. Opcional: la clave de un proveedor de IA (Anthropic, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter).",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "EUR",
+          "description": "Sin cuotas por usuario: pagas tu uso de Railway y, si usas la IA, el de tu proveedor."
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "¿Necesito saber programar para usar Cortex CRM?", "acceptedAnswer": { "@type": "Answer", "text": "No. Pides los cambios en lenguaje natural y los apruebas desde la interfaz. Si programas, tienes el código fuente en GitHub y un motor de código para los cambios a medida." } },
+          { "@type": "Question", "name": "¿Cuánto cuesta Cortex CRM?", "acceptedAnswer": { "@type": "Answer", "text": "No hay cuotas por usuario ni suscripción a Cortex. Pagas el uso de tu proyecto en Railway y, si activas la IA, el consumo de tu proveedor directamente." } },
+          { "@type": "Question", "name": "¿Qué inteligencia artificial usa?", "acceptedAnswer": { "@type": "Answer", "text": "La que elijas: Anthropic Claude, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto." } },
+          { "@type": "Question", "name": "¿Dónde se guardan mis datos?", "acceptedAnswer": { "@type": "Answer", "text": "En la base de datos PostgreSQL de tu propio proyecto de Railway. Las claves de los proveedores de IA se guardan cifradas y nunca se envían al navegador." } },
+          { "@type": "Question", "name": "¿Qué pasa si la IA se equivoca?", "acceptedAnswer": { "@type": "Answer", "text": "Nada se publica sin tu aprobación: antes ves el plan, las pruebas, el riesgo y el impacto. Si una versión no te convence, vuelves a la anterior." } },
+          { "@type": "Question", "name": "¿Puedo gestionar varias empresas o clientes?", "acceptedAnswer": { "@type": "Answer", "text": "Sí. Una instalación aloja varias organizaciones aisladas entre sí, y una persona puede pertenecer a varias." } },
+          { "@type": "Question", "name": "¿En qué idioma está?", "acceptedAnswer": { "@type": "Answer", "text": "La interfaz está en español." } }
+        ]
+      }
+    </script>
+    <script src="/main.js" defer></script>
+  </head>
+  <body>
+    <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /><path d="M20 3v4M22 5h-4M4 17v2M5 18H3" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
+      <symbol id="i-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" /></symbol>
+      <symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" /><path d="M9 18c-4.51 2-5-2-7-2" /></symbol>
+      <symbol id="i-blocks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="14" y="3" rx="1" /><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3" /></symbol>
+      <symbol id="i-kanban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M8 7v7M12 7v4M16 7v9" /></symbol>
+      <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2M20 14h2M15 13v2M9 13v2" /></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1" fill="currentColor" /><circle cx="17.5" cy="10.5" r="1" fill="currentColor" /><circle cx="8.5" cy="7.5" r="1" fill="currentColor" /><circle cx="6.5" cy="12.5" r="1" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></symbol>
+      <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16" /></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></symbol>
+    </svg>
+
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+    <header class="site-header" id="cabecera">
+      <nav class="container nav" aria-label="Principal">
+        <a class="brand" href="/" aria-label="Cortex CRM, inicio">
+          <img src="/assets/logo.svg" alt="" width="30" height="30" />
+          <span>Cortex <span class="gradient-text">CRM</span></span>
+        </a>
+        <ul class="nav-links" id="menu">
+          <li><a href="#como-funciona">Cómo funciona</a></li>
+          <li><a href="#funciones">Funciones</a></li>
+          <li><a href="#seguridad">Seguridad</a></li>
+          <li><a href="#arquitectura">Arquitectura</a></li>
+          <li><a href="#faq">Preguntas</a></li>
+        </ul>
+        <a class="btn btn-primary btn-sm nav-cta" href="https://railway.com/deploy/cortex-crm" rel="noopener">Desplegar en Railway</a>
+        <button class="menu-button" type="button" aria-expanded="false" aria-controls="menu" aria-label="Abrir el menú">
+          <svg aria-hidden="true"><use href="#i-menu" /></svg>
+        </button>
+      </nav>
+    </header>
+
+    <main id="contenido">
+      <section class="hero">
+        <div class="container">
+          <div class="hero-copy">
+            <span class="eyebrow"><span class="dot" aria-hidden="true"></span> CRM con IA · autoalojado en tu Railway</span>
+            <h1>El CRM que <span class="gradient-text">construye lo que le pides</span></h1>
+            <p class="lead">Cortex CRM llega con contactos, empresas, oportunidades, tareas y paneles listos para usar. Cuando necesitas algo más, lo describes con tus palabras: la IA lo planifica, lo prueba en un entorno aislado y espera tu aprobación. Cada cambio queda versionado y se puede revertir.</p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="https://railway.com/deploy/cortex-crm" rel="noopener">
+                <svg aria-hidden="true"><use href="#i-rocket" /></svg>
+                Desplegar en Railway
+              </a>
+              <a class="btn btn-ghost" href="#como-funciona">
+                Ver cómo funciona
+                <svg aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+            </div>
+            <p class="hero-note">Sin cuotas por usuario · interfaz en español · tus datos en tu propio proyecto</p>
+            <div class="prompt-bar" aria-hidden="true">
+              <span class="spark"><svg><use href="#i-sparkles" /></svg></span>
+              <span class="prompt-text" data-prompts='["Quiero un módulo de contratos con avisos 30 días antes del vencimiento","Cuando una oportunidad pase a ganada, crea una tarea de bienvenida","Añade una puntuación de clientes según compras y actividad","Usa nuestro color corporativo y agrupa el menú por departamento","Crea una página de inicio para ventas con KPIs y oportunidades"]'>Quiero un módulo de contratos con avisos 30 días antes del vencimiento</span>
+              <span class="kbd">Ctrl + Enter</span>
+            </div>
+          </div>
+          <figure class="hero-shot glow reveal">
+            <div class="frame">
+              <div class="frame-bar" aria-hidden="true"><span></span><span></span><span></span><span class="url">tu-crm.up.railway.app</span></div>
+              <img src="/assets/screens/dashboard.webp" width="2880" height="1800" alt="Panel de Cortex CRM con el pipeline abierto, lo ganado este mes, contactos, tareas y gráficos por etapa" fetchpriority="high" />
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="stack-strip" aria-label="Tecnología">
+        <div class="container">
+          <p>Construido con tecnología abierta y tu propia IA</p>
+          <ul class="chips">
+            <li>Node.js 24</li>
+            <li>TypeScript</li>
+            <li>Fastify</li>
+            <li>React 19</li>
+            <li>PostgreSQL 18</li>
+            <li>Anthropic Claude</li>
+            <li>OpenAI</li>
+            <li>Google Gemini</li>
+            <li>DeepSeek</li>
+            <li>Mistral</li>
+            <li>Groq</li>
+            <li>OpenRouter</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="como-funciona">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker">EVOLVE AI ENGINE</span>
+            <h2>Pides un cambio. Lo revisas. Se publica.</h2>
+            <p>El motor de Cortex convierte una frase en una versión nueva de tu CRM, con las garantías que le pedirías a un equipo de desarrollo: plan, pruebas, revisión y vuelta atrás.</p>
+          </div>
+          <ol class="steps">
+            <li class="step reveal">
+              <h3>Descríbelo como se lo contarías a un compañero</h3>
+              <p>Sin formularios ni configuraciones. Escribe lo que necesitas, con el detalle que quieras.</p>
+              <p class="quote">«Quiero un módulo de contratos con la fecha de vencimiento y un aviso al responsable 30 días antes.»</p>
+            </li>
+            <li class="step reveal">
+              <h3>La IA lo planifica y lo prueba</h3>
+              <p>Analiza tus módulos, datos y permisos, propone un plan y lo ejecuta en una copia aislada. Ves las pruebas, el nivel de riesgo y exactamente qué va a cambiar.</p>
+            </li>
+            <li class="step reveal">
+              <h3>Tú decides</h3>
+              <p>Al aprobarlo se publica como una versión nueva y se comprueba sola. Si algo no te convence, vuelves a la anterior. Los cambios de riesgo alto piden confirmación por escrito.</p>
+            </li>
+          </ol>
+
+          <div class="spotlight" id="evolve">
+            <div class="spotlight-copy reveal">
+              <h3>Un CRM que crece contigo, no contra ti</h3>
+              <p>Módulos nuevos, campos, vistas, automatizaciones, paneles, la navegación o tus colores corporativos: si lo puedes explicar, EVOLVE lo puede construir. Las peticiones grandes, como un sistema completo de inventario y facturación, se planifican por partes.</p>
+              <ul class="checklist">
+                <li>Hasta 2.000 módulos por organización</li>
+                <li>Revisión cruzada con un segundo modelo de IA si lo configuras</li>
+                <li>Copia de seguridad antes de cualquier cambio destructivo</li>
+              </ul>
+            </div>
+            <figure class="glow reveal">
+              <div class="frame">
+                <div class="frame-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+                <img src="/assets/screens/evolve.webp" width="2880" height="1800" loading="lazy" decoding="async" alt="Pantalla de EVOLVE AI ENGINE: un cuadro para describir el cambio, ejemplos de peticiones y la lista de peticiones publicadas" />
+              </div>
+            </figure>
+          </div>
+
+          <div class="spotlight reverse">
+            <div class="spotlight-copy reveal">
+              <h3>Revisas antes de que llegue a producción</h3>
+              <p>Cada petición muestra el plan, los pasos que ha seguido la IA, las pruebas superadas, el riesgo de cada operación y el impacto sobre tus datos y permisos. Al publicarla queda una versión nueva, verificada con consultas reales, y el historial completo para volver atrás.</p>
+              <ul class="checklist">
+                <li>Pruebas unitarias, de integración, compatibilidad y seguridad</li>
+                <li>Nada se publica sin aprobación humana</li>
+                <li>Historial de versiones con vuelta atrás</li>
+              </ul>
+            </div>
+            <figure class="glow reveal">
+              <div class="frame">
+                <div class="frame-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+                <img src="/assets/screens/release.webp" width="2880" height="1800" loading="lazy" decoding="async" alt="Detalle de un cambio publicado: plan propuesto, qué va a cambiar, riesgos, progreso de los pasos y versión v2 verificada" />
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="asistente">
+        <div class="container">
+          <div class="spotlight">
+            <div class="spotlight-copy reveal">
+              <span class="kicker">EVOLVE AI</span>
+              <h3>Pregúntale a tus datos</h3>
+              <p>El asistente sabe lo que estás viendo. Abre una ficha y pregúntale «¿qué oportunidades tenemos con este cliente?»: consulta tus datos reales, calcula, resume y te prepara los registros. Nada se escribe hasta que pulsas Confirmar.</p>
+              <ul class="checklist">
+                <li>Preguntas en lenguaje natural sobre todo el CRM</li>
+                <li>Resúmenes de fichas y análisis de documentos</li>
+                <li>Clasificación de registros con IA</li>
+                <li>Memoria de las preferencias de tu equipo</li>
+              </ul>
+            </div>
+            <figure class="glow reveal">
+              <div class="frame">
+                <div class="frame-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+                <img src="/assets/screens/assistant.webp" width="2880" height="1800" loading="lazy" decoding="async" alt="El asistente EVOLVE AI junto al pipeline: responde cuánto suma el pipeline abierto, qué cierra antes y propone una tarea que se confirma con un clic" />
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="funciones">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker">Funciones</span>
+            <h2>Un CRM completo desde el primer día</h2>
+            <p>Todo lo que esperas de un CRM, listo al desplegar. Y lo que no esté, lo pides.</p>
+          </div>
+          <ul class="features">
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-blocks" /></svg></span>
+              <h3>Módulos y campos a medida</h3>
+              <p>Relaciones, fórmulas, vistas de tabla, kanban y calendario, y formularios públicos para captar datos.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-kanban" /></svg></span>
+              <h3>Pipeline, paneles e informes</h3>
+              <p>Kanban de arrastrar y soltar, importe ponderado por probabilidad, paneles con widgets e informes listos.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-zap" /></svg></span>
+              <h3>Automatizaciones</h3>
+              <p>Reglas por evento o programadas, webhooks salientes y scripts propios en un sandbox de WebAssembly.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-bot" /></svg></span>
+              <h3>Asistente de IA</h3>
+              <p>Responde con tus datos, resume fichas, analiza documentos y prepara cambios que tú confirmas.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-chat" /></svg></span>
+              <h3>WhatsApp, Telegram y Slack</h3>
+              <p>Conecta tus canales para que los mensajes lleguen a los registros y avisar a tu equipo.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-users" /></svg></span>
+              <h3>Equipos y permisos</h3>
+              <p>Roles, permisos por módulo, registro de auditoría y claves de API para tus integraciones.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-palette" /></svg></span>
+              <h3>Con tu imagen</h3>
+              <p>Colores, tipografía, densidad, menú y páginas propias, con tema claro y oscuro.</p>
+            </li>
+            <li class="feature reveal">
+              <span class="icon"><svg aria-hidden="true"><use href="#i-code" /></svg></span>
+              <h3>Motor de código fuente</h3>
+              <p>Para lo que no cabe en la configuración: la IA cambia el código de tu instalación, lo prueba en un CI aislado y lo despliega cuando confirmas.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="para-quien">
+        <div class="container audience">
+          <div>
+            <div class="section-head reveal">
+              <span class="kicker">Para quién</span>
+              <h2>Para equipos que no encajan en un CRM de catálogo</h2>
+            </div>
+            <ul class="audience-grid">
+              <li class="reveal">
+                <h3>Agencias y consultoras</h3>
+                <p>Una organización por cliente en la misma instalación, cada una adaptada a su forma de trabajar.</p>
+              </li>
+              <li class="reveal">
+                <h3>Pymes</h3>
+                <p>Contratos, inventario, presupuestos o proyectos sin contratar un desarrollo a medida.</p>
+              </li>
+              <li class="reveal">
+                <h3>Equipos comerciales</h3>
+                <p>Pipeline, tareas y avisos que cambias pidiéndolo, sin esperar a nadie.</p>
+              </li>
+              <li class="reveal">
+                <h3>Desarrolladores</h3>
+                <p>TypeScript de punta a punta que puedes leer, alojar y ampliar, con cada cambio versionado.</p>
+              </li>
+            </ul>
+          </div>
+          <figure class="reveal">
+            <div class="phone">
+              <img src="/assets/screens/mobile.webp" width="780" height="1688" loading="lazy" decoding="async" alt="Cortex CRM en el móvil: pipeline de oportunidades con sus importes y empresas" />
+            </div>
+            <figcaption>También cómodo en el móvil.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="seguridad">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker">Seguridad y control</span>
+            <h2>La IA propone. Tú tienes la última palabra.</h2>
+            <p>Cortex está diseñado para que la IA sea útil sin poder romper nada: cada cambio pasa por pruebas, revisión y aprobación, y tus datos nunca salen de tu proyecto.</p>
+          </div>
+          <ul class="security">
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Aprobación humana</h3>
+              <p>Ningún cambio de la IA llega a producción sin que una persona con permiso lo apruebe.</p>
+            </li>
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Entorno aislado</h3>
+              <p>Los cambios se prueban en una copia antes de tocar tu configuración real.</p>
+            </li>
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Versiones y vuelta atrás</h3>
+              <p>Cada publicación es una versión. Y antes de un cambio destructivo se guarda una copia de los datos afectados.</p>
+            </li>
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Aislamiento por organización</h3>
+              <p>Row-Level Security de PostgreSQL: cada organización solo ve lo suyo, también a nivel de base de datos.</p>
+            </li>
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Claves cifradas</h3>
+              <p>Las claves de IA se guardan cifradas con AES-256-GCM y nunca llegan al navegador.</p>
+            </li>
+            <li class="reveal">
+              <h3><svg aria-hidden="true"><use href="#i-shield" /></svg> Auditoría</h3>
+              <p>Quién cambió qué y cuándo, con permisos por rol y por módulo.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="arquitectura">
+        <div class="container arch">
+          <div class="arch-copy reveal">
+            <span class="kicker">Bajo el capó</span>
+            <h2>Sencillo de operar, pensado para durar</h2>
+            <ul>
+              <li><strong>TypeScript de punta a punta:</strong> Node.js 24 con Fastify en el servidor y React 19 en la interfaz.</li>
+              <li><strong>PostgreSQL como única base de datos.</strong> También la cola de trabajos: sin Redis que mantener.</li>
+              <li><strong>Listo para producción:</strong> health checks en <code>/api/health</code> y migraciones automáticas al arrancar.</li>
+              <li><strong>Secretos generados en cada despliegue</strong> con las funciones de plantilla de Railway. No tienes que rellenar nada.</li>
+              <li><strong>Tu proveedor de IA,</strong> con un modelo por tarea y límites de gasto. Lo pagas directamente.</li>
+            </ul>
+          </div>
+          <div class="diagram reveal" role="img" aria-label="Arquitectura: el navegador habla con Cortex (web y API). Cortex y Worker usan PostgreSQL. El servicio CI prueba los cambios de código.">
+            <div class="node"><strong>Navegador</strong><span>Interfaz React · paleta de comandos</span></div>
+            <div class="arrow" aria-hidden="true">↓ HTTPS</div>
+            <div class="diagram-row">
+              <div class="node accent"><strong>Cortex</strong><span>Web + API REST</span></div>
+              <div class="arrow" aria-hidden="true">⇄</div>
+              <div class="node accent"><strong>Worker</strong><span>IA · automatizaciones · webhooks</span></div>
+            </div>
+            <div class="arrow" aria-hidden="true">↓ red privada de Railway</div>
+            <div class="diagram-row">
+              <div class="node db"><strong>PostgreSQL 18</strong><span>Datos · cola de trabajos · Row-Level Security</span></div>
+            </div>
+            <div class="node"><strong>CI</strong><span>Prueba los cambios del motor de código (sin variables ni dominio)</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="desplegar">
+        <div class="container">
+          <div class="deploy reveal">
+            <div class="deploy-grid">
+              <div>
+                <span class="kicker">Despliegue</span>
+                <h2>En marcha en unos minutos</h2>
+                <p class="sub">Una plantilla de Railway crea los cuatro servicios con todo configurado. Sin variables que rellenar ni servidores que mantener.</p>
+                <a class="btn btn-primary" href="https://railway.com/deploy/cortex-crm" rel="noopener">
+                  <svg aria-hidden="true"><use href="#i-rocket" /></svg>
+                  Desplegar en Railway
+                </a>
+                <p class="cost-note">Pagas tu uso de Railway y, si activas la IA, el consumo de tu proveedor. Nada más.</p>
+              </div>
+              <ol class="deploy-steps">
+                <li><strong>Despliega la plantilla.</strong> Se crean Postgres, Cortex, Worker y CI.</li>
+                <li><strong>Abre el dominio de Cortex y regístrate.</strong> Así nace tu primera organización.</li>
+                <li><strong>Hazte administrador:</strong> pega el token <code>PLATFORM_ADMIN_SETUP_TOKEN</code> en Ajustes › Mi cuenta.</li>
+                <li><strong>Añade tu clave de IA</strong> en Ajustes › Proveedores de IA y empieza a pedir cambios.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="faq">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker">Preguntas frecuentes</span>
+            <h2>Lo que suele preguntarse</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>¿Necesito saber programar?</summary>
+              <p>No. Pides los cambios en lenguaje natural y los apruebas desde la interfaz. Si programas, tienes el código fuente en GitHub y un motor de código para los cambios a medida.</p>
+            </details>
+            <details>
+              <summary>¿Cuánto cuesta?</summary>
+              <p>No hay cuotas por usuario ni suscripción a Cortex. Pagas el uso de tu proyecto en Railway y, si activas la IA, el consumo de tu proveedor directamente.</p>
+            </details>
+            <details>
+              <summary>¿Qué inteligencia artificial usa?</summary>
+              <p>La que elijas: Anthropic Claude, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto.</p>
+            </details>
+            <details>
+              <summary>¿Dónde se guardan mis datos?</summary>
+              <p>En la base de datos PostgreSQL de tu propio proyecto de Railway. Las claves de los proveedores de IA se guardan cifradas y nunca se envían al navegador.</p>
+            </details>
+            <details>
+              <summary>¿Qué pasa si la IA se equivoca?</summary>
+              <p>Nada se publica sin tu aprobación: antes ves el plan, las pruebas, el riesgo y el impacto. Si una versión no te convence, vuelves a la anterior.</p>
+            </details>
+            <details>
+              <summary>¿Puedo gestionar varias empresas o clientes?</summary>
+              <p>Sí. Una instalación aloja varias organizaciones aisladas entre sí, y una persona puede pertenecer a varias.</p>
+            </details>
+            <details>
+              <summary>¿En qué idioma está?</summary>
+              <p>La interfaz está en español.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section final-cta">
+        <div class="container reveal">
+          <h2>Tu CRM, <span class="gradient-text">a tu manera</span></h2>
+          <p>Despliégalo en tu Railway y pídele el primer cambio. Si no te gusta, se deshace.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://railway.com/deploy/cortex-crm" rel="noopener">
+              <svg aria-hidden="true"><use href="#i-rocket" /></svg>
+              Desplegar en Railway
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/carbollo/cortex-crm" rel="noopener">
+              <svg aria-hidden="true"><use href="#i-github" /></svg>
+              Ver el código en GitHub
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <a class="brand" href="/" aria-label="Cortex CRM, inicio">
+          <img src="/assets/logo.svg" alt="" width="26" height="26" />
+          <span>Cortex <span class="gradient-text">CRM</span></span>
+        </a>
+        <ul class="footer-links">
+          <li><a href="https://railway.com/deploy/cortex-crm" rel="noopener">Plantilla de Railway</a></li>
+          <li><a href="https://github.com/carbollo/cortex-crm" rel="noopener">Código en GitHub</a></li>
+          <li><a href="https://github.com/carbollo/cortex-crm#readme" rel="noopener">Documentación</a></li>
+        </ul>
+        <p>© 2026 Cortex CRM</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -12,3 +12,6 @@ coverage
 .vscode
 .DS_Store
 Thumbs.db
+
+# Web del proyecto: se despliega aparte (landing/Dockerfile) y no forma parte de la aplicación
+landing

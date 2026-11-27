@@ -2,6 +2,8 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-crm)
 
+Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código en [`landing/`](landing/)).
+
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
 > Estado: fases 1–7 implementadas y cubiertas por tests automatizados (286 tests en 19 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).

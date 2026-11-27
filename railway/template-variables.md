@@ -3,8 +3,10 @@
 Texts for the Railway marketplace listing of the Cortex CRM template (code `cortex-crm`, https://railway.com/deploy/cortex-crm). The overview is
 [template-overview.md](template-overview.md).
 
-- **Description (marketplace card, 25–75 characters):** Self-hosted multi-tenant CRM that evolves from plain-language requests
-- **Category:** Other
+- **Description (marketplace card, 25–75 characters):** Self-hosted AI CRM that builds the modules and automations you ask for
+- **Category:** AI/ML
+- **Suggested name (template editor only, not settable by API):** Cortex CRM | Self-Hosted AI CRM, Salesforce Alternative
+- **Service icons (template editor only):** the same icon URL on `Cortex`, `Worker` and `CI`
 - **Icon:** https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@7be490e07a5b0627ff3906ebbebcc4b5057e2acf/web/public/favicon.svg
 
 Railway's public API has no operation to edit variable descriptions: they are set in the template editor

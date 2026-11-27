@@ -128,11 +128,12 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
 4. Probar un despliegue completo desde la plantilla en un proyecto nuevo (registro, token de instalación, una petición de EVOLVE) y borrar ese proyecto de prueba.
 5. Publicar en el marketplace. La descripción (25–75 caracteres), la categoría, el resumen y el icono solo se guardan al publicar; los textos están en [railway/template-overview.md](../railway/template-overview.md) y [railway/template-variables.md](../railway/template-variables.md):
    ```bash
-   railway templates publish <id-de-la-plantilla> --category Other \
-     --description "Self-hosted multi-tenant CRM that evolves from plain-language requests" \
+   railway templates publish <id-de-la-plantilla> --category "AI/ML" \
+     --description "Self-hosted AI CRM that builds the modules and automations you ask for" \
      --readme-file railway/template-overview.md \
      --image "https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@<commit>/web/public/favicon.svg" --json
    ```
    - Al publicar, Railway cambia el código generado por uno legible (`cortex-crm`) y **el código anterior deja de funcionar** (`404`): hay que actualizar los enlaces (botón del README).
    - Las descripciones de las variables (obligatorias para el marketplace) no se pueden editar con el API público ni con la CLI: se escriben en el editor de la plantilla (servicio › *Variables* › *Description*). Los textos están en `railway/template-variables.md`.
+   - Posicionamiento en el buscador de Railway (comprobado con `templateSearch`): pesa sobre todo el **nombre** y después la descripción; los despliegues y la salud de la plantilla también suben el puesto. El nombre y los iconos de los servicios solo se cambian en el editor de la plantilla.
    - Generar la plantilla de nuevo crea otro borrador independiente y la publicada no cambia. No hace falta para actualizar el código: sus servicios siguen la rama `main` del repositorio.
