@@ -1,6 +1,6 @@
 # Deploy and Host Cortex CRM on Railway
 
-Cortex CRM is a self-hosted AI CRM that adapts to the way your business works. It comes with contacts, companies, deals, tasks and dashboards, and when you need something more you just ask for it in plain language: "add a contracts module with renewal reminders", "when a deal is won, create an onboarding task". The AI engine plans the change, tests it in a sandbox and waits for your approval before anything goes live. Think of it as a self-hosted alternative to Salesforce or HubSpot that you reshape without writing code. The interface is in Spanish.
+Cortex CRM is an open-source (AGPL-3.0), self-hosted AI CRM that adapts to the way your business works. It comes with contacts, companies, deals, tasks and dashboards, and when you need something more you just ask for it in plain language: "add a contracts module with renewal reminders", "when a deal is won, create an onboarding task". The AI engine plans the change, tests it in a sandbox and waits for your approval before anything goes live. Think of it as a self-hosted alternative to Salesforce or HubSpot that you reshape without writing code. The interface is in Spanish.
 
 ## About Hosting Cortex CRM
 
@@ -20,21 +20,21 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 - **Custom modules and fields:** up to 2,000 modules per organization, with table, kanban and calendar views, relations, formulas and public forms.
 - **Automations:** event-based and scheduled rules, outgoing webhooks, and sandboxed scripts (QuickJS compiled to WebAssembly) for custom logic.
 - **AI assistant:** answers questions about your data, summarizes records and prepares changes that you confirm.
-- **Channels:** WhatsApp Cloud API, Telegram and Slack.
+- **Channels:** WhatsApp Cloud API and Telegram. Customer messages land on the contact's record and you reply from the CRM.
 - **Security:** roles and per-module permissions, audit log, API keys, encrypted secrets and a built-in security review.
 - **Your look:** custom colors, density, navigation and pages, with light and dark themes.
-- **Source-code engine (optional, platform admins):** the AI edits the app's own code, type-checks it, runs the test suite in the isolated CI service and deploys only after you confirm.
+- **Source-code engine (beta, optional, platform admins):** the AI edits the app's own code, type-checks it, runs the test suite in the isolated CI service and deploys only after you confirm.
 
 ## Dependencies for Cortex CRM Hosting
 
 - PostgreSQL (included in the template)
-- An API key from at least one AI provider: Anthropic Claude, OpenAI, Google Gemini, DeepSeek, Mistral, Groq or OpenRouter. The core CRM works without one; the AI features use your own key, so you pay your provider directly.
-- Optional: a Resend API key for email, and WhatsApp Cloud API, Telegram or Slack credentials for messaging
+- An API key from at least one AI provider: Anthropic Claude, OpenAI, DeepSeek or OpenRouter (Google Gemini, Mistral and Groq are experimental). The core CRM works without one; the AI features use your own key, so you pay your provider directly.
+- Optional: a Resend API key for email, and WhatsApp Cloud API or Telegram credentials for messaging
 
 ### Deployment Dependencies
 
 - Project website: https://cortex-crm-web-production.up.railway.app
-- Source code: https://github.com/carbollo/cortex-crm
+- Source code (AGPL-3.0): https://github.com/carbollo/cortex-crm
 - Railway PostgreSQL: https://docs.railway.com/databases/postgresql
 - Resend (email): https://resend.com/docs
 

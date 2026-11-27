@@ -129,7 +129,7 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
 5. Publicar en el marketplace. La descripción (25–75 caracteres), la categoría, el resumen y el icono solo se guardan al publicar; los textos están en [railway/template-overview.md](../railway/template-overview.md) y [railway/template-variables.md](../railway/template-variables.md):
    ```bash
    railway templates publish <id-de-la-plantilla> --category "AI/ML" \
-     --description "Self-hosted AI CRM that builds the modules and automations you ask for" \
+     --description "Open-source, self-hosted AI CRM that builds the modules you ask for" \
      --readme-file railway/template-overview.md \
      --image "https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@<commit>/web/public/favicon.svg" --json
    ```

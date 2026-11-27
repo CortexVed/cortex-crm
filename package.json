@@ -2,6 +2,7 @@
   "name": "cortex-crm",
   "version": "0.1.0",
   "description": "Cortex CRM — CRM autónomo, evolutivo y multi-LLM",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "engines": {

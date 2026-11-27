@@ -2,7 +2,7 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-crm)
 
-Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código en [`landing/`](landing/)).
+Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código en [`landing/`](landing/)) · Código abierto bajo la licencia [GNU AGPL v3](LICENSE).
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
@@ -160,3 +160,11 @@ Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.m
 - *Rate limiting* en memoria por instancia; respuestas del asistente sin *streaming*; sin 2FA/SSO; sin facturación; sin tests E2E en CI; archivos en PostgreSQL; la aplicación se conecta a PostgreSQL como superusuario (RLS mediante `SET LOCAL ROLE`).
 
 Detalle y plan: [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
+
+## Licencia
+
+Copyright © 2026 carbollo y colaboradores de Cortex CRM.
+
+Cortex CRM es software libre: se distribuye bajo la [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Puedes usarlo, estudiarlo, modificarlo, alojarlo y redistribuirlo, también con fines comerciales. A cambio, si distribuyes una versión modificada **o la ofreces como servicio a través de la red** (por ejemplo, un CRM alojado para tus clientes), tienes que poner su código fuente a disposición de quienes la usan, bajo la misma licencia. Se ofrece sin garantía de ningún tipo; el texto completo está en [LICENSE](LICENSE).
+
+Las dependencias de producción usan licencias permisivas compatibles (MIT, ISC, Apache-2.0, BSD, BlueOak-1.0.0 y Unlicense). Los iconos son de [Lucide](https://lucide.dev) (licencia ISC).

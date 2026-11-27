@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cortex CRM · El CRM con IA que construye lo que le pides</title>
-    <meta name="description" content="Cortex CRM es un CRM autoalojado con IA: describe el módulo o la automatización que necesitas y lo planifica, lo prueba y lo publica cuando tú lo apruebas." />
+    <meta name="description" content="Cortex CRM es un CRM de código abierto con IA: describe el módulo o la automatización que necesitas y lo planifica, lo prueba y lo publica cuando lo apruebas." />
     <link rel="canonical" href="https://cortex-crm-web-production.up.railway.app/" />
     <meta name="theme-color" content="#07070c" />
     <meta name="color-scheme" content="dark" />
@@ -37,17 +37,18 @@
         "applicationSubCategory": "CRM",
         "operatingSystem": "Web",
         "inLanguage": "es",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
         "url": "https://cortex-crm-web-production.up.railway.app/",
         "installUrl": "https://railway.com/deploy/cortex-crm",
         "image": "https://cortex-crm-web-production.up.railway.app/assets/og.png",
         "screenshot": "https://cortex-crm-web-production.up.railway.app/assets/screens/dashboard.webp",
-        "description": "CRM autoalojado con IA. Describe el módulo o la automatización que necesitas y la IA lo planifica, lo prueba en un entorno aislado y lo publica cuando lo apruebas, con versiones y vuelta atrás.",
+        "description": "CRM de código abierto (AGPL-3.0) y autoalojado con IA. Describe el módulo o la automatización que necesitas y la IA lo planifica, lo prueba en un entorno aislado y lo publica cuando lo apruebas, con versiones y vuelta atrás.",
         "featureList": [
           "Módulos y campos a medida pedidos en lenguaje natural",
           "Pipeline kanban, calendario, paneles e informes",
           "Automatizaciones por evento o programadas y webhooks",
           "Asistente de IA sobre los datos del CRM",
-          "Canales de WhatsApp, Telegram y Slack",
+          "Canales de WhatsApp y Telegram",
           "Roles, permisos por módulo y auditoría",
           "Versiones con verificación automática y vuelta atrás"
         ],
@@ -67,7 +68,8 @@
         "mainEntity": [
           { "@type": "Question", "name": "¿Necesito saber programar para usar Cortex CRM?", "acceptedAnswer": { "@type": "Answer", "text": "No. Pides los cambios en lenguaje natural y los apruebas desde la interfaz. Si programas, tienes el código fuente en GitHub y un motor de código para los cambios a medida." } },
           { "@type": "Question", "name": "¿Cuánto cuesta Cortex CRM?", "acceptedAnswer": { "@type": "Answer", "text": "No hay cuotas por usuario ni suscripción a Cortex. Pagas el uso de tu proyecto en Railway y, si activas la IA, el consumo de tu proveedor directamente." } },
-          { "@type": "Question", "name": "¿Qué inteligencia artificial usa?", "acceptedAnswer": { "@type": "Answer", "text": "La que elijas: Anthropic Claude, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto." } },
+          { "@type": "Question", "name": "¿Es de código abierto?", "acceptedAnswer": { "@type": "Answer", "text": "Sí. Cortex CRM se publica bajo la licencia GNU AGPL v3: puedes usarlo, estudiarlo, modificarlo y alojarlo, también con fines comerciales. Si ofreces una versión modificada como servicio en red, tienes que publicar también tus cambios." } },
+          { "@type": "Question", "name": "¿Qué inteligencia artificial usa?", "acceptedAnswer": { "@type": "Answer", "text": "La que elijas: Anthropic Claude, OpenAI, DeepSeek u OpenRouter, y Google Gemini, Mistral y Groq en modo experimental. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto." } },
           { "@type": "Question", "name": "¿Dónde se guardan mis datos?", "acceptedAnswer": { "@type": "Answer", "text": "En la base de datos PostgreSQL de tu propio proyecto de Railway. Las claves de los proveedores de IA se guardan cifradas y nunca se envían al navegador." } },
           { "@type": "Question", "name": "¿Qué pasa si la IA se equivoca?", "acceptedAnswer": { "@type": "Answer", "text": "Nada se publica sin tu aprobación: antes ves el plan, las pruebas, el riesgo y el impacto. Si una versión no te convence, vuelves a la anterior." } },
           { "@type": "Question", "name": "¿Puedo gestionar varias empresas o clientes?", "acceptedAnswer": { "@type": "Answer", "text": "Sí. Una instalación aloja varias organizaciones aisladas entre sí, y una persona puede pertenecer a varias." } },
@@ -79,6 +81,7 @@
   </head>
   <body>
     <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <!-- Iconos de Lucide (https://lucide.dev), licencia ISC: Copyright (c) Lucide Contributors 2022; partes Copyright (c) Cole Bemis 2013-2022 (Feather, MIT). -->
       <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /><path d="M20 3v4M22 5h-4M4 17v2M5 18H3" /></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
       <symbol id="i-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" /></symbol>
@@ -121,7 +124,7 @@
       <section class="hero">
         <div class="container">
           <div class="hero-copy">
-            <span class="eyebrow"><span class="dot" aria-hidden="true"></span> CRM con IA · autoalojado en tu Railway</span>
+            <span class="eyebrow"><span class="dot" aria-hidden="true"></span> CRM con IA · código abierto · en tu Railway</span>
             <h1>El CRM que <span class="gradient-text">construye lo que le pides</span></h1>
             <p class="lead">Cortex CRM llega con contactos, empresas, oportunidades, tareas y paneles listos para usar. Cuando necesitas algo más, lo describes con tus palabras: la IA lo planifica, lo prueba en un entorno aislado y espera tu aprobación. Cada cambio queda versionado y se puede revertir.</p>
             <div class="hero-actions">
@@ -134,7 +137,7 @@
                 <svg aria-hidden="true"><use href="#i-arrow" /></svg>
               </a>
             </div>
-            <p class="hero-note">Sin cuotas por usuario · interfaz en español · tus datos en tu propio proyecto</p>
+            <p class="hero-note">Código abierto (AGPL-3.0) · sin cuotas por usuario · tus datos en tu propio proyecto · interfaz en español</p>
             <div class="prompt-bar" aria-hidden="true">
               <span class="spark"><svg><use href="#i-sparkles" /></svg></span>
               <span class="prompt-text" data-prompts='["Quiero un módulo de contratos con avisos 30 días antes del vencimiento","Cuando una oportunidad pase a ganada, crea una tarea de bienvenida","Añade una puntuación de clientes según compras y actividad","Usa nuestro color corporativo y agrupa el menú por departamento","Crea una página de inicio para ventas con KPIs y oportunidades"]'>Quiero un módulo de contratos con avisos 30 días antes del vencimiento</span>
@@ -285,8 +288,8 @@
             </li>
             <li class="feature reveal">
               <span class="icon"><svg aria-hidden="true"><use href="#i-chat" /></svg></span>
-              <h3>WhatsApp, Telegram y Slack</h3>
-              <p>Conecta tus canales para que los mensajes lleguen a los registros y avisar a tu equipo.</p>
+              <h3>WhatsApp y Telegram</h3>
+              <p>Los mensajes de tus clientes llegan a su ficha y les respondes desde el propio CRM.</p>
             </li>
             <li class="feature reveal">
               <span class="icon"><svg aria-hidden="true"><use href="#i-users" /></svg></span>
@@ -300,7 +303,7 @@
             </li>
             <li class="feature reveal">
               <span class="icon"><svg aria-hidden="true"><use href="#i-code" /></svg></span>
-              <h3>Motor de código fuente</h3>
+              <h3>Motor de código fuente <span class="badge">beta</span></h3>
               <p>Para lo que no cabe en la configuración: la IA cambia el código de tu instalación, lo prueba en un CI aislado y lo despliega cuando confirmas.</p>
             </li>
           </ul>
@@ -449,8 +452,12 @@
               <p>No hay cuotas por usuario ni suscripción a Cortex. Pagas el uso de tu proyecto en Railway y, si activas la IA, el consumo de tu proveedor directamente.</p>
             </details>
             <details>
+              <summary>¿Es de código abierto?</summary>
+              <p>Sí. Cortex CRM se publica bajo la licencia GNU AGPL v3: puedes usarlo, estudiarlo, modificarlo y alojarlo, también con fines comerciales. Si ofreces una versión modificada como servicio en red, tienes que publicar también tus cambios.</p>
+            </details>
+            <details>
               <summary>¿Qué inteligencia artificial usa?</summary>
-              <p>La que elijas: Anthropic Claude, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto.</p>
+              <p>La que elijas: Anthropic Claude, OpenAI, DeepSeek u OpenRouter, y Google Gemini, Mistral y Groq en modo experimental. Puedes asignar un modelo distinto a cada tarea y poner límites de gasto.</p>
             </details>
             <details>
               <summary>¿Dónde se guardan mis datos?</summary>
@@ -500,6 +507,7 @@
           <li><a href="https://railway.com/deploy/cortex-crm" rel="noopener">Plantilla de Railway</a></li>
           <li><a href="https://github.com/carbollo/cortex-crm" rel="noopener">Código en GitHub</a></li>
           <li><a href="https://github.com/carbollo/cortex-crm#readme" rel="noopener">Documentación</a></li>
+          <li><a href="https://github.com/carbollo/cortex-crm/blob/main/LICENSE" rel="noopener">Licencia AGPL-3.0</a></li>
         </ul>
         <p>© 2026 Cortex CRM</p>
       </div>
