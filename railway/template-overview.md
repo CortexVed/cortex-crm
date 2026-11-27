@@ -4,7 +4,7 @@ Cortex CRM is an open-source (AGPL-3.0), self-hosted AI CRM that adapts to the w
 
 ## About Hosting Cortex CRM
 
-This template deploys the whole stack in one click, with nothing to fill in. Two Node.js 24 services are built from the same Docker image: `Cortex` serves the web app and the REST API, and `Worker` runs background jobs (the AI pipeline, scheduled automations and webhooks). PostgreSQL 18 is the only datastore; even the job queue lives in Postgres, so there is no Redis to manage. A small `CI` service, with no variables and no public domain, is used by the optional source-code engine to test code changes. Every organization is isolated with PostgreSQL Row-Level Security, services talk over Railway's private network, and both app services expose a health check at `/api/health`. Secrets are generated on each deploy with template functions, database migrations run on boot, and AI provider keys are stored encrypted with AES-256-GCM.
+This template deploys the whole stack in one click, with nothing to fill in. Two Node.js 24 services are built from the same Docker image: `Cortex` serves the web app and the REST API, and `Worker` runs background jobs (the AI pipeline, scheduled automations and webhooks). PostgreSQL 18 holds the data (even the job queue lives there, so there is no Redis to manage) and a private Railway Bucket stores file attachments, always served through the app with its permission checks. A small `CI` service, with no variables and no public domain, is used by the optional source-code engine to test code changes. Every organization is isolated with PostgreSQL Row-Level Security, services talk over Railway's private network, and both app services expose a health check at `/api/health`. Secrets are generated on each deploy with template functions, database migrations run on boot, and AI provider keys are stored encrypted with AES-256-GCM.
 
 ## Common Use Cases
 
@@ -27,7 +27,7 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 
 ## Dependencies for Cortex CRM Hosting
 
-- PostgreSQL (included in the template)
+- PostgreSQL and a Railway Bucket for file attachments (both included in the template)
 - An API key from at least one AI provider: Anthropic Claude, OpenAI, DeepSeek or OpenRouter (Google Gemini, Mistral and Groq are experimental). The core CRM works without one; the AI features use your own key, so you pay your provider directly.
 - Optional: a Resend API key for email, and WhatsApp Cloud API or Telegram credentials for messaging
 

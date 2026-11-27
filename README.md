@@ -6,7 +6,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (286 tests en 19 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (297 tests en 20 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
@@ -38,7 +38,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (286 tests en 19 archivos)
+server/test/  Tests Vitest (297 tests en 20 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -87,7 +87,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 286 tests en 19 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 297 tests en 20 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 
@@ -111,6 +111,7 @@ npm run typecheck    # TypeScript del servidor y del cliente
 | `jobs-webhooks.test.ts` | 19 | Webhooks salientes con plazo total y protección SSRF; cola con turnos por organización, trabajos colgados y recuperación de procesos caídos |
 | `audit-hardening.test.ts` | 29 | Arreglos de la auditoría de seguridad (motor de riesgo, validación de bucles y fórmulas, plantillas maliciosas, avisos según permisos) |
 | `audit-hardening-access.test.ts` | 11 | Segunda parte de la auditoría: enlaces de restablecimiento, invitaciones de administrador y correos |
+| `object-storage.test.ts` | 11 | Archivos en un bucket S3: firma AWS Signature V4 contra el ejemplo oficial de AWS, URL virtual-host y path, configuración todo o nada (y https), subida firmada con solo la referencia en la base de datos, descarga y análisis con IA desde el bucket, archivos antiguos en la base de datos, fallo del bucket sin registros a medias, purga del objeto a los 7 días, error claro sin bucket configurado |
 | `template.test.ts` | 10 | Despliegue desde la plantilla de Railway: claves derivadas de los secretos, modo producción y rol del worker automáticos, arranque solo con las variables de la plantilla |
 
 ## Build
@@ -157,7 +158,7 @@ Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.m
 - El motor de código fuente solo se ha probado con la IA y Railway simulados (el protocolo de subida, el esquema GraphQL y el tar están comprobados, pero no contra un proyecto real); la seguridad frente a un cambio de lógica malicioso que respete las reglas depende de la revisión humana del diff ([riesgos](docs/CODE_ENGINE.md#13-limitaciones-y-riesgos-abiertos)).
 - WhatsApp y Telegram están implementados pero sin probar con credenciales reales; Gmail, Outlook y Slack no están implementados (requieren apps OAuth de plataforma).
 - El correo requiere `RESEND_API_KEY` + `EMAIL_FROM` (sin configurar en la última verificación de producción); la verificación de email no bloquea el uso (con el correo configurado, solo muestra un aviso).
-- *Rate limiting* en memoria por instancia; respuestas del asistente sin *streaming*; sin 2FA/SSO; sin facturación; sin tests E2E en CI; archivos en PostgreSQL; la aplicación se conecta a PostgreSQL como superusuario (RLS mediante `SET LOCAL ROLE`).
+- *Rate limiting* en memoria por instancia; respuestas del asistente sin *streaming*; sin 2FA/SSO; sin facturación; sin tests E2E en CI; archivos en PostgreSQL salvo con un bucket S3 configurado (la plantilla incluye uno); la aplicación se conecta a PostgreSQL como superusuario (RLS mediante `SET LOCAL ROLE`).
 
 Detalle y plan: [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
 

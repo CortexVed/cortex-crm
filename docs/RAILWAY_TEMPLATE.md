@@ -2,7 +2,7 @@
 
 > Plantilla (publicada en el marketplace): **https://railway.com/deploy/cortex-crm** · código fuente: **https://github.com/carbollo/cortex-crm** (rama `main`).
 
-Cortex CRM se instala en cualquier proyecto de Railway con una plantilla de cuatro servicios. Cada instalación es independiente: su propia base de datos, sus propias claves (generadas por Railway al desplegar) y sus propias organizaciones. Lo que cada organización cambia con EVOLVE AI ENGINE se guarda en la base de datos de esa instalación, y lo que la administración de la plataforma cambia en el código con el **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)) se despliega en los servicios de esa misma instalación: nada vuelve al repositorio de la plantilla.
+Cortex CRM se instala en cualquier proyecto de Railway con una plantilla de cuatro servicios y un bucket para los archivos. Cada instalación es independiente: su propia base de datos, sus propias claves (generadas por Railway al desplegar) y sus propias organizaciones. Lo que cada organización cambia con EVOLVE AI ENGINE se guarda en la base de datos de esa instalación, y lo que la administración de la plataforma cambia en el código con el **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)) se despliega en los servicios de esa misma instalación: nada vuelve al repositorio de la plantilla.
 
 ```mermaid
 flowchart LR
@@ -12,9 +12,12 @@ flowchart LR
     W["Worker<br/>PROCESS_ROLE=worker<br/>sin dominio · /api/health"]
     CI["CI<br/>--role=ci: solo health check<br/>sin variables ni dominio"]
     P[("Postgres<br/>postgres-ssl:18 + volumen<br/>solo red privada")]
+    B[("Bucket<br/>S3 privado<br/>archivos adjuntos")]
   end
   C -->|"DATABASE_URL"| P
   W -->|"DATABASE_URL"| P
+  C -->|"S3_*"| B
+  W -->|"S3_* (purga)"| B
   W -.->|"motor de código: sube el código a probar<br/>(token de proyecto)"| CI
 ```
 
@@ -26,6 +29,8 @@ flowchart LR
 | `Cortex` | Repositorio de la plataforma, rama `main` | Dominio público de Railway (`*.up.railway.app`) | `Dockerfile` (Railway lo detecta en la raíz) y health check `/api/health` en la configuración del servicio (Railway no aplica el `railway.json` del repositorio: `configFile: null`) |
 | `Worker` | El mismo repositorio y rama | Sin dominio público | Igual que `Cortex`, con el comando de arranque `node --enable-source-maps dist/server/index.js --role=worker` |
 | `CI` | El mismo repositorio y rama | Sin dominio público | **Sin variables**. Comando de arranque `node --enable-source-maps dist/server/index.js --role=ci`: un servidor de salud, sin base de datos ni secretos. Solo lo usa el motor de código fuente, que le sube el código a probar (`Dockerfile.ci`) y retira cada prueba al terminar. Railway no admite servicios vacíos en una plantilla («Service CI does not have a source that can be used to generate a template»), por eso nace del repositorio |
+
+Además, un **Bucket** de Railway (almacenamiento compatible con S3, privado) para los archivos adjuntos: `Cortex` sube y sirve los archivos (siempre a través de la aplicación, con permisos) y `Worker` borra los objetos de los archivos eliminados al purgarlos. Sin bucket, la aplicación guarda los archivos en PostgreSQL.
 
 Los nombres `Cortex`, `Worker` y `CI` no llevan espacios ni guiones porque las referencias entre servicios los usan (`${{Cortex.…}}`); si quien despliega renombra un servicio, Railway actualiza las referencias.
 
@@ -40,6 +45,11 @@ Al generar una plantilla desde un proyecto, Railway **conserva las referencias**
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Red privada |
 | `APP_ENCRYPTION_KEY` | `${{secret(64, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}}` | Se genera en cada despliegue. La aplicación deriva de ella la clave AES de 32 bytes (`parseEncryptionKey`); una clave de 32 bytes en base64 también sirve |
 | `PLATFORM_ADMIN_SETUP_TOKEN` | `${{secret(48, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}}` | Token de instalación: la primera persona que lo pega en *Ajustes › Mi cuenta* pasa a ser administradora de la plataforma (solo mientras no haya ninguna) |
+| `S3_ENDPOINT` | `${{Bucket.ENDPOINT}}` | Bucket de archivos (las cinco `S3_*` son referencias al Bucket de la plantilla) |
+| `S3_BUCKET` | `${{Bucket.BUCKET}}` | |
+| `S3_ACCESS_KEY_ID` | `${{Bucket.ACCESS_KEY_ID}}` | |
+| `S3_SECRET_ACCESS_KEY` | `${{Bucket.SECRET_ACCESS_KEY}}` | |
+| `S3_REGION` | `${{Bucket.REGION}}` | `auto` en Railway |
 
 Opcionales, que quien despliega añade después si las necesita: `ALLOW_SIGNUP=false` (cerrar las altas públicas cuando ya exista su organización), `RESEND_API_KEY` y `EMAIL_FROM` (correo transaccional) y `APP_URL` (dominio propio).
 
@@ -54,6 +64,7 @@ Opcionales, que quien despliega añade después si las necesita: `ALLOW_SIGNUP=f
 | `APP_URL` | `https://${{Cortex.RAILWAY_PUBLIC_DOMAIN}}` | El worker no tiene dominio propio |
 | `CORTEX_SERVICE_ID` | `${{Cortex.RAILWAY_SERVICE_ID}}` | Motor de código fuente: servicio web al que se despliega |
 | `CI_SERVICE_ID` | `${{CI.RAILWAY_SERVICE_ID}}` | Motor de código fuente: servicio en el que se prueba cada cambio |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` | `${{Bucket.…}}` (las mismas que `Cortex`) | El worker borra del bucket los archivos eliminados al purgarlos |
 
 El rol de worker va en el comando de arranque (`--role=worker`); `PROCESS_ROLE`, si se define, tiene prioridad. Las dos últimas variables son referencias, así que la plantilla las conserva; el worker usa además `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID` y `RAILWAY_SERVICE_ID` (el suyo), que define Railway.
 

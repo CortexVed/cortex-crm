@@ -250,12 +250,14 @@ Todas tienen `workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CAS
 
 **`notes`** — índice `(record_id, created_at DESC)`. `body` (hasta 10.000 caracteres), `created_by`, `updated_at`, `deleted_at` (borrado lógico).
 
-**`files`** — índice `files_record_idx (record_id) WHERE deleted_at IS NULL`. Un archivo borrado conserva su tamaño (y cuenta para la cuota) hasta que `maintenance.cleanup` purga su contenido a los 7 días: entonces `content` queda vacío y `size = 0`.
+**`files`** — índice `files_record_idx (record_id) WHERE deleted_at IS NULL`. Un archivo borrado conserva su tamaño (y cuenta para la cuota) hasta que `maintenance.cleanup` purga su contenido a los 7 días: entonces `content` queda vacío (o se borra el objeto del bucket) y `size = 0`.
 | Columna | Notas |
 |---|---|
 | `record_id`, `module_key`, `field_key` | Vínculo opcional con un registro/campo |
 | `name`, `mime`, `size`, `sha256` | El MIME lo decide el servidor por la extensión |
-| `content` bytea | Contenido (máx. `MAX_UPLOAD_MB`; cuota 1 GB por organización) |
+| `storage` text | Dónde está el contenido: `db` (columna `content`, por defecto) o `s3` (bucket compatible con S3, migración 006) |
+| `object_key` text | Clave del objeto en el bucket (`files/<organización>/<archivo>`, generada por el servidor); solo con `storage = 's3'` |
+| `content` bytea | Contenido con `storage = 'db'` (máx. `MAX_UPLOAD_MB`; cuota 1 GB por organización); vacío con `storage = 's3'` |
 | `uploaded_by`, `created_at`, `deleted_at` | |
 
 **`automation_runs`** — índices `(workspace_id, created_at DESC)` y único `(workspace_id, dedupe_key) WHERE dedupe_key IS NOT NULL`.

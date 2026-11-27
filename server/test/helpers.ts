@@ -3,6 +3,7 @@ import { loadConfig, type AppConfig } from '../src/config';
 import { createDb } from '../src/db/db';
 import { runMigrations } from '../src/db/migrations';
 import { SecretBox } from '../src/lib/crypto';
+import { createObjectStorage } from '../src/lib/object-storage';
 import type { Mailer, MailMessage } from '../src/lib/mailer';
 import { AiManager } from '../src/ai/manager';
 import type { ChatRequest, ChatResponse, ProviderAdapter } from '../src/ai/types';
@@ -58,7 +59,8 @@ export async function setup(
   };
   const fetchImpl = opts.fetchImpl ?? (fetch as typeof fetch);
   const ai = new AiManager({ db, box, config, adapters: { mock: mockAdapter(() => current) }, fetchImpl });
-  const deps: AppDeps = { config, db, box, ai, mailer, fetchImpl, now: () => new Date() };
+  const storage = config.objectStorage ? createObjectStorage(config.objectStorage, fetchImpl) : null;
+  const deps: AppDeps = { config, db, box, ai, mailer, fetchImpl, now: () => new Date(), storage };
   const app = await buildApp(deps);
   const runner = new JobRunner(db, createJobHandlers(deps), { info: () => {}, error: () => {} }, 10);
   return {

@@ -36,6 +36,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AppDeps) {
         signupOpen: c.allowSignup,
         platformLlmKeys: Object.fromEntries(Object.entries(c.platformLlmKeys).map(([k, v]) => [k, !!v && c.allowPlatformLlmKeys])),
         database: deps.db.kind,
+        fileStorage: deps.storage ? 'bucket' : 'database',
       },
     };
   });

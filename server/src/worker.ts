@@ -142,10 +142,35 @@ export function createJobHandlers(deps: AppDeps): Record<string, JobHandler> {
       for (let i = 0; i < 200 && !ctx?.signal.aborted && Date.now() < until; i++) {
         const r = await deps.db.query(
           `UPDATE files SET content = ''::bytea, size = 0
-           WHERE id IN (SELECT id FROM files WHERE deleted_at < now() - interval '7 days' AND (size <> 0 OR octet_length(content) <> 0) LIMIT $1)`,
+           WHERE id IN (SELECT id FROM files WHERE storage = 'db' AND deleted_at < now() - interval '7 days' AND (size <> 0 OR octet_length(content) <> 0) LIMIT $1)`,
           [PURGE_BATCH],
         );
         if (r.rowCount < PURGE_BATCH) break;
+      }
+      // Archivos en el bucket: primero se borra el objeto y después se marca como purgado (size = 0). Si el borrado
+      // falla, el archivo se queda como estaba y se reintenta en la siguiente ejecución. Sin bucket configurado no se
+      // tocan (no se pierde la referencia al objeto).
+      if (deps.storage) {
+        for (let i = 0; i < 200 && !ctx?.signal.aborted && Date.now() < until; i++) {
+          const rows = (
+            await deps.db.query<{ id: string; object_key: string }>(
+              `SELECT id, object_key FROM files WHERE storage = 's3' AND object_key IS NOT NULL AND size <> 0 AND deleted_at < now() - interval '7 days' LIMIT $1`,
+              [PURGE_BATCH],
+            )
+          ).rows;
+          const purged: string[] = [];
+          for (const f of rows) {
+            if (ctx?.signal.aborted || Date.now() >= until) break;
+            try {
+              await deps.storage.delete(f.object_key);
+              purged.push(f.id);
+            } catch {
+              /* se reintenta en la siguiente ejecución diaria */
+            }
+          }
+          if (purged.length) await deps.db.query(`UPDATE files SET size = 0 WHERE id = ANY($1::uuid[])`, [purged]);
+          if (rows.length < PURGE_BATCH || purged.length < rows.length) break;
+        }
       }
     },
   };

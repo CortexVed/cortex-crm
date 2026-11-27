@@ -20,6 +20,11 @@ deploys the template does not need to type anything.
 | `APP_ENCRYPTION_KEY` | Generated automatically. Encrypts the stored AI keys, tokens and webhook secrets. Never change it after the first deploy, or those secrets become unreadable. |
 | `DATABASE_URL` | Filled in automatically from the Postgres service. Private connection string Cortex uses for the database. |
 | `PLATFORM_ADMIN_SETUP_TOKEN` | Generated automatically. One-time token: after signing up, paste it in Ajustes › Mi cuenta to become the platform administrator. |
+| `S3_ENDPOINT` | Filled in automatically from the Bucket. S3 endpoint where file attachments are stored. |
+| `S3_BUCKET` | Filled in automatically from the Bucket. Name of the private bucket for file attachments. |
+| `S3_ACCESS_KEY_ID` | Filled in automatically from the Bucket. Access key Cortex uses to store and read files. |
+| `S3_SECRET_ACCESS_KEY` | Filled in automatically from the Bucket. Secret key of the bucket; never shown in the app. |
+| `S3_REGION` | Filled in automatically from the Bucket ("auto" on Railway). |
 
 ## Worker
 
@@ -30,6 +35,11 @@ deploys the template does not need to type anything.
 | `CI_SERVICE_ID` | Filled in automatically. ID of the CI service, where the source-code engine builds and tests proposed code changes. |
 | `CORTEX_SERVICE_ID` | Filled in automatically. ID of the Cortex service, which the source-code engine updates after a code change is approved. |
 | `DATABASE_URL` | Filled in automatically from the Postgres service. Private connection string the worker uses for the database. |
+| `S3_ENDPOINT` | Filled in automatically from the Bucket. Same bucket as Cortex: the worker deletes purged files from it. |
+| `S3_BUCKET` | Filled in automatically from the Bucket. Name of the private bucket for file attachments. |
+| `S3_ACCESS_KEY_ID` | Filled in automatically from the Bucket. Access key the worker uses to delete purged files. |
+| `S3_SECRET_ACCESS_KEY` | Filled in automatically from the Bucket. Secret key of the bucket; never shown in the app. |
+| `S3_REGION` | Filled in automatically from the Bucket ("auto" on Railway). |
 
 ## Postgres
 

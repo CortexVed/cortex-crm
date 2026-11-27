@@ -6,7 +6,8 @@ import { isUuid, recordTitle } from '../../../shared/records';
 import type { AppDeps } from '../deps';
 import { audit } from '../lib/audit';
 import { newId, sha256 } from '../lib/crypto';
-import { badRequest, forbidden, notFound, unprocessable } from '../lib/errors';
+import { AppError, badRequest, forbidden, notFound, unprocessable } from '../lib/errors';
+import { fileObjectKey, ObjectStorageError } from '../lib/object-storage';
 import { requireUserSession, requireWorkspace, type WorkspaceAuth } from '../auth/plugin';
 import type { Attachment, ChatMessage } from '../ai/types';
 import {
@@ -97,6 +98,22 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
   const assertFileAccess = (ws: LoadedWorkspace, a: WorkspaceAuth, f: { module_key: string | null; uploaded_by: string | null }) => {
     if (f.module_key) moduleFor(ws, a, f.module_key);
     else if (a.apiKeyId || f.uploaded_by !== a.userId) throw notFound('Archivo no encontrado');
+  };
+
+  /**
+   * Contenido de un archivo, esté en la base de datos (`storage = 'db'`, los de siempre) o en el bucket S3. Se llama
+   * fuera de la transacción (la descarga del bucket no retiene una conexión de la base de datos).
+   */
+  const readFileContent = async (f: { storage?: string | null; object_key?: string | null; content?: Buffer | Uint8Array | null }): Promise<Buffer> => {
+    if (f.storage !== 's3') return Buffer.from(f.content ?? []);
+    if (!deps.storage || !f.object_key) {
+      throw new AppError(503, 'storage_not_configured', 'Este archivo está guardado en el bucket de archivos, pero la instalación no tiene configurado el bucket (variables S3_*).');
+    }
+    try {
+      return await deps.storage.get(f.object_key);
+    } catch (e) {
+      throw new AppError(502, 'storage_unavailable', `No se ha podido leer el archivo. ${e instanceof ObjectStorageError ? e.message : 'El almacenamiento de archivos no responde.'}`);
+    }
   };
 
   app.get('/blueprint', async (req) =>
@@ -294,7 +311,9 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     const recordId = req.headers['x-record-id'] ? String(req.headers['x-record-id']) : null;
     const fieldKey = req.headers['x-field-key'] ? String(req.headers['x-field-key']).slice(0, 40) : null;
     if (recordId && !isUuid(recordId)) throw badRequest('x-record-id inválido');
-    return withWs(req, 'member', async (q, ws, a) => {
+    // 1) Permisos y cuota. 2) Con bucket, se sube fuera de la transacción (no retiene una conexión de la base de
+    // datos mientras dura la subida). 3) Se registra el archivo; si eso falla, se borra el objeto subido.
+    const checked = await withWs(req, 'member', async (q, ws, a) => {
       let moduleKey: string | null = null;
       if (recordId) {
         const rec = (await q.query(`SELECT module_key FROM records WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`, [recordId, ws.id])).rows[0];
@@ -307,25 +326,44 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       // subir y borrar en bucle no permite superar la cuota.
       const used = await q.query<{ n: number }>(`SELECT COALESCE(sum(size),0)::float8 AS n FROM files WHERE workspace_id = $1`, [ws.id]);
       if (Number(used.rows[0].n) + body.length > WORKSPACE_QUOTA_BYTES) throw badRequest('Se ha alcanzado la cuota de almacenamiento de la organización');
-      const id = newId();
-      await q.query(
-        `INSERT INTO files (id, workspace_id, record_id, module_key, field_key, name, mime, size, sha256, content, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [id, ws.id, recordId, moduleKey, fieldKey, name, mime, body.length, sha256(body), body, a.apiKeyId ? null : a.userId],
-      );
-      if (recordId) await q.query(`UPDATE records SET last_activity_at = now() WHERE id = $1 AND workspace_id = $2`, [recordId, ws.id]);
-      return { id, name, mime, size: body.length };
+      return { workspaceId: ws.id, moduleKey };
     });
+    const id = newId();
+    const digest = sha256(body);
+    const objectKey = deps.storage ? fileObjectKey(checked.workspaceId, id) : null;
+    if (deps.storage && objectKey) {
+      try {
+        await deps.storage.put(objectKey, body, mime, digest);
+      } catch (e) {
+        req.log.error({ err: e instanceof ObjectStorageError ? { status: e.status, code: e.code, message: e.message } : String(e) }, 'No se pudo subir el archivo al bucket');
+        throw new AppError(502, 'storage_unavailable', 'No se ha podido guardar el archivo en el almacenamiento. Inténtalo de nuevo en unos segundos.');
+      }
+    }
+    try {
+      return await withWs(req, 'member', async (q, ws, a) => {
+        await q.query(
+          `INSERT INTO files (id, workspace_id, record_id, module_key, field_key, name, mime, size, sha256, content, storage, object_key, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [id, ws.id, recordId, checked.moduleKey, fieldKey, name, mime, body.length, digest, objectKey ? Buffer.alloc(0) : body, objectKey ? 's3' : 'db', objectKey, a.apiKeyId ? null : a.userId],
+        );
+        if (recordId) await q.query(`UPDATE records SET last_activity_at = now() WHERE id = $1 AND workspace_id = $2`, [recordId, ws.id]);
+        return { id, name, mime, size: body.length };
+      });
+    } catch (e) {
+      if (deps.storage && objectKey) await deps.storage.delete(objectKey).catch(() => undefined);
+      throw e;
+    }
   });
 
   app.get('/files/:id', async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const { inline } = z.object({ inline: z.enum(['1', '0']).optional() }).parse(req.query);
     const file = await withWs(req, 'viewer', async (q, ws, a) => {
-      const f = (await q.query(`SELECT name, mime, content, module_key, uploaded_by FROM files WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`, [id, ws.id])).rows[0];
+      const f = (await q.query(`SELECT name, mime, content, storage, object_key, module_key, uploaded_by FROM files WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`, [id, ws.id])).rows[0];
       if (!f) throw notFound('Archivo no encontrado');
       assertFileAccess(ws, a, f);
       return f;
     });
+    const content = await readFileContent(file);
     const disposition = inline === '1' && INLINE_OK.has(file.mime) ? 'inline' : 'attachment';
     reply
       .header('Content-Type', file.mime)
@@ -333,7 +371,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
       .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'private, no-store')
       .header('Content-Security-Policy', "default-src 'none'; sandbox");
-    return reply.send(Buffer.from(file.content));
+    return reply.send(content);
   });
 
   app.delete('/files/:id', async (req) => {
@@ -545,7 +583,7 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
     const a = requireWorkspace(req, 'member');
     requireUserSession(req);
     const doc = await withWs(req, 'member', async (q, ws, auth) => {
-      const f = (await q.query(`SELECT name, mime, size, content, module_key, record_id, uploaded_by FROM files WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`, [id, ws.id])).rows[0];
+      const f = (await q.query(`SELECT name, mime, size, content, storage, object_key, module_key, record_id, uploaded_by FROM files WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`, [id, ws.id])).rows[0];
       if (!f) throw notFound('Archivo no encontrado');
       assertFileAccess(ws, auth, f);
       let context = 'Documento sin registro asociado';
@@ -554,15 +592,16 @@ export async function crmRoutes(app: FastifyInstance, deps: AppDeps) {
         const rec = f.record_id ? await makeRecordService(q, ws, actorFrom(auth)).ctx.store.get(f.record_id) : null;
         context = rec ? `${mod.label}: «${recordTitle(mod, rec.data)}»` : mod.label;
       }
-      return { name: String(f.name), mime: String(f.mime), size: Number(f.size), content: Buffer.from(f.content), context, moduleKey: f.module_key as string | null, recordId: f.record_id as string | null, today: deps.now().toISOString().slice(0, 10) };
+      return { name: String(f.name), mime: String(f.mime), size: Number(f.size), file: { storage: f.storage as string, object_key: f.object_key as string | null, content: f.content as Buffer }, context, moduleKey: f.module_key as string | null, recordId: f.record_id as string | null, today: deps.now().toISOString().slice(0, 10) };
     });
     let attachment: Attachment;
     let truncated = false;
+    // El contenido se lee después de comprobar tipo y tamaño: no se descarga del bucket lo que se va a rechazar.
     if (doc.mime === 'application/pdf') {
       if (doc.size > MAX_PDF_BYTES) throw badRequest(`El PDF supera los ${Math.round(MAX_PDF_BYTES / 1048576)} MB que se pueden analizar`);
-      attachment = { kind: 'pdf', name: doc.name, data: doc.content.toString('base64') };
+      attachment = { kind: 'pdf', name: doc.name, data: (await readFileContent(doc.file)).toString('base64') };
     } else if (TEXT_MIMES.has(doc.mime)) {
-      let text = doc.content.toString('utf8');
+      let text = (await readFileContent(doc.file)).toString('utf8');
       if (text.length > MAX_DOCUMENT_CHARS) {
         text = text.slice(0, MAX_DOCUMENT_CHARS);
         truncated = true;

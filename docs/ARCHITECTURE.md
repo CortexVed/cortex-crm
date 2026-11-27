@@ -15,7 +15,7 @@ Cortex CRM es un CRM SaaS multi-organización que la IA puede hacer evolucionar 
 | Datos | PostgreSQL con Row Level Security (`pg`); PGlite (Postgres en WASM) en desarrollo y tests | `server/src/db` |
 | IA | AI Provider Manager propio: SDK oficial de Anthropic + adaptador compatible con OpenAI | `server/src/ai` |
 | Scripts por organización | Sandbox QuickJS compilado a WebAssembly (`quickjs-emscripten-core` + `@jitl/quickjs-wasmfile-release-sync`, 0.32.0) | `server/src/crm/scripts.ts` |
-| Tests | Vitest 5 (286 tests en 19 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
+| Tests | Vitest 5 (297 tests en 20 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
 
 Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker); en una instalación desde la plantilla, `Cortex` y `Worker`. Un tercer rol, `ci`, solo lo usa el servicio de CI del **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)): la administración de la plataforma pide cambios del código real, un agente de IA los escribe, se prueban en ese CI aislado y, con aprobación humana, se despliegan en los servicios de la propia instalación (nunca en GitHub).
 
@@ -86,7 +86,7 @@ server/src/
                     workspace · lockfile (dependencias) · typecheck (tsc antes del CI) · tar · diff · railway · ci · review · pipeline (code.plan) · deploy (code.deploy) ·
                     store · settings · routes
   lib/              crypto · ssrf · jobs · mailer · audit · errors · metrics
-server/test/        helpers.ts + 19 archivos de tests Vitest (286 tests)
+server/test/        helpers.ts + 20 archivos de tests Vitest (297 tests)
 shared/             constants · blueprint · changeset · appearance · formula · conditions · templates · records ·
                     time · default-blueprint
 web/src/            main.tsx (rutas) · components/ (Layout, navigation, AiPanel, AiTools, CommandPalette, ui,
@@ -396,6 +396,8 @@ Formato: contexto → decisión → alternativas consideradas → consecuencias.
 **Contexto.** La v1 necesita adjuntos (contratos, documentos) con aislamiento por organización y copias de seguridad sencillas.
 
 **Decisión.** Tabla `files` con el contenido en `bytea`, máximo 10 MB por archivo (`MAX_UPLOAD_MB`) y cuota de 1 GB por organización, bajo RLS.
+
+**Revisión (2026-11).** Con un bucket compatible con S3 configurado (variables `S3_*`; la plantilla de Railway incluye un Bucket y las rellena por referencia), el contenido de los archivos nuevos va al bucket (`storage = 's3'`, `object_key`) y la tabla guarda solo los metadatos. El bucket es privado: las descargas pasan por la aplicación, que aplica los mismos permisos que antes (sin URL públicas ni firmadas). La firma AWS Signature V4 está implementada sin dependencias (`server/src/lib/object-storage.ts`). Los archivos ya guardados en la base de datos se siguen sirviendo desde ella.
 
 **Alternativas consideradas.** Railway Buckets / S3 (mejor para volumen, pero añade credenciales, URLs firmadas y otra copia de seguridad que coordinar); disco del contenedor (efímero en Railway).
 

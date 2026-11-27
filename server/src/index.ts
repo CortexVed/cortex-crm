@@ -11,6 +11,7 @@ import { createWorker } from './worker';
 import { LOOP_DEAD_MS, LOOP_STALE_MS } from './lib/jobs';
 import { shutdownScriptPool } from './crm/scripts';
 import { waitForDatabase } from './lib/wait-db';
+import { createObjectStorage } from './lib/object-storage';
 import type { AppDeps } from './deps';
 
 const log = {
@@ -40,7 +41,9 @@ async function main() {
     mailer: createMailer(config, log),
     fetchImpl: fetch,
     now: () => new Date(),
+    storage: config.objectStorage ? createObjectStorage(config.objectStorage) : null,
   };
+  if (config.objectStorage) log.info({ bucket: config.objectStorage.bucket, endpoint: config.objectStorage.endpoint }, 'Archivos en el bucket S3');
 
   const closers: (() => Promise<void>)[] = [];
   if (config.role === 'web' || config.role === 'all') {

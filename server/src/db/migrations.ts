@@ -574,6 +574,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS source_changes_single_active_uq ON source_chan
 CREATE UNIQUE INDEX IF NOT EXISTS source_changes_single_release_uq ON source_changes ((true)) WHERE status IN ('deploying','rolling_back');
 `,
   },
+  // Aditiva: archivos adjuntos en un bucket compatible con S3 (el de la plantilla de Railway). `storage` dice
+  // dónde está el contenido: 'db' (columna content, como hasta ahora) o 's3' (objeto `object_key` del bucket; content
+  // queda vacío). Los archivos ya guardados siguen en la base de datos y se pueden descargar igual.
+  {
+    id: '006_file_object_storage',
+    sql: () => `ALTER TABLE files ADD COLUMN IF NOT EXISTS storage text NOT NULL DEFAULT 'db';
+ALTER TABLE files ADD COLUMN IF NOT EXISTS object_key text;`,
+  },
 ];
 
 export async function runMigrations(db: Db, log: (msg: string) => void = () => {}) {

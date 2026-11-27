@@ -3,6 +3,7 @@ import type { Db } from './db/db';
 import type { SecretBox } from './lib/crypto';
 import type { Mailer } from './lib/mailer';
 import type { AiManager } from './ai/manager';
+import type { ObjectStorage } from './lib/object-storage';
 
 export interface AppDeps {
   config: AppConfig;
@@ -12,6 +13,8 @@ export interface AppDeps {
   mailer: Mailer;
   fetchImpl: typeof fetch;
   now: () => Date;
+  /** Bucket compatible con S3 para los archivos adjuntos (null = se guardan en PostgreSQL). */
+  storage: ObjectStorage | null;
 }
 
 export function appBaseUrl(deps: AppDeps, req: { protocol: string; headers: Record<string, unknown> }): string {

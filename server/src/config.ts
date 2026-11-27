@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
+import type { ObjectStorageConfig } from './lib/object-storage';
 
 const bool = (def: boolean) =>
   z
@@ -57,6 +58,21 @@ const EnvSchema = z.object({
   RAILWAY_SERVICE_ID: z.string().max(100).optional(),
   CORTEX_SERVICE_ID: z.string().max(100).optional(),
   CI_SERVICE_ID: z.string().max(100).optional(),
+  // Archivos adjuntos en un bucket compatible con S3 (el bucket de la plantilla de Railway las rellena por
+  // referencia: ${{Bucket.ENDPOINT}}, ${{Bucket.BUCKET}}…). Sin ellas, los archivos se guardan en PostgreSQL.
+  S3_ENDPOINT: z.string().max(500).optional(),
+  S3_BUCKET: z.string().max(255).optional(),
+  S3_ACCESS_KEY_ID: z.string().max(512).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().max(512).optional(),
+  S3_REGION: z.string().max(64).optional(),
+  S3_FORCE_PATH_STYLE: bool(false),
+  // Los mismos datos con los nombres estándar de AWS (los que imprime `railway bucket credentials`). Solo se usan
+  // si está el nombre del bucket: unas credenciales de AWS para otra cosa no activan ni rompen nada.
+  AWS_ENDPOINT_URL: z.string().max(500).optional(),
+  AWS_S3_BUCKET_NAME: z.string().max(255).optional(),
+  AWS_ACCESS_KEY_ID: z.string().max(512).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().max(512).optional(),
+  AWS_DEFAULT_REGION: z.string().max(64).optional(),
   // Solo tests / desarrollo
   LLM_ENABLE_MOCK: bool(false),
 });
@@ -80,6 +96,43 @@ export function parseEncryptionKey(raw: string): Buffer {
   if (value.length < 32) throw new Error('APP_ENCRYPTION_KEY debe ser 32 bytes en base64 o un secreto aleatorio de al menos 32 caracteres');
   if (new Set(value).size < 10) throw new Error('APP_ENCRYPTION_KEY no parece aleatoria: genera una nueva');
   return crypto.createHash('sha256').update(`cortex-crm:app-encryption-key:v1:${value}`, 'utf8').digest();
+}
+
+/**
+ * Bucket de archivos: todo o nada. Con alguna variable S3_* (o el nombre del bucket con los nombres de AWS) tienen
+ * que estar las cuatro (endpoint, bucket, clave y secreto); si falta alguna, la aplicación no arranca y lo dice,
+ * en lugar de guardar en silencio los archivos en otro sitio.
+ */
+function objectStorageConfig(e: z.infer<typeof EnvSchema>, isProd: boolean): ObjectStorageConfig | null {
+  const s3 = [e.S3_ENDPOINT, e.S3_BUCKET, e.S3_ACCESS_KEY_ID, e.S3_SECRET_ACCESS_KEY];
+  const group = s3.some(Boolean)
+    ? { names: 'S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID y S3_SECRET_ACCESS_KEY', endpoint: e.S3_ENDPOINT, bucket: e.S3_BUCKET, accessKeyId: e.S3_ACCESS_KEY_ID, secretAccessKey: e.S3_SECRET_ACCESS_KEY, region: e.S3_REGION }
+    : e.AWS_S3_BUCKET_NAME
+      ? { names: 'AWS_ENDPOINT_URL, AWS_S3_BUCKET_NAME, AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY', endpoint: e.AWS_ENDPOINT_URL, bucket: e.AWS_S3_BUCKET_NAME, accessKeyId: e.AWS_ACCESS_KEY_ID, secretAccessKey: e.AWS_SECRET_ACCESS_KEY, region: e.AWS_DEFAULT_REGION }
+      : null;
+  if (!group) return null;
+  if (!group.endpoint || !group.bucket || !group.accessKeyId || !group.secretAccessKey) {
+    throw new Error(`Configuración inválida: el almacenamiento de archivos en un bucket necesita ${group.names} (o ninguna, para guardarlos en PostgreSQL)`);
+  }
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(group.endpoint) ? group.endpoint : `https://${group.endpoint}`);
+  } catch {
+    throw new Error('Configuración inválida: el endpoint del bucket no es una URL válida');
+  }
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local && !isProd)) throw new Error('Configuración inválida: el endpoint del bucket debe usar https');
+  if (url.username || url.password || url.search || url.hash) throw new Error('Configuración inválida: el endpoint del bucket no puede llevar credenciales, consulta ni fragmento');
+  const bucket = group.bucket.trim();
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('Configuración inválida: nombre de bucket no válido (3-63 caracteres: minúsculas, números, puntos y guiones)');
+  return {
+    endpoint: `${url.protocol}//${url.host}`,
+    bucket,
+    accessKeyId: group.accessKeyId.trim(),
+    secretAccessKey: group.secretAccessKey.trim(),
+    region: (group.region ?? '').trim() || 'auto',
+    pathStyle: e.S3_FORCE_PATH_STYLE,
+  };
 }
 
 function roleFromArgv(argv: readonly string[]): 'web' | 'worker' | 'all' | 'ci' | undefined {
@@ -125,6 +178,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
   const encryptionKey = e.APP_ENCRYPTION_KEY ? parseEncryptionKey(e.APP_ENCRYPTION_KEY) : Buffer.alloc(32, 7);
 
   const ipHeader = e.CLIENT_IP_HEADER?.toLowerCase();
+  const objectStorage = objectStorageConfig(e, isProd);
 
   return {
     env: nodeEnv,
@@ -153,6 +207,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Reco
     allowPlatformLlmKeys: e.ALLOW_PLATFORM_LLM_KEYS,
     aiMaxRequestsPerHour: e.AI_MAX_REQUESTS_PER_HOUR,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
+    /** Bucket compatible con S3 para los archivos adjuntos (null = se guardan en PostgreSQL). */
+    objectStorage,
     llmEnableMock: e.LLM_ENABLE_MOCK && !isProd,
     platformAdminSetupToken: e.PLATFORM_ADMIN_SETUP_TOKEN?.trim() || null,
     /** Cabecera de la IP real del cliente (null = solo el salto inmediato). */
