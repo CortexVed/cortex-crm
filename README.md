@@ -1,6 +1,6 @@
 # Cortex CRM
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-crm)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cortex-crm?referralCode=ZmIH7s&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código en [`landing/`](landing/)) · Código abierto bajo la licencia [GNU AGPL v3](LICENSE).
 
@@ -125,7 +125,7 @@ El rol del proceso se elige con `PROCESS_ROLE` (`web`, `worker` o `all`; en prod
 
 ## Despliegue en Railway
 
-**Con la plantilla (recomendado, [despliegue en un clic](https://railway.com/deploy/cortex-crm)):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público), `Worker` y `CI` (solo para el motor de código fuente), sin pedir ningún valor; genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
+**Con la plantilla (recomendado, [despliegue en un clic](https://railway.com/deploy/cortex-crm?referralCode=ZmIH7s&utm_medium=integration&utm_source=template&utm_campaign=generic)):** crea en tu proyecto los servicios `Postgres`, `Cortex` (web, dominio público), `Worker` y `CI` (solo para el motor de código fuente), sin pedir ningún valor; genera la clave de cifrado y el token de instalación, y conecta todas las variables. Después de desplegar:
 
 1. Abre el dominio público de `Cortex` y regístrate (se crea tu organización).
 2. En *Ajustes › Mi cuenta*, pega el `PLATFORM_ADMIN_SETUP_TOKEN` (Railway › `Cortex` › *Variables*) para administrar la plataforma.
