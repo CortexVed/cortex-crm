@@ -150,3 +150,18 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
    - Generar la plantilla de nuevo crea otro borrador independiente y la publicada no cambia. No hace falta para actualizar el código: sus servicios siguen la rama `main` del repositorio.
    - Para cambiar la configuración de la publicada (servicios, bucket, variables) hay que sustituirla: se genera el borrador nuevo, se prueba en un proyecto desechable, se borra la publicada (`railway templates delete`) y se publica el nuevo, que recupera el código `cortex-crm` (así se añadió el Bucket el 2026-11-27). El nombre largo y las descripciones de variables se vuelven a poner en el editor.
    - El Bucket del proyecto de origen se crea como hace `railway bucket create`: `bucketCreate` (a nivel de proyecto) y después `environmentPatchCommit` con `{ "buckets": { "<id>": { "region": "ams", "isCreated": true } } }` para desplegarlo en el entorno. Las variables `S3_*` de `Cortex` y `Worker` son referencias `${{Bucket.…}}`, y los iconos de los servicios se ponen en el proyecto de origen (`serviceUpdate` con `icon`), porque la plantilla los copia de ahí.
+
+## 6. Actualizar la plantilla sin rehacerla
+
+Casi ningún cambio exige generar la plantilla de nuevo. Según lo que cambie:
+
+| Qué cambia | Cómo se publica | ¿Rehacer la plantilla? |
+|---|---|---|
+| **Código** (funciones, arreglos, interfaz, migraciones aditivas) | Publicar en la rama `main` del repositorio público (commit *squash*, sección 5). Las instalaciones nuevas lo reciben directamente y Railway avisa a quien ya la desplegó de que hay una actualización, que aplica cuando quiere ([Template Updates](https://docs.railway.com/templates/updates)) | No |
+| **Ficha** (descripción, resumen, categoría, icono) | `railway templates update <id-de-la-plantilla> --category … --description … --readme-file railway/template-overview.md --image …` sobre la misma plantilla: conserva el código `cortex-crm`, el nombre y las descripciones de variables | No |
+| **Nombre, descripciones de variables, iconos de servicio** | Editor de la plantilla en el panel de Railway (los cambios se preparan y se revisan con un diff antes de aplicarse; quedan en *Activity*) | No |
+| **Infraestructura** (un servicio, volumen o bucket nuevo, una variable obligatoria nueva) | Preferiblemente en el mismo editor de la plantilla (edita la publicada sin cambiar su dirección). Solo en cambios grandes: regenerar y sustituir (sección 5) | Solo si el editor no basta |
+
+Para que la infraestructura casi nunca cambie, las funciones nuevas se diseñan así: la configuración vive en la base de datos (Ajustes de la organización o de la plataforma) y no en variables de entorno; las variables nuevas son opcionales y tienen un valor por defecto seguro, o la aplicación las deduce de las que Railway ya define (`RAILWAY_*`); y las migraciones son aditivas y se aplican solas al arrancar.
+
+Quien despliega solo deja de recibir estas actualizaciones si desconecta sus servicios del repositorio (*Eject* o desconexión de la fuente), que es lo que se recomienda al usar el motor de código fuente para no perder sus propios cambios. Cada versión se resume en [CHANGELOG.md](../CHANGELOG.md), que es lo que conviene revisar antes de actualizar.
