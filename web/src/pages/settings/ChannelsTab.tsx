@@ -55,6 +55,7 @@ interface ConnectResult {
   id: string;
   webhookUrl: string;
   verifyToken?: string;
+  config?: Record<string, unknown>;
 }
 
 const CONNECTORS_KEY = ['comms-connectors'];
@@ -63,6 +64,7 @@ const INBOX_PREVIEW = 12;
 
 const TYPE_STYLES: Record<string, { icon: LucideIcon; tone: string }> = {
   whatsapp: { icon: MessageCircle, tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  apiwass: { icon: MessageCircle, tone: 'bg-green-500/10 text-green-600 dark:text-green-400' },
   telegram: { icon: Send, tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
   gmail: { icon: Mail, tone: 'bg-red-500/10 text-red-600 dark:text-red-400' },
   outlook: { icon: Mail, tone: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
@@ -70,7 +72,7 @@ const TYPE_STYLES: Record<string, { icon: LucideIcon; tone: string }> = {
 };
 const FALLBACK_STYLE = { icon: Plug, tone: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300' };
 
-const CHANNEL_NAMES: Record<string, string> = { whatsapp: 'WhatsApp', telegram: 'Telegram', gmail: 'Gmail', outlook: 'Outlook', slack: 'Slack' };
+const CHANNEL_NAMES: Record<string, string> = { whatsapp: 'WhatsApp', apiwass: 'WhatsApp (ApiWass)', telegram: 'Telegram', gmail: 'Gmail', outlook: 'Outlook', slack: 'Slack' };
 
 // Etiquetas marcadas con msg(): se traducen al mostrarlas con tk().
 const STATUS: Record<string, { label: string; color: Color }> = {
@@ -86,12 +88,19 @@ const bold = (c: ReactNode) => <b>{c}</b>;
 const setupHint = (type: string): ReactNode => {
   if (type === 'whatsapp')
     return tx('Necesitas una app en Meta for Developers con el producto WhatsApp. Copia el <b>Phone number ID</b> (WhatsApp › Configuración de la API), un <b>token de acceso permanente</b> de un usuario del sistema y el <b>App secret</b> (Configuración de la app › Básica).', { b: bold });
+  if (type === 'apiwass')
+    return tx('Necesitas una cuenta en <b>ApiWass</b> con una sesión conectada: crea la sesión, escanea su código QR con el WhatsApp del número y copia el <b>ID de la sesión</b> y tu <b>API key</b> (Perfil). ApiWass usa WhatsApp Web: respeta las normas de WhatsApp (nada de envíos masivos no deseados) para no arriesgar el número.', { b: bold });
   if (type === 'telegram')
     return tx('Crea un bot con <b>@BotFather</b> en Telegram y pega aquí su token. La aplicación debe estar publicada con una URL pública HTTPS (APP_URL) para que Telegram pueda entregar los mensajes.', { b: bold });
   return null;
 };
 
-const DEFAULT_NAMES: Record<string, string> = { whatsapp: 'WhatsApp Business', telegram: msg('Bot de Telegram') };
+const DEFAULT_NAMES: Record<string, string> = { whatsapp: 'WhatsApp Business', apiwass: 'WhatsApp', telegram: msg('Bot de Telegram') };
+
+// Estado de una sesión de ApiWass (código de su API) con un nombre legible.
+const SESSION_STATUS: Record<string, string> = { READY: msg('sesión conectada'), CONNECTED: msg('sesión conectada'), QR_READY: msg('pendiente de escanear el QR'), DISCONNECTED: msg('sesión desconectada') };
+const sessionReady = (status: unknown) => status === 'READY' || status === 'CONNECTED';
+const sessionLabel = (status: string) => (SESSION_STATUS[status] ? tk(SESSION_STATUS[status]) : t('estado de la sesión: {status}', { status }));
 
 function TypeIcon({ type, muted }: { type: string; muted?: boolean }) {
   const s = TYPE_STYLES[type] ?? FALLBACK_STYLE;
@@ -118,6 +127,7 @@ function describeConfig(c: Connector): string {
   const str = (k: string) => (typeof cfg[k] === 'string' && cfg[k] ? (cfg[k] as string) : '');
   if (c.type === 'whatsapp') return [str('displayPhone'), str('verifiedName')].filter(Boolean).join(' · ');
   if (c.type === 'telegram') return str('botUsername') ? `@${str('botUsername')}` : '';
+  if (c.type === 'apiwass') return [str('sessionId') && t('sesión «{session}»', { session: str('sessionId') }), str('sessionStatus') && sessionLabel(str('sessionStatus'))].filter(Boolean).join(' · ');
   return '';
 }
 
@@ -337,7 +347,9 @@ function ConnectedCard({ connectors, types }: { connectors: Connector[]; types: 
         description={
           deleting?.type === 'telegram'
             ? t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan. También se retirará el webhook del bot en Telegram.')
-            : t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan.')
+            : deleting?.type === 'apiwass'
+              ? t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan. Quita también el webhook de la sesión en el panel de ApiWass.')
+              : t('Dejarás de recibir sus mensajes y no podrás responder por él desde el CRM. Los mensajes ya recibidos se conservan.')
         }
       />
     </Card>
@@ -401,6 +413,12 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
     tx('En los campos del webhook, suscríbete a {field}.', { field: <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">messages</code> }),
     t('Los mensajes entrantes se asignarán al contacto cuyo teléfono coincida con el del remitente.'),
   ];
+  const code = (v: string) => <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">{v}</code>;
+  const apiwassSteps: ReactNode[] = [
+    tx('En ApiWass, abre la sesión y ve a <b>Credenciales › Integraciones & Webhooks › Configurar Webhook y Eventos</b>.', { b: bold }),
+    tx('Pega la URL del webhook, marca los eventos {received} y {status} y guarda los cambios.', { received: code('messages.received'), status: code('session.status') }),
+    t('Los mensajes entrantes se asignarán al contacto cuyo teléfono coincida con el del remitente. Desde su ficha puedes responder o escribirle primero.'),
+  ];
   const telegramSteps: ReactNode[] = [
     t('El webhook se ha configurado automáticamente en Telegram: no tienes que hacer nada más.'),
     t('Escribe a tu bot para probarlo. Los mensajes se vinculan al contacto cuyo campo «telegram» coincida con el usuario del remitente.'),
@@ -448,6 +466,15 @@ function ConnectModal({ def, onClose }: { def: ConnectorType; onClose: () => voi
           )}
           {def.type === 'whatsapp' && <Steps items={whatsappSteps} />}
           {def.type === 'telegram' && <Steps items={telegramSteps} />}
+          {def.type === 'apiwass' && (
+            <>
+              <Steps items={apiwassSteps} />
+              {typeof result.config?.sessionStatus === 'string' && !sessionReady(result.config.sessionStatus) && (
+                <Alert tone="warning">{t('La sesión no está conectada ahora mismo ({status}). Escanea su código QR en ApiWass para poder enviar y recibir mensajes.', { status: sessionLabel(result.config.sessionStatus) })}</Alert>
+              )}
+              <Alert tone="info">{t('ApiWass no firma sus avisos: esta URL es secreta y quien la conozca podría enviar mensajes falsos a tu CRM. Si se filtra, elimina el canal y vuelve a conectarlo.')}</Alert>
+            </>
+          )}
           {warned && !tokenCopied && (
             <Alert tone="danger">{t('Aún no has copiado el token de verificación. Sin él no podrás completar la configuración en Meta y tendrías que eliminar y volver a conectar el canal.')}</Alert>
           )}
@@ -567,7 +594,7 @@ function InboxCard({ types }: { types: ConnectorType[] }) {
                         )
                       ) : (
                         <span className="text-amber-700 dark:text-amber-400">
-                          {m.channel === 'whatsapp'
+                          {m.channel === 'whatsapp' || m.channel === 'apiwass'
                             ? t('Sin vincular: ningún contacto tiene ese teléfono')
                             : m.channel === 'telegram'
                               ? t('Sin vincular: ningún contacto tiene ese usuario de Telegram')

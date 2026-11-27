@@ -119,7 +119,7 @@ function Timeline({ mod, recordId }: { mod: Module; recordId: string }) {
                 {it.kind === 'message' && (
                   <div className={cx('rounded-lg px-3 py-2', it.direction === 'inbound' ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-zinc-100 dark:bg-zinc-800')}>
                     <div className="text-xs text-zinc-500">
-                      <Badge color={it.channel === 'whatsapp' ? 'green' : 'sky'}>{it.channel === 'whatsapp' ? 'WhatsApp' : 'Telegram'}</Badge> {it.direction === 'inbound' ? t('de {from}', { from: it.from ?? t('contacto') }) : t('enviado')}
+                      <Badge color={it.channel === 'telegram' ? 'sky' : 'green'}>{it.channel === 'telegram' ? 'Telegram' : 'WhatsApp'}</Badge> {it.direction === 'inbound' ? t('de {from}', { from: it.from ?? t('contacto') }) : t('enviado')}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap">{it.body}</p>
                   </div>
@@ -230,7 +230,7 @@ function Messaging({ mod, recordId }: { mod: Module; recordId: string }) {
       <div className="space-y-2">
         {active.length > 1 && (
           <Select value={connectorId || active[0].id} onChange={(e) => setConnectorId(e.target.value)}>
-            {active.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
+            {active.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.type === 'telegram' ? 'Telegram' : c.type === 'apiwass' ? 'WhatsApp · ApiWass' : 'WhatsApp'})</option>)}
           </Select>
         )}
         <Textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Escribe un mensaje…')} />

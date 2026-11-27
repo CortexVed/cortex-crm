@@ -2,18 +2,23 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { appBaseUrl, type AppDeps } from '../deps';
 import { audit } from '../lib/audit';
-import { hmacHex, newId, randomToken, safeEqual } from '../lib/crypto';
+import { hmacHex, newId, randomToken, safeEqual, sha256 } from '../lib/crypto';
 import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors';
 import { requireUserSession, requireWorkspace } from '../auth/plugin';
 import { hasRole, type Role } from '../../../shared/constants';
 import { findModule } from '../../../shared/blueprint';
-import { effectiveLocale } from '../../../shared/i18n';
+import { effectiveLocale, localeFromRegion } from '../../../shared/i18n';
 import { isUuid } from '../../../shared/records';
 import type { Queryable } from '../db/db';
-import { inSentence, t, withLocale } from '../i18n';
+import { inSentence, msg, t, tk, withLocale } from '../i18n';
 import { loadWorkspace } from '../crm/context';
 import { PgSideEffects } from '../crm/effects';
 import {
+  APIWASS_SESSION_RE,
+  apiwassSameSession,
+  apiwassSend,
+  apiwassStatusOf,
+  apiwassVerify,
   connectorTypes,
   phoneDigits,
   telegramDeleteWebhook,
@@ -73,6 +78,12 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
       await telegramSetWebhook(deps.fetchImpl, token, `${base}/api/hooks/telegram/${webhookToken}`, tgSecret(id));
       config = { botUsername: me.username };
       secrets.botToken = token;
+    } else if (def.type === 'apiwass') {
+      const sessionId = body.credentials.sessionId.trim();
+      if (!APIWASS_SESSION_RE.test(sessionId)) throw badRequest(msg('El ID de la sesión solo puede tener letras, números y los signos . _ - @'));
+      const info = await apiwassVerify(deps.fetchImpl, body.credentials.apiKey.trim(), sessionId);
+      config = { sessionId, sessionStatus: info.status };
+      secrets.apiKey = body.credentials.apiKey.trim();
     } else if (def.type === 'whatsapp') {
       const info = await whatsappVerify(deps.fetchImpl, body.credentials.phoneNumberId.trim(), body.credentials.accessToken.trim());
       config = { phoneNumberId: body.credentials.phoneNumberId.trim(), displayPhone: info.displayPhone, verifiedName: info.name };
@@ -92,6 +103,7 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
       webhookUrl: `${base}/api/hooks/${def.type}/${webhookToken}`,
       // Solo para WhatsApp: el token de verificación se muestra una vez para configurarlo en Meta.
       verifyToken: def.type === 'whatsapp' ? secrets.verifyToken : undefined,
+      config,
     };
   });
 
@@ -144,10 +156,10 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
     const { recordId } = z.object({ recordId: z.string().uuid() }).parse(req.body);
     await deps.db.tenant(a.workspaceId, async (q) => {
       await editableRecord(q, a, recordId);
-      const msg = (await q.query(`SELECT m.record_id, r.module_key FROM channel_messages m LEFT JOIN records r ON r.id = m.record_id WHERE m.id = $1 AND m.workspace_id = $2`, [id, a.workspaceId])).rows[0];
-      if (!msg) throw notFound('Mensaje no encontrado');
+      const message = (await q.query(`SELECT m.record_id, r.module_key FROM channel_messages m LEFT JOIN records r ON r.id = m.record_id WHERE m.id = $1 AND m.workspace_id = $2`, [id, a.workspaceId])).rows[0];
+      if (!message) throw notFound('Mensaje no encontrado');
       // Mover un mensaje ya vinculado exige poder editar también la ficha de origen; los no vinculados, administradores.
-      if (msg.record_id) await editableRecord(q, a, msg.record_id);
+      if (message.record_id) await editableRecord(q, a, message.record_id);
       else if (!hasRole(a.role, 'admin')) throw notFound('Mensaje no encontrado');
       await q.query(`UPDATE channel_messages SET record_id = $1 WHERE id = $2 AND workspace_id = $3`, [recordId, id, a.workspaceId]);
     });
@@ -174,6 +186,10 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
         to = phoneDigits(rec.data.phone);
         if (to.length < 8) throw badRequest('El registro no tiene un teléfono válido');
         externalId = await whatsappSend(deps.fetchImpl, c.config.phoneNumberId, s.accessToken, to, body.text);
+      } else if (c.type === 'apiwass') {
+        to = phoneDigits(rec.data.phone);
+        if (to.length < 8) throw badRequest('El registro no tiene un teléfono válido');
+        externalId = await apiwassSend(deps.fetchImpl, s.apiKey, c.config.sessionId, to, body.text);
       }
       const id = newId();
       await q.query(
@@ -192,18 +208,18 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
     return (await deps.db.query(`SELECT * FROM connectors WHERE webhook_token = $1 AND type = $2 AND status = 'active'`, [token, type])).rows[0] ?? null;
   };
 
-  const storeInbound = async (c: any, msg: { externalId: string; from: string; body: string; payload: Record<string, unknown>; match: { field: 'phone' | 'telegram'; value: string } }) => {
+  const storeInbound = async (c: any, inbound: { externalId: string; from: string; body: string; payload: Record<string, unknown>; match: { field: 'phone' | 'telegram'; value: string } }) => {
     await deps.db.tenant(c.workspace_id, async (q) => {
-      const dup = await q.query(`SELECT 1 FROM channel_messages WHERE workspace_id = $1 AND channel = $2 AND external_id = $3`, [c.workspace_id, c.type, msg.externalId]);
+      const dup = await q.query(`SELECT 1 FROM channel_messages WHERE workspace_id = $1 AND channel = $2 AND external_id = $3`, [c.workspace_id, c.type, inbound.externalId]);
       if (dup.rows.length) return;
       let recordId: string | null = null;
-      if (msg.match.value) {
+      if (inbound.match.value) {
         // Coincidencia EXACTA (teléfono completo en formato internacional, sin símbolos) y solo si es única:
         // comparar los últimos dígitos mezclaba números de países distintos y respondía a otra persona.
         const r =
-          msg.match.field === 'phone'
-            ? await q.query(`SELECT id, data FROM records WHERE workspace_id = $1 AND module_key = 'contacts' AND deleted_at IS NULL AND regexp_replace(COALESCE(data->>'phone',''), '\\D', '', 'g') = $2 LIMIT 2`, [c.workspace_id, msg.match.value.replace(/\D/g, '')])
-            : await q.query(`SELECT id, data FROM records WHERE workspace_id = $1 AND module_key = 'contacts' AND deleted_at IS NULL AND lower(ltrim(data->>'telegram', '@')) = lower($2) LIMIT 2`, [c.workspace_id, msg.match.value]);
+          inbound.match.field === 'phone'
+            ? await q.query(`SELECT id, data FROM records WHERE workspace_id = $1 AND module_key = 'contacts' AND deleted_at IS NULL AND regexp_replace(COALESCE(data->>'phone',''), '\\D', '', 'g') = $2 LIMIT 2`, [c.workspace_id, inbound.match.value.replace(/\D/g, '')])
+            : await q.query(`SELECT id, data FROM records WHERE workspace_id = $1 AND module_key = 'contacts' AND deleted_at IS NULL AND lower(ltrim(data->>'telegram', '@')) = lower($2) LIMIT 2`, [c.workspace_id, inbound.match.value]);
         recordId = r.rows.length === 1 ? r.rows[0].id : null;
         if (recordId) {
           await q.query(`UPDATE records SET last_activity_at = now() WHERE id = $1`, [recordId]);
@@ -216,15 +232,15 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
             // Webhook sin sesión: el aviso se redacta en el idioma de quien lo recibe (el suyo o el de la organización).
             const preference = isUuid(owner) ? (await q.query(`SELECT locale FROM users WHERE id = $1`, [owner])).rows[0]?.locale : null;
             const orgTag = loaded.settings.locale;
-            const channel = c.type === 'whatsapp' ? 'WhatsApp' : 'Telegram';
+            const channel = c.type === 'telegram' ? 'Telegram' : 'WhatsApp';
             const title = withLocale(effectiveLocale(preference, orgTag), () => t('Nuevo mensaje de {channel}', { channel }), orgTag);
-            await effects.notify({ userIds: [owner], title, body: msg.body.slice(0, 140), link: `/m/contacts/${recordId}`, kind: 'message', readRole });
+            await effects.notify({ userIds: [owner], title, body: inbound.body.slice(0, 140), link: `/m/contacts/${recordId}`, kind: 'message', readRole });
           }
         }
       }
       await q.query(
         `INSERT INTO channel_messages (id, workspace_id, connector_id, channel, direction, external_id, from_address, body, payload, record_id) VALUES ($1,$2,$3,$4,'inbound',$5,$6,$7,$8,$9)`,
-        [newId(), c.workspace_id, c.id, c.type, msg.externalId, msg.from, msg.body.slice(0, 8000), JSON.stringify(msg.payload), recordId],
+        [newId(), c.workspace_id, c.id, c.type, inbound.externalId, inbound.from, inbound.body.slice(0, 8000), JSON.stringify(inbound.payload), recordId],
       );
       await q.query(`UPDATE connectors SET last_event_at = now() WHERE id = $1`, [c.id]);
     });
@@ -281,6 +297,66 @@ export async function commsRoutes(app: FastifyInstance, deps: AppDeps) {
         }
       }
     }
+    return reply.send({ ok: true });
+  });
+
+  // ApiWass no firma sus webhooks: la autenticidad la da el token secreto de la URL (solo lo ven propietarios y
+  // administradores). Lo que se ignora responde 200 para que ApiWass no lo reintente.
+  const APIWASS_MEDIA: Record<string, string> = {
+    image: msg('[Imagen]'),
+    video: msg('[Vídeo]'),
+    ptt: msg('[Nota de voz]'),
+    audio: msg('[Audio]'),
+    document: msg('[Documento]'),
+    sticker: msg('[Sticker]'),
+    location: msg('[Ubicación]'),
+    contact: msg('[Contacto]'),
+  };
+  const apiwassPlaceholder = (type: string) => {
+    const k = Object.keys(APIWASS_MEDIA).find((key) => type.toLowerCase().includes(key));
+    return k ? APIWASS_MEDIA[k]! : msg('[Mensaje sin texto]');
+  };
+
+  app.post('/hooks/apiwass/:token', HOOK_LIMIT, async (req, reply) => {
+    const { token } = z.object({ token: z.string().max(80) }).parse(req.params);
+    const c = await connectorByToken('apiwass', token);
+    if (!c) throw notFound();
+    const ev = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, any>;
+    if (!apiwassSameSession(ev.sessionId, String(c.config?.sessionId ?? ''))) return reply.send({ ok: true, ignored: 'session' });
+    if (ev.event === 'session.status') {
+      const status = apiwassStatusOf(ev);
+      if (status) {
+        await deps.db.tenant(c.workspace_id, (q) =>
+          q.query(`UPDATE connectors SET config = config || $1::jsonb, last_event_at = now() WHERE id = $2 AND workspace_id = $3`, [JSON.stringify({ sessionStatus: status }), c.id, c.workspace_id]),
+        );
+      }
+      return reply.send({ ok: true });
+    }
+    if (ev.event !== 'messages.received') return reply.send({ ok: true, ignored: 'event' });
+    const raw = ev.raw && typeof ev.raw === 'object' ? (ev.raw as Record<string, any>) : {};
+    const fromRaw = String(ev.from ?? '');
+    const remoteJid = String(raw.key?.remoteJid ?? '');
+    // Grupos y mensajes propios no se registran: el CRM vincula conversaciones con un contacto.
+    if (fromRaw.includes('@g.us') || remoteJid.endsWith('@g.us') || raw.key?.fromMe === true) return reply.send({ ok: true, ignored: 'group' });
+    const from = phoneDigits(fromRaw.split('@')[0]);
+    if (from.length < 6) return reply.send({ ok: true, ignored: 'sender' });
+    const text = typeof ev.text === 'string' ? ev.text.trim() : '';
+    const type = String(ev.messageType ?? '').slice(0, 40);
+    // Sin texto (foto, audio…): un aviso en el idioma de la organización.
+    const orgTag: string | null = (await deps.db.query(`SELECT settings->>'locale' AS tag FROM workspaces WHERE id = $1`, [c.workspace_id])).rows[0]?.tag ?? null;
+    const content = text || withLocale(localeFromRegion(orgTag), () => tk(apiwassPlaceholder(type)), orgTag);
+    // ApiWass no documenta el id del mensaje: se usa el de WhatsApp si viene en «raw» y, si no, una huella del
+    // contenido, para no duplicarlo si reintenta la entrega.
+    const keyId = typeof raw.key?.id === 'string' && raw.key.id ? String(raw.key.id).slice(0, 200) : null;
+    const externalId = keyId ?? `h:${sha256(`${from}|${ev.timestamp ?? ''}|${type}|${text}`).slice(0, 40)}`;
+    const name = typeof ev.pushName === 'string' ? ev.pushName.trim().slice(0, 80) : '';
+    await storeInbound(c, {
+      externalId,
+      from: name ? `${name} (+${from})` : `+${from}`,
+      body: content,
+      payload: { phone: from, pushName: name || undefined, messageType: type || undefined, timestamp: typeof ev.timestamp === 'number' || typeof ev.timestamp === 'string' ? ev.timestamp : undefined },
+      match: { field: 'phone', value: from },
+    });
     return reply.send({ ok: true });
   });
 }

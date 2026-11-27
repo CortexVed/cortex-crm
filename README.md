@@ -6,7 +6,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 **CRM multi-organización, evolutivo y multi-LLM.** Cada organización adapta su CRM describiendo en lenguaje natural lo que necesita: EVOLVE AI ENGINE interpreta la petición, planifica los cambios (configuración y, si hace falta lógica a medida, scripts propios de esa organización), los prueba en un entorno aislado y los presenta para que una persona los apruebe; cada publicación es una versión nueva, verificada y reversible, que solo afecta a esa organización y nunca se publica en un repositorio. Funciona con Claude, OpenAI, DeepSeek u OpenRouter (y Gemini, Mistral y Groq en modo experimental) sin depender de ninguno.
 
-> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (310 tests en 21 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
+> Estado: fases 1–7 implementadas y cubiertas por tests automatizados (317 tests en 22 archivos, todos superados); fase 8 parcial (analizador de seguridad y endurecimiento hechos; capacidades comerciales pendientes). Ver [limitaciones](#limitaciones-conocidas).
 
 ## Funcionalidades
 
@@ -19,7 +19,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 - **Asistente EVOLVE AI** contextual (entiende la pantalla actual), con herramientas que respetan permisos; las escrituras siempre requieren confirmación. Memoria de IA por organización y usuario.
 - **IA sobre los datos**, cada función con su propio tipo de tarea (y modelo configurable): «Pregunta a tus datos» en Informes (la pregunta se convierte en una consulta estructurada y validada, nunca en SQL, y se puede añadir al panel), «Clasificar con IA» en la ficha (sugiere valores para los campos de selección; no se guarda nada hasta aplicarlo) y análisis de documentos PDF o de texto (resumen, fechas, importes, riesgos y tareas sugeridas).
 - **Automatizaciones** por evento y programadas (fechas, inactividad), que pueden ejecutar scripts de la organización; **paneles** personalizables, **informes** (ventas, conversión, actividad, rendimiento, clientes) y **predicciones con IA**.
-- **Comunicaciones**: WhatsApp Business (Cloud API) y Telegram; Gmail, Outlook y Slack preparados y marcados como no disponibles.
+- **Comunicaciones**: WhatsApp con la Cloud API de Meta o con [ApiWass](https://apiwass.com) (un número vinculado por QR) y Telegram; Gmail, Outlook y Slack preparados y marcados como no disponibles.
 - **Multi-organización con aislamiento estricto** (filtros de aplicación + Row Level Security de PostgreSQL, con tests entre organizaciones), 5 roles, API keys, auditoría, CSRF, CSP, *rate limiting* y cifrado AES-256-GCM.
 - **Siete idiomas**: español, inglés, portugués de Brasil, francés, alemán, italiano y japonés. Cada persona elige el suyo (o usa el de su organización); el servidor, los correos, el CRM inicial de cada organización y las respuestas de la IA siguen ese idioma (ver [shared/i18n/README.md](shared/i18n/README.md)).
 - **Interfaz** con modo claro/oscuro, paleta de comandos (`⌘/Ctrl+K`), atajos de teclado, notificaciones y panel de IA (`⌘/Ctrl+J`) en todas las pantallas, abierto por defecto en pantallas de 1280 px o más.
@@ -39,7 +39,7 @@ Web del proyecto: **https://cortex-crm-web-production.up.railway.app** (código 
 
 ```text
 server/src/   API Fastify, worker, IA, EVOLVE, CRM (incluido el sandbox de scripts), seguridad   (ver docs/ARCHITECTURE.md)
-server/test/  Tests Vitest (310 tests en 21 archivos)
+server/test/  Tests Vitest (317 tests en 22 archivos)
 shared/       Esquemas y lógica compartidos por servidor, sandbox y cliente
 web/          SPA React (Vite)
 docs/         Documentación técnica y de producto
@@ -88,7 +88,7 @@ Para usar un PostgreSQL local, define `DATABASE_URL`; el usuario debe poder crea
 ## Tests
 
 ```bash
-npm test             # Vitest: 310 tests en 21 archivos (PGlite en memoria + proveedor de IA simulado)
+npm test             # Vitest: 317 tests en 22 archivos (PGlite en memoria + proveedor de IA simulado)
 npm run typecheck    # TypeScript del servidor y del cliente
 ```
 
@@ -157,7 +157,7 @@ Composición exacta de la plantilla y cómo mantenerla: [docs/RAILWAY_TEMPLATE.m
 - Los adaptadores de IA están probados con HTTP simulado, **no contra las APIs reales** (en la última verificación de producción no había ninguna clave de proveedor configurada); Gemini, Mistral y Groq son experimentales. El envío de PDF a OpenAI y OpenRouter (parte `file` de Chat Completions) está implementado pero sin probar contra sus APIs ni cubierto por tests; el resto de proveedores compatibles con OpenAI rechazan los PDF.
 - La escritura de código de scripts por un modelo real no se ha ejercitado (solo con el proveedor simulado); un script no puede usar red ni credenciales, y lo que necesita una funcionalidad nueva de la plataforma queda registrado en la petición y en la bandeja del motor de código fuente.
 - El motor de código fuente solo se ha probado con la IA y Railway simulados (el protocolo de subida, el esquema GraphQL y el tar están comprobados, pero no contra un proyecto real); la seguridad frente a un cambio de lógica malicioso que respete las reglas depende de la revisión humana del diff ([riesgos](docs/CODE_ENGINE.md#13-limitaciones-y-riesgos-abiertos)).
-- WhatsApp y Telegram están implementados pero sin probar con credenciales reales; Gmail, Outlook y Slack no están implementados (requieren apps OAuth de plataforma).
+- WhatsApp (Cloud API y ApiWass) y Telegram están implementados pero sin probar con credenciales reales; Gmail, Outlook y Slack no están implementados (requieren apps OAuth de plataforma).
 - El correo requiere `RESEND_API_KEY` + `EMAIL_FROM` (sin configurar en la última verificación de producción); la verificación de email no bloquea el uso (con el correo configurado, solo muestra un aviso).
 - *Rate limiting* en memoria por instancia; respuestas del asistente sin *streaming*; sin 2FA/SSO; sin facturación; sin tests E2E en CI; archivos en PostgreSQL salvo con un bucket S3 configurado (la plantilla incluye uno); la aplicación se conecta a PostgreSQL como superusuario (RLS mediante `SET LOCAL ROLE`).
 

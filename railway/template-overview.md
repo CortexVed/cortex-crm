@@ -20,7 +20,7 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 - **Custom modules and fields:** up to 2,000 modules per organization, with table, kanban and calendar views, relations, formulas and public forms.
 - **Automations:** event-based and scheduled rules, outgoing webhooks, and sandboxed scripts (QuickJS compiled to WebAssembly) for custom logic.
 - **AI assistant:** answers questions about your data, summarizes records and prepares changes that you confirm.
-- **Channels:** WhatsApp Cloud API and Telegram. Customer messages land on the contact's record and you reply from the CRM.
+- **Channels:** WhatsApp (Meta's Cloud API, or ApiWass to link a number by QR) and Telegram. Customer messages land on the contact's record and you reply from the CRM.
 - **Security:** roles and per-module permissions, audit log, API keys, encrypted secrets and a built-in security review.
 - **Seven languages:** English, Spanish, Brazilian Portuguese, French, German, Italian and Japanese. Each person picks theirs; emails, the starting CRM of each organization and the AI's answers follow it.
 - **Your look:** custom colors, density, navigation and pages, with light and dark themes.
@@ -30,7 +30,7 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 
 - PostgreSQL and a Railway Bucket for file attachments (both included in the template)
 - An API key from at least one AI provider: Anthropic Claude, OpenAI, DeepSeek or OpenRouter (Google Gemini, Mistral and Groq are experimental). The core CRM works without one; the AI features use your own key, so you pay your provider directly.
-- Optional: a Resend API key for email, and WhatsApp Cloud API or Telegram credentials for messaging
+- Optional: a Resend API key for email, and WhatsApp (Cloud API or ApiWass) or Telegram credentials for messaging
 
 ### Deployment Dependencies
 

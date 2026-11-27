@@ -214,7 +214,7 @@ Más reglas de la auditoría de noviembre de 2026:
 - Sin seguir redirecciones y con **plazo total de 10 s** (DNS, conexión, TLS, envío y respuesta completa): un destino que contesta muy despacio o deja la respuesta a medias ya no puede retener al worker. La respuesta se limita a 64 KB: al superarlos se corta la conexión y la entrega cuenta con el código de estado recibido (no se reintenta, así no se duplica). Además, el plazo del trabajo (30 s) corta la conexión aunque el destino siga enviando.
 - Un error SSRF es permanente (no se reintenta); el resto se reintenta hasta 5 veces con *backoff*. La cola ejecuta como mucho 2 trabajos por organización a la vez (ver [ARCHITECTURE.md](ARCHITECTURE.md)), así que los webhooks lentos de una organización no bloquean a las demás.
 - Antes de eso, la validación del blueprint exige HTTPS sin credenciales y rechaza destinos internos, y el sandbox lo vuelve a comprobar.
-- El resto de llamadas salientes (proveedores de IA, Resend, Meta, Telegram) van a hosts fijos definidos en el código, no configurables por las organizaciones. Los scripts de las organizaciones no tienen red.
+- El resto de llamadas salientes (proveedores de IA, Resend, Meta, Telegram, ApiWass) van a hosts fijos definidos en el código, no configurables por las organizaciones. Los scripts de las organizaciones no tienen red.
 
 ### 2.13 Webhooks salientes firmados
 
@@ -228,6 +228,7 @@ Cabeceras de cada entrega (`webhook.deliver` en `server/src/worker.ts`): `X-Cort
 - URL con un **token aleatorio de 24 bytes** por conector (`/api/hooks/<tipo>/<token>`); token desconocido → 404.
 - **Telegram**: cabecera `X-Telegram-Bot-Api-Secret-Token` comparada en tiempo constante con un secreto derivado que se registró en `setWebhook`; además se exige que la aplicación tenga URL pública HTTPS para crear el conector.
 - **WhatsApp (Cloud API)**: verificación de suscripción con `hub.verify_token` aleatorio; cada POST exige `X-Hub-Signature-256` = HMAC-SHA256 con el *app secret* sobre el **cuerpo original** (el parser JSON conserva `rawBody`).
+- **WhatsApp con ApiWass**: ApiWass no firma sus webhooks, así que el **token secreto de la URL** es la única prueba de origen (solo lo ven propietarios y administradores; si se filtra, se elimina el canal y se vuelve a conectar). Se comprueba además que el evento sea de la sesión del canal, y el contenido se trata como datos. Los avisos sin id de WhatsApp se deduplican con una huella SHA-256 del contenido.
 - Deduplicación por `external_id`, cuerpo truncado, escritura en contexto RLS de la organización del conector y límite de 240/min.
 
 ### 2.15 Archivos (`server/src/crm/routes.ts`)

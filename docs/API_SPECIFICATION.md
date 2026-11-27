@@ -285,13 +285,13 @@ No existe ninguna ruta de código ni de repositorios: las antiguas `/api/evolve/
 | Método | Ruta | Rol | Auth | Lím./min | Descripción |
 |---|---|---|---|---|---|
 | GET | `/connectors` | viewer | S/K | | `{types: [{type, label, status: available\|planned, description, fields, plannedReason?, docsUrl}], connectors: [{id, type, name, status, config, lastError, lastEventAt, createdAt, webhookUrl?}]}`; `webhookUrl` solo para administradores |
-| POST | `/connectors` | admin | S | 10 | `{type: whatsapp\|telegram, name, credentials}` → `{id, webhookUrl, verifyToken?}` |
+| POST | `/connectors` | admin | S | 10 | `{type: whatsapp\|apiwass\|telegram, name, credentials}` → `{id, webhookUrl, verifyToken?, config}` |
 | DELETE | `/connectors/:id` | admin | S/K | | → `{ok}` (en Telegram elimina el webhook del bot) |
 | GET | `/inbox` | member | S/K | | Últimos 100 mensajes `[{id, channel, direction, from_address, body, record_id, created_at}]` |
 | POST | `/messages/:id/link` | member | S/K | | `{recordId}` vincula un mensaje a un registro → `{ok}` |
 | POST | `/send` | member | S/K | 30 | `{connectorId, recordId, text (1–4000)}` → `{id, externalId}` |
 
-Credenciales: WhatsApp `{phoneNumberId, accessToken, appSecret}` (se verifican contra la Graph API; `verifyToken` se muestra una sola vez para configurarlo en Meta); Telegram `{botToken}` (se verifica con `getMe`, requiere `APP_URL` HTTPS y registra el webhook). En Telegram solo se puede responder a contactos que hayan escrito antes al bot; en WhatsApp se envía al campo `phone` del registro. Gmail, Outlook y Slack aparecen como `planned` y su alta devuelve `400`.
+Credenciales: WhatsApp `{phoneNumberId, accessToken, appSecret}` (se verifican contra la Graph API; `verifyToken` se muestra una sola vez para configurarlo en Meta); Telegram `{botToken}` (se verifica con `getMe`, requiere `APP_URL` HTTPS y registra el webhook); ApiWass `{apiKey, sessionId}` (se comprueban con `GET https://apiwass.com/api/sessions/:id/status` y se guarda el estado de la sesión; el webhook se configura a mano en el panel de ApiWass). En Telegram solo se puede responder a contactos que hayan escrito antes al bot; en WhatsApp (Cloud API o ApiWass) se envía al campo `phone` del registro. Gmail, Outlook y Slack aparecen como `planned` y su alta devuelve `400`.
 
 ## 12. Webhooks entrantes (públicos)
 
@@ -300,6 +300,7 @@ Credenciales: WhatsApp `{phoneNumberId, accessToken, appSecret}` (se verifican c
 | POST | `/api/hooks/telegram/:token` | 240 | Cabecera `X-Telegram-Bot-Api-Secret-Token` (secreto registrado al crear el conector). Mensajes de texto → `{ok: true}` |
 | GET | `/api/hooks/whatsapp/:token` | 240 | Suscripción de Meta: `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge` → devuelve el *challenge* en texto plano |
 | POST | `/api/hooks/whatsapp/:token` | 240 | `X-Hub-Signature-256: sha256=<HMAC-SHA256(appSecret, cuerpo original)>`. Mensajes de texto → `{ok: true}` |
+| POST | `/api/hooks/apiwass/:token` | 240 | Ninguna firma (ApiWass no firma): el token secreto de la URL autentica. `messages.received` de la sesión del canal (sin grupos ni mensajes propios; sin texto se guarda un aviso como «[Imagen]»); `session.status` actualiza el estado de la sesión; el resto se ignora → `{ok: true}` |
 
 Token desconocido → `404`; firma inválida → `401`. Los mensajes se vinculan al contacto por teléfono (últimos 9 dígitos) o por usuario de Telegram, y se avisa a su responsable.
 

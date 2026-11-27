@@ -32,6 +32,17 @@ export const connectorTypes = (): ConnectorType[] => [
     docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
   },
   {
+    type: 'apiwass',
+    label: t('WhatsApp con ApiWass'),
+    status: 'available',
+    description: t('Conecta un número de WhatsApp vinculado en ApiWass escaneando un código QR, sin la API oficial de Meta. Los mensajes llegan a la ficha del contacto por su teléfono y respondes desde el CRM.'),
+    fields: [
+      { key: 'apiKey', label: t('API key de ApiWass'), secret: true, help: t('ApiWass › Perfil (empieza por sk_)') },
+      { key: 'sessionId', label: t('ID de la sesión'), secret: false, help: t('El alias de la sesión en ApiWass, p. ej. «ventas»') },
+    ],
+    docsUrl: 'https://apiwass.com/api-docs',
+  },
+  {
     type: 'telegram',
     label: 'Telegram Bot',
     status: 'available',
@@ -125,6 +136,66 @@ export async function whatsappSend(fetchImpl: typeof fetch, phoneNumberId: strin
     'WhatsApp',
   );
   return String(r.messages?.[0]?.id ?? '');
+}
+
+// ---------------------------------------------------------------- ApiWass (WhatsApp vinculado por QR)
+//
+// API REST de https://apiwass.com/api-docs: clave en la cabecera x-api-key; cada número de WhatsApp es una «sesión»
+// identificada por el alias que se le dio en ApiWass. Los mensajes entrantes llegan por un webhook que se configura en
+// su panel (sesión › Credenciales › Integraciones & Webhooks). ApiWass no firma esos envíos: la autenticidad la da el
+// token secreto de la URL del webhook de cada canal.
+
+export const APIWASS_API = 'https://apiwass.com/api';
+
+/** Alias de sesión aceptado (va en la ruta de la API). */
+export const APIWASS_SESSION_RE = /^[\w.@-]{1,100}$/;
+
+async function apiwassError(res: Response, sessionId: string): Promise<AppError> {
+  const body: any = await res.json().catch(() => ({}));
+  const detail = String(body?.error ?? body?.message ?? res.statusText ?? '').slice(0, 300);
+  if (res.status === 401) return new AppError(400, 'connector_error', t('ApiWass: la API key no es válida.'));
+  if (res.status === 403) return new AppError(400, 'connector_error', t('ApiWass: la sesión «{session}» pertenece a otra cuenta o la suscripción no está activa.', { session: sessionId }));
+  if (res.status === 404) return new AppError(400, 'connector_error', t('ApiWass: no existe la sesión «{session}».', { session: sessionId }));
+  if (res.status === 429) return new AppError(429, 'connector_rate_limited', t('ApiWass: demasiados mensajes seguidos. Reintenta en {seconds} s.', { seconds: Number(res.headers.get('retry-after')) || 60 }));
+  if (res.status === 400) return new AppError(400, 'connector_error', t('ApiWass no ha aceptado la petición (¿la sesión está conectada?): {message}', { message: detail }));
+  return new AppError(502, 'connector_error', t('{name}: {message}', { name: 'ApiWass', message: detail || String(res.status) }));
+}
+
+/** Estado de una sesión en la respuesta de ApiWass (READY, QR_READY, DISCONNECTED…), esté donde esté. */
+export function apiwassStatusOf(body: unknown): string | null {
+  const b = (body ?? {}) as Record<string, any>;
+  for (const v of [b.status, b.state, b.data?.status, b.data?.state, b.session?.status, b.session?.state]) {
+    if (typeof v === 'string' && v.trim()) return v.trim().toUpperCase().slice(0, 40);
+  }
+  if (typeof b.connected === 'boolean') return b.connected ? 'READY' : 'DISCONNECTED';
+  return null;
+}
+
+/** Comprueba la API key y la sesión; devuelve su estado (null si ApiWass no lo indica). */
+export async function apiwassVerify(fetchImpl: typeof fetch, apiKey: string, sessionId: string) {
+  const res = await fetchImpl(`${APIWASS_API}/sessions/${encodeURIComponent(sessionId)}/status`, { headers: { 'x-api-key': apiKey }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw await apiwassError(res, sessionId);
+  return { status: apiwassStatusOf(await res.json().catch(() => null)) };
+}
+
+/** Envía un texto; devuelve el id del mensaje si ApiWass lo devuelve (su documentación no lo garantiza). */
+export async function apiwassSend(fetchImpl: typeof fetch, apiKey: string, sessionId: string, phone: string, text: string) {
+  const res = await fetchImpl(`${APIWASS_API}/sessions/${encodeURIComponent(sessionId)}/messages/text`, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, message: text }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw await apiwassError(res, sessionId);
+  const body: any = await res.json().catch(() => null);
+  const id = body?.id ?? body?.messageId ?? body?.key?.id ?? body?.data?.id ?? body?.data?.key?.id;
+  return typeof id === 'string' || typeof id === 'number' ? String(id).slice(0, 200) : '';
+}
+
+/** ¿El evento de ApiWass es de la sesión de este canal? (ApiWass puede anteponer el id de la cuenta: «1_ventas»). */
+export function apiwassSameSession(eventSession: unknown, configured: string): boolean {
+  const s = String(eventSession ?? '');
+  return !s || s === configured || s.endsWith(`_${configured}`);
 }
 
 export function phoneDigits(v: unknown): string {

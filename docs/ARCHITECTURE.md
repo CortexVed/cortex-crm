@@ -15,7 +15,7 @@ Cortex CRM es un CRM SaaS multi-organización que la IA puede hacer evolucionar 
 | Datos | PostgreSQL con Row Level Security (`pg`); PGlite (Postgres en WASM) en desarrollo y tests | `server/src/db` |
 | IA | AI Provider Manager propio: SDK oficial de Anthropic + adaptador compatible con OpenAI | `server/src/ai` |
 | Scripts por organización | Sandbox QuickJS compilado a WebAssembly (`quickjs-emscripten-core` + `@jitl/quickjs-wasmfile-release-sync`, 0.32.0) | `server/src/crm/scripts.ts` |
-| Tests | Vitest 5 (310 tests en 21 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
+| Tests | Vitest 5 (317 tests en 22 archivos) sobre PGlite en memoria y un proveedor de IA simulado | `server/test` |
 
 Un único artefacto (una sola imagen Docker) se ejecuta con dos **roles de proceso** seleccionados por `PROCESS_ROLE`: `web` (API + SPA en el mismo origen) y `worker` (cola de trabajos y planificador). En desarrollo el rol por defecto es `all` (ambos en un proceso). En Railway son los servicios `cortex-crm` (web) y `cortex-worker` (worker); en una instalación desde la plantilla, `Cortex` y `Worker`. Un tercer rol, `ci`, solo lo usa el servicio de CI del **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)): la administración de la plataforma pide cambios del código real, un agente de IA los escribe, se prueban en ese CI aislado y, con aprobación humana, se despliegan en los servicios de la propia instalación (nunca en GitHub).
 
@@ -80,13 +80,13 @@ server/src/
                     planner-context.ts (contexto del planificador: blueprint completo o índice + detalle) ·
                     simulator.ts · apply.ts · validate.ts · risk.ts · impact.ts · releases.ts · security.ts ·
                     routes.ts (/api/evolve)
-  comms/            connectors.ts (WhatsApp, Telegram; Gmail/Outlook/Slack planificados) · routes.ts
+  comms/            connectors.ts (WhatsApp Cloud API, ApiWass, Telegram; Gmail/Outlook/Slack planificados) · routes.ts
   admin/routes.ts   /api/admin/* (plataforma) y rutas públicas (/api/public/forms, /api/client-errors)
   code-engine/      Motor de código fuente (/api/platform/*): agent · guards · sql-guard · paths · source ·
                     workspace · lockfile (dependencias) · typecheck (tsc antes del CI) · tar · diff · railway · ci · review · pipeline (code.plan) · deploy (code.deploy) ·
                     store · settings · routes
   lib/              crypto · ssrf · jobs · mailer · audit · errors · metrics
-server/test/        helpers.ts + 21 archivos de tests Vitest (310 tests)
+server/test/        helpers.ts + 22 archivos de tests Vitest (317 tests)
 shared/             constants · blueprint · changeset · appearance · formula · conditions · templates · records ·
                     time · default-blueprint
 web/src/            main.tsx (rutas) · components/ (Layout, navigation, AiPanel, AiTools, CommandPalette, ui,
