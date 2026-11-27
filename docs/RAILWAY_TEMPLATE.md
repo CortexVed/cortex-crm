@@ -1,6 +1,6 @@
 # Plantilla de Railway
 
-> Plantilla: **https://railway.com/new/template/aNOp9e** · código fuente: **https://github.com/carbollo/cortex-crm** (rama `main`).
+> Plantilla (publicada en el marketplace): **https://railway.com/deploy/cortex-crm** · código fuente: **https://github.com/carbollo/cortex-crm** (rama `main`).
 
 Cortex CRM se instala en cualquier proyecto de Railway con una plantilla de cuatro servicios. Cada instalación es independiente: su propia base de datos, sus propias claves (generadas por Railway al desplegar) y sus propias organizaciones. Lo que cada organización cambia con EVOLVE AI ENGINE se guarda en la base de datos de esa instalación, y lo que la administración de la plataforma cambia en el código con el **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)) se despliega en los servicios de esa misma instalación: nada vuelve al repositorio de la plantilla.
 
@@ -126,9 +126,13 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
    ```
    `APP_ENCRYPTION_KEY`, `PLATFORM_ADMIN_SETUP_TOKEN` y la contraseña de Postgres deben aparecer como `${{secret(…)}}`, y `DATABASE_URL`, `APP_URL`, la clave del worker, `CORTEX_SERVICE_ID` y `CI_SERVICE_ID` como referencias. Las variables de `Postgres`, como funciones y referencias (sección 2). El servicio `CI` debe aparecer con el repositorio como origen, sin variables y con el comando de arranque `--role=ci`.
 4. Probar un despliegue completo desde la plantilla en un proyecto nuevo (registro, token de instalación, una petición de EVOLVE) y borrar ese proyecto de prueba.
-5. Publicar en el marketplace (opcional; también se puede compartir el enlace de la plantilla):
+5. Publicar en el marketplace. La descripción (25–75 caracteres), la categoría, el resumen y el icono solo se guardan al publicar; los textos están en [railway/template-overview.md](../railway/template-overview.md) y [railway/template-variables.md](../railway/template-variables.md):
    ```bash
    railway templates publish <id-de-la-plantilla> --category Other \
-     --description "CRM multi-organización que evoluciona con lenguaje natural" \
-     --readme-file railway/template-overview.md --json
+     --description "Self-hosted multi-tenant CRM that evolves from plain-language requests" \
+     --readme-file railway/template-overview.md \
+     --image "https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@<commit>/web/public/favicon.svg" --json
    ```
+   - Al publicar, Railway cambia el código generado por uno legible (`cortex-crm`) y **el código anterior deja de funcionar** (`404`): hay que actualizar los enlaces (botón del README).
+   - Las descripciones de las variables (obligatorias para el marketplace) no se pueden editar con el API público ni con la CLI: se escriben en el editor de la plantilla (servicio › *Variables* › *Description*). Los textos están en `railway/template-variables.md`.
+   - Generar la plantilla de nuevo crea otro borrador independiente y la publicada no cambia. No hace falta para actualizar el código: sus servicios siguen la rama `main` del repositorio.

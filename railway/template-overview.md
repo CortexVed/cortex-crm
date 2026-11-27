@@ -1,6 +1,6 @@
-# Deploy and Host Cortex CRM with Railway
+# Deploy and Host Cortex CRM on Railway
 
-Cortex CRM is a multi-tenant CRM that evolves in natural language. Each organization describes the change it needs ("add a contracts module with expiry reminders", "build a full inventory and invoicing system", "use dark green and group the menu by department") and EVOLVE AI ENGINE plans it, tests it in an isolated sandbox and applies it only after a human approves it, with versioning and one-click rollback. There is no limit on the number of modules, and large requests are planned in parts. The platform administrator can also have the AI change the installation's own source code, tested in an isolated CI service and deployed only after review. The interface is in Spanish.
+Cortex CRM is a multi-tenant CRM that evolves in natural language. Each organization describes the change it needs ("add a contracts module with expiry reminders", "build a full inventory and invoicing system", "use dark green and group the menu by department") and EVOLVE AI ENGINE plans it, tests it in an isolated sandbox and applies it only after a human approves it, with versioning and one-click rollback. An organization can grow to as many as 2,000 modules, and large requests are planned in parts. The platform administrator can also have the AI change the installation's own source code, tested in an isolated CI service and deployed only after review. The interface is in Spanish.
 
 ## About Hosting Cortex CRM
 
