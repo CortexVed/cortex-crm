@@ -34,7 +34,7 @@ This template deploys the whole stack in one click, with nothing to fill in. Two
 ### Deployment Dependencies
 
 - Project website: https://cortex-crm-web-production.up.railway.app
-- Source code (AGPL-3.0): https://github.com/carbollo/cortex-crm
+- Source code (AGPL-3.0): https://github.com/CortexVed/cortex-crm
 - Railway PostgreSQL: https://docs.railway.com/databases/postgresql
 - Resend (email): https://resend.com/docs
 

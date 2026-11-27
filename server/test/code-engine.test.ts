@@ -909,7 +909,7 @@ describe('pipeline, despliegue con canario y rutas', () => {
   it('no despliega si el worker o el web siguen conectados a un repositorio de GitHub (un push borraría el código)', async () => {
     const { id } = await createAndPlan('Añade una función que salude por el nombre');
     const before = rw.uploads.length;
-    rw.state.connectedRepo = 'carbollo/cortex-crm';
+    rw.state.connectedRepo = 'CortexVed/cortex-crm';
     try {
       expect((await admin.req('POST', `/api/platform/code/requests/${id}/approve`, { confirmation: 'DESPLEGAR' })).status).toBe(200);
       await env.drain();

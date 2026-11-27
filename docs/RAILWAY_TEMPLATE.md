@@ -1,6 +1,6 @@
 # Plantilla de Railway
 
-> Plantilla (publicada en el marketplace): **https://railway.com/deploy/cortex-crm** · código fuente: **https://github.com/carbollo/cortex-crm** (rama `main`).
+> Plantilla (publicada en el marketplace): **https://railway.com/deploy/cortex-crm** · código fuente: **https://github.com/CortexVed/cortex-crm** (rama `main`).
 
 Cortex CRM se instala en cualquier proyecto de Railway con una plantilla de cuatro servicios y un bucket para los archivos. Cada instalación es independiente: su propia base de datos, sus propias claves (generadas por Railway al desplegar) y sus propias organizaciones. Lo que cada organización cambia con EVOLVE AI ENGINE se guarda en la base de datos de esa instalación, y lo que la administración de la plataforma cambia en el código con el **motor de código fuente** ([CODE_ENGINE.md](CODE_ENGINE.md)) se despliega en los servicios de esa misma instalación: nada vuelve al repositorio de la plantilla.
 
@@ -142,7 +142,7 @@ El motor ([CODE_ENGINE.md](CODE_ENGINE.md)) prueba cada cambio en el servicio `C
    railway templates publish <id-de-la-plantilla> --category "AI/ML" \
      --description "Open-source, self-hosted AI CRM that builds the modules you ask for" \
      --readme-file railway/template-overview.md \
-     --image "https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@<commit>/web/public/favicon.svg" --json
+     --image "https://cdn.jsdelivr.net/gh/CortexVed/cortex-crm@<commit>/web/public/favicon.svg" --json
    ```
    - Al publicar, Railway cambia el código generado por uno legible (`cortex-crm`) y **el código anterior deja de funcionar** (`404`): hay que actualizar los enlaces (botón del README).
    - Las descripciones de las variables (obligatorias para el marketplace) no se pueden editar con el API público ni con la CLI: se escriben en el editor de la plantilla (servicio › *Variables* › *Description*). Los textos están en `railway/template-variables.md`.

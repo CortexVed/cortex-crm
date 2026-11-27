@@ -7,7 +7,7 @@ Texts for the Railway marketplace listing of the Cortex CRM template (code `cort
 - **Category:** AI/ML
 - **Suggested name (template editor only, not settable by API):** Cortex CRM | Open-Source AI CRM, Salesforce Alternative
 - **Service icons (template editor only):** the same icon URL on `Cortex`, `Worker` and `CI`
-- **Icon:** https://cdn.jsdelivr.net/gh/carbollo/cortex-crm@7be490e07a5b0627ff3906ebbebcc4b5057e2acf/web/public/favicon.svg
+- **Icon:** https://cdn.jsdelivr.net/gh/CortexVed/cortex-crm@7be490e07a5b0627ff3906ebbebcc4b5057e2acf/web/public/favicon.svg
 
 Railway's public API has no operation to edit variable descriptions: they are set in the template editor
 (service › Variables › each variable › Description). Every variable below already has an automatic value, so whoever

@@ -164,7 +164,7 @@ Detalle y plan: [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
 
 ## Licencia
 
-Copyright © 2026 carbollo y colaboradores de Cortex CRM.
+Copyright © 2026 CortexVed y colaboradores de Cortex CRM.
 
 Cortex CRM es software libre: se distribuye bajo la [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Puedes usarlo, estudiarlo, modificarlo, alojarlo y redistribuirlo, también con fines comerciales. A cambio, si distribuyes una versión modificada **o la ofreces como servicio a través de la red** (por ejemplo, un CRM alojado para tus clientes), tienes que poner su código fuente a disposición de quienes la usan, bajo la misma licencia. Se ofrece sin garantía de ningún tipo; el texto completo está en [LICENSE](LICENSE).
 
