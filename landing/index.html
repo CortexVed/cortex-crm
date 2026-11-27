@@ -50,6 +50,7 @@
           "Asistente de IA sobre los datos del CRM",
           "Canales de WhatsApp y Telegram",
           "Roles, permisos por módulo y auditoría",
+          "Archivos adjuntos en un bucket S3 privado",
           "Versiones con verificación automática y vuelta atrás"
         ],
         "softwareRequirements": "Una cuenta de Railway. Opcional: la clave de un proveedor de IA (Anthropic, OpenAI, Google Gemini, DeepSeek, Mistral, Groq u OpenRouter).",
@@ -388,13 +389,13 @@
             <h2>Sencillo de operar, pensado para durar</h2>
             <ul>
               <li><strong>TypeScript de punta a punta:</strong> Node.js 24 con Fastify en el servidor y React 19 en la interfaz.</li>
-              <li><strong>PostgreSQL como única base de datos.</strong> También la cola de trabajos: sin Redis que mantener.</li>
+              <li><strong>PostgreSQL para los datos</strong> (también la cola de trabajos: sin Redis que mantener) y <strong>un bucket privado de Railway para los archivos</strong>, que siempre se sirven a través de la app con sus permisos.</li>
               <li><strong>Listo para producción:</strong> health checks en <code>/api/health</code> y migraciones automáticas al arrancar.</li>
               <li><strong>Secretos generados en cada despliegue</strong> con las funciones de plantilla de Railway. No tienes que rellenar nada.</li>
               <li><strong>Tu proveedor de IA,</strong> con un modelo por tarea y límites de gasto. Lo pagas directamente.</li>
             </ul>
           </div>
-          <div class="diagram reveal" role="img" aria-label="Arquitectura: el navegador habla con Cortex (web y API). Cortex y Worker usan PostgreSQL. El servicio CI prueba los cambios de código.">
+          <div class="diagram reveal" role="img" aria-label="Arquitectura: el navegador habla con Cortex (web y API). Cortex y Worker usan PostgreSQL y un bucket privado para los archivos. El servicio CI prueba los cambios de código.">
             <div class="node"><strong>Navegador</strong><span>Interfaz React · paleta de comandos</span></div>
             <div class="arrow" aria-hidden="true">↓ HTTPS</div>
             <div class="diagram-row">
@@ -406,6 +407,7 @@
             <div class="diagram-row">
               <div class="node db"><strong>PostgreSQL 18</strong><span>Datos · cola de trabajos · Row-Level Security</span></div>
             </div>
+            <div class="node bucket"><strong>Bucket</strong><span>Archivos adjuntos · S3 privado</span></div>
             <div class="node"><strong>CI</strong><span>Prueba los cambios del motor de código (sin variables ni dominio)</span></div>
           </div>
         </div>
@@ -418,7 +420,7 @@
               <div>
                 <span class="kicker">Despliegue</span>
                 <h2>En marcha en unos minutos</h2>
-                <p class="sub">Una plantilla de Railway crea los cuatro servicios con todo configurado. Sin variables que rellenar ni servidores que mantener.</p>
+                <p class="sub">Una plantilla de Railway crea los servicios, la base de datos y el bucket de archivos con todo configurado. Sin variables que rellenar ni servidores que mantener.</p>
                 <a class="btn btn-primary" href="https://railway.com/deploy/cortex-crm" rel="noopener">
                   <svg aria-hidden="true"><use href="#i-rocket" /></svg>
                   Desplegar en Railway
@@ -426,7 +428,7 @@
                 <p class="cost-note">Pagas tu uso de Railway y, si activas la IA, el consumo de tu proveedor. Nada más.</p>
               </div>
               <ol class="deploy-steps">
-                <li><strong>Despliega la plantilla.</strong> Se crean Postgres, Cortex, Worker y CI.</li>
+                <li><strong>Despliega la plantilla.</strong> Se crean Postgres, el bucket de archivos, Cortex, Worker y CI.</li>
                 <li><strong>Abre el dominio de Cortex y regístrate.</strong> Así nace tu primera organización.</li>
                 <li><strong>Hazte administrador:</strong> pega el token <code>PLATFORM_ADMIN_SETUP_TOKEN</code> en Ajustes › Mi cuenta.</li>
                 <li><strong>Añade tu clave de IA</strong> en Ajustes › Proveedores de IA y empieza a pedir cambios.</li>
